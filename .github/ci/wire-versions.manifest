@@ -1,0 +1,46 @@
+# TargetCore wire formats that carry their own version, and the value each one
+# is at. The versioning policy is the prose; this is the part a script can
+# check.
+#
+# WHY THIS EXISTS. The component version and the wire versions move
+# INDEPENDENTLY and on purpose, so nothing about a release number tells you
+# whether two peers can talk. That independence is right, and it has a cost:
+# there is no single place a reviewer can look to see that a wire format moved.
+# A one-character edit to `kVersion` in a .cpp is a decision to stop
+# interoperating with every deployed peer, and before this file nothing
+# anywhere would have reported it.
+#
+# A change here is therefore never incidental. Bump the constant and this file
+# in the same commit, and say in that commit what stops talking to what.
+#
+# FORMAT: name  value  file  constant
+# Checked by .github/ci/check_repo_invariants.py.
+#
+# NOT LISTED, because they have no version to check -- and their absence from
+# this file is itself a fact worth being able to see:
+#   GCM transport record (P2PeerioGcm)        -- nonce || ciphertext || tag
+#   .p2p file image (Msgcore VBListBSTRio)    -- host byte order, undetected
+#
+# THE MESSAGE IMAGE USED TO BE ON THAT LIST AND IS NOT ANY MORE. It carries a
+# LAYOUT GENERATION in the six sentinel bits of its oSync word -- currently 1
+# (VBLock_SyncGenNow, 0xA4) -- so "32 bits, all spoken for" was true of the
+# BITS and wrong about the consequence: the bits that were spent on a sentinel
+# do the job of a version field, and the versioning policy now says so.
+#
+# IT IS STILL NOT A ROW HERE, and the reason is the same one C-2 cost a
+# session to learn: the constant lives in Msgcore/Msgcore.h, in ANOTHER
+# REPOSITORY, and a single-repository CI runner cannot resolve it. A row
+# pointing there would fail as "does not exist" on every run, which is a check
+# that reports the runner rather than the code. It is also a #define and not
+# a `const ... = <n>;`, so the parser above would not read it either.
+#
+# WHAT CHECKS IT INSTEAD, and it is a stronger check than a grep: p2p_imagegen
+# phase 0 asserts VBLock_SyncGenNow == VBLock_SyncGen1 against the library
+# BUILT from that header, and phase 1 asserts that a frame the library has
+# just serialised classifies as the current generation. A moved generation is
+# a break of the same kind as a moved kVersion, so the same rule applies --
+# say in the commit what stops talking to what.
+
+login             2   P2PAuthLogin.cpp      kVersion
+identity-store    1   P2PIdentityStore.cpp  kVersion
+seal              2   P2PeerSeal.h          kSealVersion

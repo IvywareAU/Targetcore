@@ -1,0 +1,39 @@
+# Copyright © 2026 Khrustal & Mann
+#              MELBOURNE, VICTORIA, AUSTRALIA, 3000
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+Debug(SMA)
+Debug64
+DebugNOSYMS
+Private(SMA)
+# Single build output root: out\<Platform>\<Configuration>\ (binaries) and
+# out\<Platform>\<Configuration>\obj\ (intermediates), pinned in the vcxproj.
+# The old split -- Debug\ and Release\ for Win32, x64\<Config>\ plus a stray
+# TargetCore\<Platform>\<Config>\ for x64 -- is no longer produced.
+out/
+/.vs/TargetCore(2022)/FileContentIndex/cd21ea52-636a-4103-bf57-4aa3348b0d96.vsidx
+/.vs/TargetCore(2022)/v17/Browse.VC.db
+/.vs/TargetCore(2022)/v17/Browse.VC.db-shm
+/.vs/TargetCore(2022)/v17/Browse.VC.db-wal
+/.vs/TargetCore(2022)/v17/Browse.VC.opendb
+.understand-anything
+.vs
+*.aps
+TargetCore Unfinished Work Register_files
+
+# Python bytecode. .github/ci/ holds the repository checks; running one leaves a
+# __pycache__ beside it, and an untracked directory in a check directory is the
+# kind of noise that trains people to ignore `git status`.
+__pycache__/
+*.pyc

@@ -1,0 +1,26 @@
+# Shell scripts must stay LF even when checked out on Windows, or sh chokes on the CRLF
+# shebang -- "bad interpreter: /bin/sh^M". The git hooks need their own rule because a hook
+# is named for the event it serves (pre-push, commit-msg) and therefore has no extension for
+# a pattern to match on.
+#
+# Deliberately narrow. A blanket "* text=auto" here would renormalise every .cpp and .h in
+# the repository in one commit, which is a diff nobody can review and a bisect boundary
+# nobody wants.
+
+*.sh             text eol=lf
+tools/hooks/**   text eol=lf
+
+# The event log catalogue and the mc.exe output committed alongside it. That output is
+# compared BYTE FOR BYTE against a fresh regeneration (check_repo_invariants.py, check 5),
+# so its bytes have to survive a clone unaltered or the check fails on somebody else's
+# machine for a reason that has nothing to do with drift.
+#   - mc.exe writes the header and the script with CRLF whatever the .mc itself uses
+#     (measured both ways: the output is byte-identical), so pinning CRLF makes a
+#     core.autocrlf=false clone produce the same bytes as an autocrlf=true one.
+#   - The message table is BINARY. It is UTF-16 and full of NUL bytes; git's heuristic
+#     would very likely classify it correctly on its own, but a build input is not
+#     something to leave to a heuristic, and any EOL normalisation destroys it.
+TargetCoreEvt.mc  text eol=crlf
+TargetCoreEvt.h   text eol=crlf
+TargetCoreEvt.rc  text eol=crlf
+MSG00001.bin     binary

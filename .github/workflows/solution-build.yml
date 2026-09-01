@@ -1,0 +1,594 @@
+# Copyright © 2026 Khrustal & Mann
+#              MELBOURNE, VICTORIA, AUSTRALIA, 3000
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# =============================================================================
+# solution build -- the kernel and the suite, on both platforms, on every push.
+#
+# Stage 1 step 3. This file used to be workflow_dispatch-only
+# and had never once been dispatched, because it required a `solution_repo`
+# input naming a parent that was not published anywhere. So the only workflow
+# that could build everything could not be run at all, and the automatic one
+# (repo-invariants.yml) compiles 4 of 30 translation units. A green tick meant
+# "the repository's wiring is intact" -- worth having, and not evidence about
+# behaviour.
+#
+# WHAT CHANGED. The parent solution and the platform layer are now repositories:
+#
+#     IvywareAU/MscsSolution   CMakeLists.txt + CMakePresets.json
+#     IvywareAU/Platform       the POSIX/Win32 shim layer
+#
+# joining Msgcore and MscsUnitTests, which were already published. So a runner
+# can assemble the tree BY NAME, and this workflow runs on push.
+#
+# WHY THE OLD FILE'S RULE STILL HOLDS. Its predecessor refused to skip: a job
+# that detects a missing sibling, prints "skipped" and exits 0 puts a green tick
+# on every commit for having verified nothing. That rule is kept -- the layout
+# check below FAILS, loudly and specifically, and never degrades to a pass.
+# What has changed is that the siblings are now fetchable, so the check should
+# not fire in normal operation; if it does, something is genuinely wrong.
+#
+# THE TOKEN. Every one of these repositories is PRIVATE, and the automatic
+# GITHUB_TOKEN is scoped to this repository alone -- it cannot read the others.
+# Cross-repository checkout therefore needs a Personal Access Token in the
+# MSCS_SOLUTION_TOKEN secret, with read access to MscsSolution, Platform,
+# Msgcore and MscsUnitTests. Without it the checkout steps fail with a 404 that
+# reads like a deleted repository; the preflight step below turns that into a
+# sentence that says what to do.
+#
+# WHAT A GREEN RUN PROVES
+#   * MscsSolution + Platform + Msgcore + TargetCore + MscsUnitTests configure,
+#     build and link together under CMake, on Windows/MSVC and Linux/GCC.
+#   * The full CTest suite passes on both.
+#   * On Windows: that ctest works with NOTHING on PATH. See the ctest step --
+#     that is a deliberate regression guard, not an oversight.
+#
+# WHAT A GREEN RUN DOES NOT PROVE
+#   * Nothing about TargetCore(2022).sln / .vcxproj, which Readme.md calls the
+#     AUTHORITATIVE Windows build. This workflow never invokes MSBuild. A defect
+#     that exists only in the vcxproj -- a source file missing from one of its
+#     four configurations -- is invisible here, which is why the `invariants`
+#     job in repo-invariants.yml diffs the two source lists on every push.
+#   * Nothing about the static (DebugLib/ReleaseLib) shape or the
+#     all-static/all-dynamic rule in LINKAGE.md. Only SHARED is built.
+#   * Nothing about security posture. The gate tests are regression guards for
+#     properties already enforced.
+#   * Nothing about p2p_fuzzframe's assert tally beyond "it has not grown".
+#     Stage 1 step 4 landed, so the harness now gates on a measured per-platform
+#     baseline instead of zero and the suite is green -- but the assert
+#     population it records is an OPEN finding, not a clean result, and the
+#     harness prints exactly that on every green run.
+#   * Nothing about memory safety. This workflow builds without sanitizers;
+#     sanitizers.yml is the job that runs ASan (Windows) and ASan+UBSan+LSan
+#     (Linux) over the security label and the fuzz harness on every push.
+# =============================================================================
+
+name: solution build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      solution_ref:
+        description: Ref of MscsSolution (blank = its default branch).
+        required: false
+        default: ""
+        type: string
+      platform_ref:
+        description: Ref of Platform (blank = its default branch).
+        required: false
+        default: ""
+        type: string
+      msgcore_ref:
+        description: Ref of Msgcore (blank = its default branch).
+        required: false
+        default: ""
+        type: string
+      unittests_ref:
+        description: Ref of MscsUnitTests (blank = its default branch).
+        required: false
+        default: ""
+        type: string
+      ctest_args:
+        description: >-
+          Extra arguments for ctest. "-LE security" excludes the gate tests,
+          which MscsUnitTests/CMakeLists.txt deliberately keeps red whenever the
+          property they encode is not yet enforced (no WILL_FAIL, on purpose).
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  SOLUTION_REPO: IvywareAU/MscsSolution
+  PLATFORM_REPO: IvywareAU/Platform
+  MSGCORE_REPO: IvywareAU/Msgcore
+  UNITTESTS_REPO: IvywareAU/MscsUnitTests
+
+jobs:
+  windows:
+    name: Windows / MSVC
+    # Pinned for the same reason as the cmake-parse job in repo-invariants.yml:
+    # the windows-msvc preset names the "Visual Studio 17 2022" generator, and
+    # the windows-latest label no longer resolves to an image that has it.
+    runs-on: windows-2022
+    steps:
+      # PRESENCE IS NOT REACH. This step used to test `[ -z "$TOKEN" ]` and
+      # nothing else, and on 2026-08-19 it printed "ok  MSCS_SOLUTION_TOKEN
+      # present" for a token GitHub did not recognise at all -- run
+      # 32173333492, which then died in the very next step with a bare
+      # "Bad credentials" and no indication of which of the five things that
+      # can be wrong was wrong. A check that passes a credential which cannot
+      # authenticate is the shape this project keeps refusing elsewhere: a
+      # green tick for having verified nothing.
+      #
+      # So the token is now USED here, against the four repositories the
+      # checkouts need, and the three failures are told apart because they
+      # have three different fixes:
+      #
+      #   401 on /user          the string is not a token -- expired, revoked,
+      #                         truncated on paste, or a placeholder. Re-issue
+      #                         it; no amount of permission-granting will help.
+      #   404 on one repository the token is real but cannot see that repo --
+      #                         a fine-grained PAT whose repository list is
+      #                         missing it, or a rename. Grant, do not re-issue.
+      #   200 on all four       the checkouts below cannot fail for credential
+      #                         reasons, so a later failure is a real one.
+      #
+      # The account the token belongs to is printed, because "valid token,
+      # wrong account" reads identically to "no access" at every checkout, and
+      # this repository is reachable from two authenticated accounts of which
+      # only one can see the siblings.
+      - name: Preflight - can the cross-repository token actually reach the siblings?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The four checkout steps that"
+            echo "follow would fail with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
+
+          api() {
+            curl -sS -o preflight.json -w '%{http_code}'                  -H "Authorization: Bearer $TOKEN"                  -H "Accept: application/vnd.github+json"                  -H "X-GitHub-Api-Version: 2022-11-28"                  "https://api.github.com/$1"
+          }
+
+          code=$(api user)
+          if [ "$code" = "401" ]; then
+            echo
+            echo "FAIL    GitHub does not recognise this token at all (401 Bad credentials)."
+            echo
+            echo "        This is NOT a permissions problem, so granting the token access"
+            echo "        to more repositories will not change it. The stored string is not"
+            echo "        a usable token: expired, revoked, truncated when it was pasted,"
+            echo "        or never replaced with a real value."
+            echo
+            echo "        Check the token before storing it again -- this prints the account"
+            echo "        it belongs to, and never puts it in a shell history file:"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
+            echo
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "FAIL    /user answered HTTP $code, which is neither 200 nor 401."
+            exit 1
+          fi
+          echo "ok      the token authenticates, as: $(grep -o '"login"[^,]*' preflight.json | head -1 | cut -d'"' -f4)"
+
+          echo
+          echo "        reach, per repository the checkouts need:"
+          missing=0
+          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+            code=$(api "repos/$r")
+            case "$code" in
+              200) echo "          ok       $r" ;;
+              404) echo "          NO READ  $r   (404 -- the token is valid but cannot see this one)"; missing=1 ;;
+              *)   echo "          HTTP $code  $r"; missing=1 ;;
+            esac
+          done
+          rm -f preflight.json
+          if [ "$missing" != 0 ]; then
+            echo
+            echo "FAIL    the token authenticates but cannot read every sibling."
+            echo "        A fine-grained PAT lists the repositories it may touch one by one;"
+            echo "        add the ones marked NO READ above, with Contents: Read-only."
+            echo "        Do not re-issue the token -- it works, its repository list is short."
+            exit 1
+          fi
+          echo
+          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+
+      # The parent solution is the outer checkout; every component nests inside
+      # it, which is the layout the top-level CMakeLists.txt assumes.
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          ref: ${{ inputs.solution_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          ref: ${{ inputs.platform_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          ref: ${{ inputs.msgcore_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          ref: ${{ inputs.unittests_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+
+      # This repository last, at the ref that triggered the run - the commit
+      # under test is TargetCore's, and the siblings are its context.
+      - name: Check out TargetCore (the commit under test)
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      # Fail loudly and specifically. A missing sibling must never read as a
+      # skip, and it must never read as a TargetCore defect either.
+      - name: Verify the sibling layout
+        shell: bash
+        run: |
+          missing=0
+          for p in CMakeLists.txt CMakePresets.json Platform Msgcore MscsUnitTests TargetCore; do
+            if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
+            else echo "  MISSING mscs/$p"; missing=1; fi
+          done
+          if [ "$missing" != "0" ]; then
+            echo
+            echo "A component did not check out. Nothing was built and nothing"
+            echo "was verified. This is a CI wiring fault, not a code defect."
+            exit 1
+          fi
+          echo
+          echo "Refs actually built:"
+          for d in Platform Msgcore MscsUnitTests TargetCore; do
+            printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
+          done
+
+          # OPTIONAL COMPONENTS, AND WHY THIS IS PRINTED AT ALL.
+          #
+          # The top-level CMakeLists.txt guards five components with if(EXISTS).
+          # A runner without one does NOT fail: it configures, builds and reports a
+          # green ctest total that is simply smaller, and the absent tests leave no
+          # trace anywhere in the log. A local Windows Debug run executes 65 tests;
+          # this job reports around 31, and until now nothing here said why. That is
+          # a green tick over less than it appears to cover -- Stage 1 step 3,
+          # blocker (e).
+          #
+          # THESE ARE NOT MISSING, AND MUST NOT BE "FIXED" BY PUBLISHING THEM.
+          # MscsUnitTestsExternal and the components it exercises are deliberately
+          # not published: they carry a different copyright from the Apache-2.0
+          # kernel this workflow builds, and are not ours to release. So the answer
+          # is not to go and fetch them. It is to refuse to let their absence be
+          # silent, because a smaller green number reads exactly like a full one.
+          echo
+          echo "Optional components (guarded by if(EXISTS) in the top-level CMakeLists.txt):"
+          absent=""
+          for d in TreeFs DspChain P2PeerFs P2PeerUtilityHubs MscsUnitTestsExternal; do
+            if [ -e "mscs/$d/CMakeLists.txt" ]; then
+              echo "  present  $d"
+            else
+              echo "  ABSENT   $d   (its tests are NOT in the ctest total below)"
+              absent="$absent $d"
+            fi
+          done
+          if [ -n "$absent" ]; then
+            echo
+            echo "  THE CTEST TOTAL BELOW IS A PARTIAL SUITE. Absent:$absent"
+            echo "  A build with every component present runs 65 tests, and 20 of those"
+            echo "  are built by MscsUnitTestsExternal alone (every dsp_*, every util_*,"
+            echo "  and unit_suite_external). Do not read this run total as the suite."
+            echo "  The security label is unaffected: all 29 of its tests live in"
+            echo "  MscsUnitTests (seal_interop moves to TargetCore off Windows), both of"
+            echo "  which are present, so the sanitizer workflow measures what it claims."
+          fi
+
+      - name: Configure
+        run: cmake --preset windows-msvc
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-debug
+        working-directory: mscs
+
+      # DELIBERATELY NOT `ctest --preset`, and deliberately with nothing added
+      # to PATH.
+      #
+      # msgcore and targetcore are SHARED and land in their own per-target build
+      # directories, never beside the test executables. Until the tests carried
+      # their own loader path, a bare ctest run failed eleven tests at
+      # 0xc0000135 (STATUS_DLL_NOT_FOUND) -- a failure that looks exactly like a
+      # code regression and is not one. The CMakePresets test preset papered
+      # over it by exporting a hardcoded ...\Debug PATH, which is both wrong for
+      # --config Release and useless to anything that calls ctest directly, i.e.
+      # to CI. The fix belongs on the tests
+      # (set_tests_properties(... ENVIRONMENT_MODIFICATION ...) with
+      # $<TARGET_FILE_DIR:...>, in MscsUnitTests/CMakeLists.txt).
+      #
+      # So this step invokes ctest the way an automated consumer would, with a
+      # clean environment, and is the regression guard for that fix. If somebody
+      # reverts it, this step goes red with STATUS_DLL_NOT_FOUND and the reason
+      # is written down right here.
+      - name: Test (clean PATH - regression guard for the ctest loader-path fix)
+        run: >
+          ctest --test-dir build/windows-msvc -C Debug
+          --output-on-failure --output-junit ctest-windows.xml ${{ inputs.ctest_args }}
+        working-directory: mscs
+
+      - name: Upload the ctest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-windows
+          path: mscs/ctest-windows.xml
+          if-no-files-found: warn
+
+  linux:
+    name: Linux / GCC (io_uring + OpenSSL)
+    runs-on: ubuntu-latest
+    steps:
+      # PRESENCE IS NOT REACH. This step used to test `[ -z "$TOKEN" ]` and
+      # nothing else, and on 2026-08-19 it printed "ok  MSCS_SOLUTION_TOKEN
+      # present" for a token GitHub did not recognise at all -- run
+      # 32173333492, which then died in the very next step with a bare
+      # "Bad credentials" and no indication of which of the five things that
+      # can be wrong was wrong. A check that passes a credential which cannot
+      # authenticate is the shape this project keeps refusing elsewhere: a
+      # green tick for having verified nothing.
+      #
+      # So the token is now USED here, against the four repositories the
+      # checkouts need, and the three failures are told apart because they
+      # have three different fixes:
+      #
+      #   401 on /user          the string is not a token -- expired, revoked,
+      #                         truncated on paste, or a placeholder. Re-issue
+      #                         it; no amount of permission-granting will help.
+      #   404 on one repository the token is real but cannot see that repo --
+      #                         a fine-grained PAT whose repository list is
+      #                         missing it, or a rename. Grant, do not re-issue.
+      #   200 on all four       the checkouts below cannot fail for credential
+      #                         reasons, so a later failure is a real one.
+      #
+      # The account the token belongs to is printed, because "valid token,
+      # wrong account" reads identically to "no access" at every checkout, and
+      # this repository is reachable from two authenticated accounts of which
+      # only one can see the siblings.
+      - name: Preflight - can the cross-repository token actually reach the siblings?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The four checkout steps that"
+            echo "follow would fail with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
+
+          api() {
+            curl -sS -o preflight.json -w '%{http_code}'                  -H "Authorization: Bearer $TOKEN"                  -H "Accept: application/vnd.github+json"                  -H "X-GitHub-Api-Version: 2022-11-28"                  "https://api.github.com/$1"
+          }
+
+          code=$(api user)
+          if [ "$code" = "401" ]; then
+            echo
+            echo "FAIL    GitHub does not recognise this token at all (401 Bad credentials)."
+            echo
+            echo "        This is NOT a permissions problem, so granting the token access"
+            echo "        to more repositories will not change it. The stored string is not"
+            echo "        a usable token: expired, revoked, truncated when it was pasted,"
+            echo "        or never replaced with a real value."
+            echo
+            echo "        Check the token before storing it again -- this prints the account"
+            echo "        it belongs to, and never puts it in a shell history file:"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
+            echo
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "FAIL    /user answered HTTP $code, which is neither 200 nor 401."
+            exit 1
+          fi
+          echo "ok      the token authenticates, as: $(grep -o '"login"[^,]*' preflight.json | head -1 | cut -d'"' -f4)"
+
+          echo
+          echo "        reach, per repository the checkouts need:"
+          missing=0
+          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+            code=$(api "repos/$r")
+            case "$code" in
+              200) echo "          ok       $r" ;;
+              404) echo "          NO READ  $r   (404 -- the token is valid but cannot see this one)"; missing=1 ;;
+              *)   echo "          HTTP $code  $r"; missing=1 ;;
+            esac
+          done
+          rm -f preflight.json
+          if [ "$missing" != 0 ]; then
+            echo
+            echo "FAIL    the token authenticates but cannot read every sibling."
+            echo "        A fine-grained PAT lists the repositories it may touch one by one;"
+            echo "        add the ones marked NO READ above, with Contents: Read-only."
+            echo "        Do not re-issue the token -- it works, its repository list is short."
+            exit 1
+          fi
+          echo
+          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          ref: ${{ inputs.solution_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          ref: ${{ inputs.platform_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          ref: ${{ inputs.msgcore_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          ref: ${{ inputs.unittests_ref }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+
+      - name: Check out TargetCore (the commit under test)
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      - name: Verify the sibling layout
+        shell: bash
+        run: |
+          missing=0
+          for p in CMakeLists.txt CMakePresets.json Platform Msgcore MscsUnitTests TargetCore; do
+            if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
+            else echo "  MISSING mscs/$p"; missing=1; fi
+          done
+          if [ "$missing" != "0" ]; then
+            echo
+            echo "A component did not check out. Nothing was built and nothing"
+            echo "was verified. This is a CI wiring fault, not a code defect."
+            exit 1
+          fi
+          echo
+          echo "Refs actually built:"
+          for d in Platform Msgcore MscsUnitTests TargetCore; do
+            printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
+          done
+
+          # OPTIONAL COMPONENTS, AND WHY THIS IS PRINTED AT ALL.
+          #
+          # The top-level CMakeLists.txt guards five components with if(EXISTS).
+          # A runner without one does NOT fail: it configures, builds and reports a
+          # green ctest total that is simply smaller, and the absent tests leave no
+          # trace anywhere in the log. A local Windows Debug run executes 65 tests;
+          # this job reports around 31, and until now nothing here said why. That is
+          # a green tick over less than it appears to cover -- Stage 1 step 3,
+          # blocker (e).
+          #
+          # THESE ARE NOT MISSING, AND MUST NOT BE "FIXED" BY PUBLISHING THEM.
+          # MscsUnitTestsExternal and the components it exercises are deliberately
+          # not published: they carry a different copyright from the Apache-2.0
+          # kernel this workflow builds, and are not ours to release. So the answer
+          # is not to go and fetch them. It is to refuse to let their absence be
+          # silent, because a smaller green number reads exactly like a full one.
+          echo
+          echo "Optional components (guarded by if(EXISTS) in the top-level CMakeLists.txt):"
+          absent=""
+          for d in TreeFs DspChain P2PeerFs P2PeerUtilityHubs MscsUnitTestsExternal; do
+            if [ -e "mscs/$d/CMakeLists.txt" ]; then
+              echo "  present  $d"
+            else
+              echo "  ABSENT   $d   (its tests are NOT in the ctest total below)"
+              absent="$absent $d"
+            fi
+          done
+          if [ -n "$absent" ]; then
+            echo
+            echo "  THE CTEST TOTAL BELOW IS A PARTIAL SUITE. Absent:$absent"
+            echo "  A build with every component present runs 65 tests, and 20 of those"
+            echo "  are built by MscsUnitTestsExternal alone (every dsp_*, every util_*,"
+            echo "  and unit_suite_external). Do not read this run total as the suite."
+            echo "  The security label is unaffected: all 29 of its tests live in"
+            echo "  MscsUnitTests (seal_interop moves to TargetCore off Windows), both of"
+            echo "  which are present, so the sanitizer workflow measures what it claims."
+          fi
+
+      # liburing for the io_uring implementation of the p2p_iocp_* hooks,
+      # OpenSSL 3 for the crypto backend, ninja for the linux-gcc-debug preset.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config liburing-dev libssl-dev
+
+      - name: Configure
+        run: cmake --preset linux-gcc-debug
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset linux-gcc-debug
+        working-directory: mscs
+
+      # Linux resolves the .so through the build-tree RPATH, so this has never
+      # had the Windows loader-path problem. Run it the same clean way anyway:
+      # the loader-path fix sets LD_LIBRARY_PATH here too, and if RPATH is ever
+      # turned off this is what notices.
+      - name: Test
+        run: >
+          ctest --test-dir build/linux-gcc-debug
+          --output-on-failure --output-junit ctest-linux.xml ${{ inputs.ctest_args }}
+        working-directory: mscs
+
+      - name: Upload the ctest report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-linux
+          path: mscs/ctest-linux.xml
+          if-no-files-found: warn

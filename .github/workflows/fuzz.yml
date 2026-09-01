@@ -1,0 +1,364 @@
+# Copyright © 2026 Khrustal & Mann
+#              MELBOURNE, VICTORIA, AUSTRALIA, 3000
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# =============================================================================
+# fuzz -- the CONTINUOUS half of Stage 6 step 16.
+#
+# The step names four gaps and this file closes the fourth. The other three are
+# in the harnesses: p2p_fuzzblock is the coverage of the authenticated wire
+# parsers, p2p_fuzzframe cases 14-17 are the size band, and fuzz_corpus.h is the
+# persistent corpus. What is left is the word CONTINUOUS.
+#
+# WHY A SCHEDULE AND NOT A PUSH TRIGGER
+#
+# Both harnesses already run on every push -- they are in the `security` label,
+# so sanitizers.yml gates on them. That run is a GATE: a fixed, short budget,
+# the same every time, chosen so that a red means "you broke something" and
+# never "the machine was slow".
+#
+# A gate is not a campaign. A gate re-runs the SAME inputs; a campaign explores
+# new ones. Step 16's complaint is precisely that one fixed budget was standing
+# in for both:
+#
+#     "Today: one seed family, a fixed iteration budget, ~2 KB frames."
+#
+# So this workflow is the campaign, and it differs from the gate in exactly two
+# ways: a much larger time budget, and A SEED THAT MOVES.
+#
+# THE SEED MOVES, AND IT IS STILL NOT THE CLOCK
+#
+# github.run_number is the seed. That is deliberate and the alternative was
+# rejected on the record: seeding from the clock would make a finding
+# irreproducible, which is the failure this project has already paid for --
+# sessions 20-22 of Ahtung_Disaster_progress.md were spent on a failure that
+# would not reproduce, and it is why both harnesses print their seed on every
+# run, pass or fail.
+#
+# A run number gives the campaign what it needs (every run is new inputs) while
+# keeping what it must not lose (any run replays exactly, for ever, from a
+# number that is printed in its own log and in the job title). Run 412 found it;
+# `p2p_fuzzblock 412 --replay 2 9931` reproduces it on any machine.
+#
+# WHAT HAPPENS WHEN IT FINDS SOMETHING
+#
+# The step's exit criterion is not "the fuzzer goes red". It is:
+#
+#     "a new finding arrives as a REPRODUCER rather than as a report."
+#
+# So the harnesses write the exact bytes of any offending input into
+# --repro-dir, including from the crash filter and the hang watchdog, and this
+# workflow uploads that directory as an artifact WHENEVER IT IS NON-EMPTY --
+# not only on failure. A hang that the watchdog kills, a crash that takes the
+# process down before it can print a verdict, and an ordinary red all leave the
+# same thing behind: a file.
+#
+# `if: always()` on the upload is load-bearing. The interesting runs are exactly
+# the ones where a step failed, and an upload conditioned on success would
+# discard the evidence in precisely those runs.
+#
+# WHAT TO DO WITH THE ARTIFACT: download it, replay it with `--corpus <dir>`,
+# and when the defect is understood, copy the file into
+# MscsUnitTests/fuzz/corpus/ and commit it. That promotion is what turns a
+# finding into a permanent regression pin -- from then on every gate run on
+# every push replays it. MscsUnitTests/fuzz/README.md is the how-to.
+#
+# WHY IT DOES NOT COMMIT THE CORPUS BY ITSELF
+#
+# It would be easy and it is wrong. A corpus that grows without a person looking
+# at it becomes a directory nobody reads and a gate that slows down for reasons
+# no one remembers. Promotion is a judgement -- is this input distinct, is it
+# minimal, does it pin something worth pinning -- and a judgement belongs in a
+# commit with a message.
+#
+# WHY IT IS NOT SANITISED
+#
+# It is, on Linux. The Linux job builds the ordinary preset and the Windows job
+# builds the ordinary preset, and NEITHER carries -fsanitize -- because a
+# sanitised fuzzer is several times slower, and for a fixed wall-clock budget
+# that is a straight trade of inputs for instrumentation. sanitizers.yml already
+# runs both harnesses under ASan/UBSan/LSan on every push with the gate's small
+# budget; this runs them fast and wide. Depth and instrumentation are different
+# instruments and this project has already learned to say which one it is
+# holding.
+#
+# WHAT A GREEN RUN HERE DOES NOT PROVE
+#   * Not that the parsers are correct. It proves that this many inputs did not
+#     crash, hang, escape or forge. Absence of a finding in a campaign is the
+#     weakest evidence in this repository, and it is worth saying so next to a
+#     green tick that runs every night.
+#   * Nothing about Release, on either platform: both jobs build Debug, where
+#     the ASSERT-guarded validators exist. Refer p2p_fuzzframe's banner for why
+#     "Debug-only" must not be read as "harmless".
+# =============================================================================
+
+name: fuzz
+
+on:
+  schedule:
+    # 15:20 UTC daily. An odd minute on purpose: the top of an hour is when
+    # every scheduled workflow on the platform queues at once, and a campaign
+    # whose start time is contended is a campaign with a shorter budget than it
+    # asked for.
+    - cron: '20 15 * * *'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Wall-clock budget per harness, in seconds'
+        required: false
+        default: '900'
+      seed:
+        description: 'Seed override (hex or decimal). Empty = derive from the run number.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  SOLUTION_REPO: IvywareAU/MscsSolution
+  PLATFORM_REPO: IvywareAU/Platform
+  MSGCORE_REPO: IvywareAU/Msgcore
+  UNITTESTS_REPO: IvywareAU/MscsUnitTests
+
+jobs:
+  linux-fuzz:
+    name: Linux / continuous fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preflight - is the cross-repository token present?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The checkouts below would fail"
+            echo "with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+      - name: Check out TargetCore into the solution
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config liburing-dev libssl-dev
+
+      - name: Configure
+        run: cmake --preset linux-gcc-debug
+        working-directory: mscs
+
+      # The WHOLE tree, not one target. Building a single test and then running
+      # it against a stale library is how this project has produced walls of
+      # meaningless failures before.
+      - name: Build
+        run: cmake --build --preset linux-gcc-debug
+        working-directory: mscs
+
+      - name: Campaign
+        shell: bash
+        run: |
+          SECS='${{ github.event.inputs.seconds }}'; SECS="${SECS:-900}"
+          SEED='${{ github.event.inputs.seed }}'
+          SEED="${SEED:-${{ github.run_number }}}"
+          REPRO="$PWD/fuzz-repro"
+          CORPUS="$PWD/MscsUnitTests/fuzz/corpus"
+          mkdir -p "$REPRO"
+
+          echo "seed    : $SEED   (replay any finding with this number)"
+          echo "budget  : ${SECS}s per harness"
+          echo "corpus  : $CORPUS"
+          echo "repro   : $REPRO"
+          echo
+
+          B=build/linux-gcc-debug/MscsUnitTests
+          rc=0
+
+          # Both harnesses, each with its own budget, and NEITHER short-circuits
+          # the other: `set -e` here would mean a finding in the first harness
+          # silently costs the whole campaign of the second. Collect both.
+          echo "=== p2p_fuzzframe ==="
+          "$B/p2p_fuzzframe" "$SEED" 200 --seconds "$SECS" \
+              --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
+
+          echo
+          echo "=== p2p_fuzzblock ==="
+          "$B/p2p_fuzzblock" "$SEED" 400 --seconds "$SECS" \
+              --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
+
+          echo
+          n=$(find "$REPRO" -type f 2>/dev/null | wc -l)
+          echo "reproducers written: $n"
+          if [ "$n" != "0" ]; then
+            echo
+            echo "A REPRODUCER IS THE FINDING. Download the fuzz-repro artifact,"
+            echo "replay it with --corpus <the directory>, and when the defect is"
+            echo "understood copy the file into MscsUnitTests/fuzz/corpus/ and"
+            echo "commit it - that is what turns it into a permanent regression"
+            echo "pin. See MscsUnitTests/fuzz/README.md."
+            find "$REPRO" -type f -printf '  %f  (%s bytes)\n'
+            rc=1
+          fi
+          exit $rc
+        working-directory: mscs
+
+      # always(), because the runs worth keeping the evidence from are exactly
+      # the ones where the step above failed.
+      - name: Upload reproducers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-repro-linux-${{ github.run_number }}
+          path: mscs/fuzz-repro
+          if-no-files-found: ignore
+
+  windows-fuzz:
+    name: Windows / continuous fuzz
+    runs-on: windows-2022
+    steps:
+      - name: Preflight - is the cross-repository token present?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo "Fix: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+      - name: Check out TargetCore into the solution
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      - name: Configure
+        run: cmake --preset windows-msvc
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset windows-msvc --config Debug
+        working-directory: mscs
+
+      # WINDOWS RUNS THE SAME CAMPAIGN, and that is not symmetry for its own
+      # sake. The two platforms take different paths through this code -- the
+      # POSIX assert trap ABANDONS an input where the _CRT_ASSERT hook CONTINUES
+      # past the violated invariant, so the same input is a different test on
+      # each. Refer p2p_fuzzframe's banner: "Those are not the same test."
+      - name: Campaign
+        shell: bash
+        run: |
+          SECS='${{ github.event.inputs.seconds }}'; SECS="${SECS:-900}"
+          SEED='${{ github.event.inputs.seed }}'
+          SEED="${SEED:-${{ github.run_number }}}"
+          REPRO="$PWD/fuzz-repro"
+          CORPUS="$PWD/MscsUnitTests/fuzz/corpus"
+          mkdir -p "$REPRO"
+
+          echo "seed    : $SEED   (replay any finding with this number)"
+          echo "budget  : ${SECS}s per harness"
+          echo
+
+          B=build/windows-msvc/MscsUnitTests/Debug
+          rc=0
+
+          echo "=== p2p_fuzzframe ==="
+          "$B/p2p_fuzzframe.exe" "$SEED" 200 --seconds "$SECS" \
+              --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
+
+          echo
+          echo "=== p2p_fuzzblock ==="
+          "$B/p2p_fuzzblock.exe" "$SEED" 400 --seconds "$SECS" \
+              --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
+
+          echo
+          n=$(find "$REPRO" -type f 2>/dev/null | wc -l)
+          echo "reproducers written: $n"
+          if [ "$n" != "0" ]; then
+            echo
+            echo "A REPRODUCER IS THE FINDING. See MscsUnitTests/fuzz/README.md."
+            find "$REPRO" -type f
+            rc=1
+          fi
+          exit $rc
+        working-directory: mscs
+
+      - name: Upload reproducers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-repro-windows-${{ github.run_number }}
+          path: mscs/fuzz-repro
+          if-no-files-found: ignore

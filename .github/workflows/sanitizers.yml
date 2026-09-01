@@ -1,0 +1,426 @@
+# Copyright © 2026 Khrustal & Mann
+#              MELBOURNE, VICTORIA, AUSTRALIA, 3000
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# =============================================================================
+# sanitizers -- ASan on Windows, ASan+UBSan+LSan on Linux, on every push.
+#
+# Stage 1 step 5. The premise of that step, quoted:
+#
+#     "ASan found four out-of-bounds on the receive path on 2026-08-15 -- one a
+#      WRITE -- none of them inside an ASSERT, so all four were live in Release
+#      and silent there. That run was manual and the last one is now four
+#      commits stale."
+#
+# Manual is the defect. A sanitizer that runs when somebody remembers is a
+# sanitizer that reports on whatever the tree happened to be that afternoon, and
+# the four commits of drift are how you get a "clean" claim that describes code
+# nobody is running any more.
+#
+# WHAT THIS FOUND THE FIRST TIME IT RAN (2026-08-18)
+#
+# The fuzz harness had been under ASan before. The `security` label never had.
+# The first run of the label under a sanitizer failed 8 of 15 tests:
+#
+#   * new[]/delete mismatch -- Msgcore/P2PmsgBSTR.cpp:595 released an image that
+#     P2Piomage_Alloc built with `new char[]`. FIXED in the same commit as this
+#     file; one line. It accounted for 5 of the 8 failures and, indirectly, for
+#     all 6 UBSan misaligned-wchar_t reports, which vanished with it.
+#   * heap-buffer-overflow, READ 2040 bytes -- p2p_bigreport. FIXED 2026-08-19,
+#     Msgcore, one line: P3PmsgBSTR::P2PiomageSize() added sizeof(oSync) to a
+#     field that already counted it, so every caller read one header past the
+#     image -- harmless off a VBHeap with slack, and 8 bytes of adjacent heap
+#     into a reply sent to the peer when the message came off the wire.
+#   * heap-use-after-free, cross-thread -- p2p_expreg. FIXED 2026-08-19 as
+#     F-S5-2.  Fixing it exposed a leak that had been sitting behind the abort
+#     (F-S5-4), and closing that exposed a dangling registry entry behind THAT
+#     (F-S5-5).  All three are closed; the test now runs clean under
+#     ASan+UBSan+LSan with detect_leaks=1.
+#
+# THE EXCLUSION LIST IS NOW EMPTY, WHICH IS WHY THIS SECTION IS SHORTER
+#
+# It used to read: "`p2p_expreg` fails under ASan today.  It is excluded from
+# the GATING ctest run and then run again, by name, in a step that prints its
+# full sanitizer report", and it promised that when the finding was closed, the
+# name and the `known findings` step would be deleted and the gate would widen
+# by itself.  That has now happened twice and nothing is left on the list:
+#
+#   * p2p_bigreport came off on 2026-08-19 when F-S5-1 was fixed;
+#   * p2p_expreg came off the same day, once F-S5-4 and F-S5-5 took it from
+#     34,529 bytes leaked in 18 allocations to zero.
+#
+# So the gate now runs the WHOLE security label with nothing excluded: no -E, no
+# WILL_FAIL, no `|| true`, and no reports-only step for a reader to notice.
+# Every test in the label gates on every push, on both platforms.
+#
+# If a finding is ever raised again, restore the pattern rather than inventing
+# one: a named exclusion in plain sight plus a non-gating step that prints the
+# report, so "known" can never quietly become "acceptable" - the same bargain
+# Stage 1 step 4 struck for the fuzz assert tally.
+#
+# TWO OPTIONS THAT MUST NOT BE ADDED, both measured on 2026-08-18
+#
+#   ASAN_OPTIONS=...:halt_on_error=0
+#       LSan prints a complete leak report and the process still exits 0. The
+#       run goes green with the leak in the log. This is a very tempting flag
+#       when you are trying to enumerate findings instead of stopping at the
+#       first, which is exactly when it does the damage.
+#
+#   UBSAN_OPTIONS without halt_on_error=1
+#       UBSan's default is print-and-continue, so a "runtime error:" line does
+#       NOT fail the test. Two tests passed while printing six of them. Every
+#       UBSan invocation here therefore sets halt_on_error=1.
+#
+# WHAT A GREEN RUN DOES NOT PROVE
+#   * Nothing about Release. ASan runs Debug here. The four out-of-bounds found
+#     on 2026-08-15 were live in Release and silent there precisely because they
+#     were outside any ASSERT -- a green Debug sanitizer run says the code paths
+#     TAKEN were clean, not that Release is.
+#   * Nothing about TSan. The linux-gcc-tsan preset exists and is not run here;
+#     the pump/hub race gate is Stage 2.
+#   * Nothing about leaks in the fuzz harness -- see MscsUnitTests/CMakeLists.txt
+#     for why detect_leaks is off for that one test, on purpose.
+# =============================================================================
+
+name: sanitizers
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOLUTION_REPO: IvywareAU/MscsSolution
+  PLATFORM_REPO: IvywareAU/Platform
+  MSGCORE_REPO: IvywareAU/Msgcore
+  UNITTESTS_REPO: IvywareAU/MscsUnitTests
+  # There is no KNOWN_FINDINGS and no exclusion list any more - see the banner.
+  # The flags went with it rather than being left pointing at an empty variable.
+  # Not because that would have broken: measured 2026-08-19, `ctest -L security
+  # -E ""` still selected all 17 tests of that day, so an empty -E is a no-op and
+  # leaving it would have been harmless.  (The label is 29 as of 2026-08-22; the
+  # no-op result is a property of -E and does not depend on the count.)
+  # It went because a gate should not carry an exclusion mechanism with
+  # nothing in it - the next person to need one should have to add it deliberately,
+  # and see the banner while doing so, rather than find a variable to fill in.
+
+jobs:
+  windows-asan:
+    name: Windows / MSVC + ASan
+    runs-on: windows-2022
+    steps:
+      - name: Preflight - can the cross-repository token actually reach the siblings?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The four checkout steps that"
+            echo "follow would fail with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
+
+          api() {
+            curl -sS -o preflight.json -w '%{http_code}'                  -H "Authorization: Bearer $TOKEN"                  -H "Accept: application/vnd.github+json"                  -H "X-GitHub-Api-Version: 2022-11-28"                  "https://api.github.com/$1"
+          }
+
+          code=$(api user)
+          if [ "$code" = "401" ]; then
+            echo
+            echo "FAIL    GitHub does not recognise this token at all (401 Bad credentials)."
+            echo
+            echo "        This is NOT a permissions problem, so granting the token access"
+            echo "        to more repositories will not change it. The stored string is not"
+            echo "        a usable token: expired, revoked, truncated when it was pasted,"
+            echo "        or never replaced with a real value."
+            echo
+            echo "        Check the token before storing it again -- this prints the account"
+            echo "        it belongs to, and never puts it in a shell history file:"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
+            echo
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "FAIL    /user answered HTTP $code, which is neither 200 nor 401."
+            exit 1
+          fi
+          echo "ok      the token authenticates, as: $(grep -o '"login"[^,]*' preflight.json | head -1 | cut -d'"' -f4)"
+
+          echo
+          echo "        reach, per repository the checkouts need:"
+          missing=0
+          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+            code=$(api "repos/$r")
+            case "$code" in
+              200) echo "          ok       $r" ;;
+              404) echo "          NO READ  $r   (404 -- the token is valid but cannot see this one)"; missing=1 ;;
+              *)   echo "          HTTP $code  $r"; missing=1 ;;
+            esac
+          done
+          rm -f preflight.json
+          if [ "$missing" != 0 ]; then
+            echo
+            echo "FAIL    the token authenticates but cannot read every sibling."
+            echo "        A fine-grained PAT lists the repositories it may touch one by one;"
+            echo "        add the ones marked NO READ above, with Contents: Read-only."
+            echo "        Do not re-issue the token -- it works, its repository list is short."
+            exit 1
+          fi
+          echo
+          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+      - name: Check out TargetCore into the solution
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      - name: Verify the sibling layout
+        shell: bash
+        run: |
+          missing=0
+          for p in CMakeLists.txt CMakePresets.json Msgcore Platform MscsUnitTests; do
+            if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
+            else echo "  MISSING mscs/$p"; missing=1; fi
+          done
+          [ "$missing" = "0" ] || { echo "Nothing was built and nothing was verified."; exit 1; }
+
+      - name: Configure (windows-msvc-asan)
+        run: cmake --preset windows-msvc-asan
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset windows-msvc-asan
+        working-directory: mscs
+
+      # MSVC links /fsanitize=address code against clang_rt.asan_dynamic-x86_64.dll,
+      # which lives in the MSVC toolchain and is NOT on PATH in a bare runner
+      # shell. Without this the tests do not fail a sanitizer check -- they fail
+      # to START, with a "cannot open shared object file" that reads like a build
+      # error. Located rather than hardcoded: the 14.xx.xxxxx directory changes
+      # with every toolchain bump.
+      - name: Put the ASan runtime on PATH
+        shell: bash
+        run: |
+          dll=$(find "/c/Program Files/Microsoft Visual Studio/2022" \
+                     -name 'clang_rt.asan_dynamic-x86_64.dll' -path '*Hostx64/x64*' \
+                | head -1)
+          if [ -z "$dll" ]; then
+            echo "clang_rt.asan_dynamic-x86_64.dll not found in the VS 2022 toolchain."
+            echo "Every ASan-instrumented test would fail to start. Refusing to"
+            echo "continue and report that as a test result."
+            exit 1
+          fi
+          echo "found: $dll"
+          cygpath -w "$(dirname "$dll")" >> "$GITHUB_PATH"
+
+      - name: Security label + fuzz harness under ASan (THE GATE)
+        shell: bash
+        run: |
+          ctest --test-dir build/windows-msvc-asan -C Debug -L security \
+                --output-on-failure --output-junit asan-windows.xml
+        working-directory: mscs
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-windows
+          path: mscs/asan-windows.xml
+          if-no-files-found: warn
+
+  linux-sanitizers:
+    name: Linux / GCC + ASan+UBSan+LSan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preflight - can the cross-repository token actually reach the siblings?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The four checkout steps that"
+            echo "follow would fail with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
+
+          api() {
+            curl -sS -o preflight.json -w '%{http_code}'                  -H "Authorization: Bearer $TOKEN"                  -H "Accept: application/vnd.github+json"                  -H "X-GitHub-Api-Version: 2022-11-28"                  "https://api.github.com/$1"
+          }
+
+          code=$(api user)
+          if [ "$code" = "401" ]; then
+            echo
+            echo "FAIL    GitHub does not recognise this token at all (401 Bad credentials)."
+            echo
+            echo "        This is NOT a permissions problem, so granting the token access"
+            echo "        to more repositories will not change it. The stored string is not"
+            echo "        a usable token: expired, revoked, truncated when it was pasted,"
+            echo "        or never replaced with a real value."
+            echo
+            echo "        Check the token before storing it again -- this prints the account"
+            echo "        it belongs to, and never puts it in a shell history file:"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
+            echo
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "FAIL    /user answered HTTP $code, which is neither 200 nor 401."
+            exit 1
+          fi
+          echo "ok      the token authenticates, as: $(grep -o '"login"[^,]*' preflight.json | head -1 | cut -d'"' -f4)"
+
+          echo
+          echo "        reach, per repository the checkouts need:"
+          missing=0
+          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+            code=$(api "repos/$r")
+            case "$code" in
+              200) echo "          ok       $r" ;;
+              404) echo "          NO READ  $r   (404 -- the token is valid but cannot see this one)"; missing=1 ;;
+              *)   echo "          HTTP $code  $r"; missing=1 ;;
+            esac
+          done
+          rm -f preflight.json
+          if [ "$missing" != 0 ]; then
+            echo
+            echo "FAIL    the token authenticates but cannot read every sibling."
+            echo "        A fine-grained PAT lists the repositories it may touch one by one;"
+            echo "        add the ones marked NO READ above, with Contents: Read-only."
+            echo "        Do not re-issue the token -- it works, its repository list is short."
+            exit 1
+          fi
+          echo
+          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+      - name: Check out Platform
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.PLATFORM_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Platform
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+      - name: Check out TargetCore into the solution
+        uses: actions/checkout@v5
+        with:
+          path: mscs/TargetCore
+
+      - name: Verify the sibling layout
+        shell: bash
+        run: |
+          missing=0
+          for p in CMakeLists.txt CMakePresets.json Msgcore Platform MscsUnitTests; do
+            if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
+            else echo "  MISSING mscs/$p"; missing=1; fi
+          done
+          [ "$missing" = "0" ] || { echo "Nothing was built and nothing was verified."; exit 1; }
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config liburing-dev libssl-dev
+
+      # linux-gcc-asan carries -fsanitize=address,undefined. LSan needs no flag
+      # on Linux -- it rides along with ASan and is armed by detect_leaks=1 at
+      # run time, which is set on the ctest steps below.
+      - name: Configure (linux-gcc-asan = ASan + UBSan, LSan at runtime)
+        run: cmake --preset linux-gcc-asan
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset linux-gcc-asan
+        working-directory: mscs
+
+      - name: Security label + fuzz harness under ASan+UBSan+LSan (THE GATE)
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=1:exitcode=23
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: |
+          ctest --test-dir build/linux-gcc-asan -L security \
+                --output-on-failure --timeout 600 \
+                --output-junit asan-linux.xml
+        working-directory: mscs
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-linux
+          path: mscs/asan-linux.xml
+          if-no-files-found: warn

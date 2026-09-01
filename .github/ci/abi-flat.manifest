@@ -1,0 +1,111 @@
+# TargetCore exported surface -- the flat C ABI. THE COVERED SURFACE.
+#
+# Generated from TargetCore_c.h (every declaration marked P2PC_API), names only,
+# sorted. Regenerate with:
+#     python .github/ci/check_repo_invariants.py --regenerate-abi
+#
+# This file IS the promise. The versioning policy is written in terms
+# of it: a name here is covered, a name absent from it is not, and a removal is
+# a MAJOR bump once the project is 1.0. Editing it is the moment to decide
+# whether a new entry point is a promise worth making -- which is why the check
+# fails on an undeclared addition rather than absorbing it.
+#
+# Checked twice, and it needs both. check_repo_invariants.py compares this list
+# against the header with no compiler involved; ctest -R p2p_abisurface compares
+# it against the symbols the BUILT library actually exports, on both platforms.
+# The header can promise a symbol the library does not export -- that is a link
+# error for a consumer and nothing here would otherwise see it.
+
+p2paddr_c_name
+p2paddr_c_name_u8
+p2paddr_create
+p2paddr_create_str
+p2paddr_create_str_u8
+p2paddr_destroy
+p2paddr_is_child
+p2paddr_is_child_u8
+p2paddr_is_empty
+p2paddr_is_null
+p2paddr_is_rable
+p2paddr_is_rable_u8
+p2paddr_sizeof
+p2peerconwsa_client_factory
+p2peerconwsa_client_factory_u8
+p2peerconwsa_close
+p2peerconwsa_connect
+p2peerconwsa_destroy
+p2peerconwsa_get_address
+p2peerconwsa_get_address_u8
+p2peerconwsa_get_mode
+p2peerconwsa_get_state
+p2peerconwsa_has_state
+p2peerconwsa_listen
+p2peerconwsa_post_msg
+p2peerconwsa_service_factory
+p2peerconwsa_service_factory_u8
+p2peerhub_add_seal_reader
+p2peerhub_add_seal_reader_u8
+p2peerhub_auth_allow_list_path
+p2peerhub_auth_arm
+p2peerhub_auth_arm_text
+p2peerhub_auth_revocation_list_path
+p2peerhub_clear_seal_readers
+p2peerhub_close_hub
+p2peerhub_con_exists
+p2peerhub_con_exists_u8
+p2peerhub_create
+p2peerhub_create_hub
+p2peerhub_create_hub_u8
+p2peerhub_create_u8
+p2peerhub_destroy
+p2peerhub_get_address
+p2peerhub_get_address_u8
+p2peerhub_get_hub_id
+p2peerhub_is_auth_required
+p2peerhub_is_revocation_required
+p2peerhub_is_seal_required
+p2peerhub_pause_hub
+p2peerhub_post_con
+p2peerhub_post_msg
+p2peerhub_provision_auth
+p2peerhub_reload_allow_list
+p2peerhub_require_auth
+p2peerhub_require_revocation
+p2peerhub_require_seal
+p2peerhub_set_agreement_key
+p2peerhub_set_allow_list
+p2peerhub_set_identity
+p2peerhub_set_revocation_list
+p2peerhub_set_sink
+p2peerhub_set_sink_u8
+p2peerhub_spawn_hub
+p2peerhub_wakeup_hub
+p2peermsg_c_name
+p2peermsg_c_name_u8
+p2peermsg_create
+p2peermsg_create_full
+p2peermsg_create_full_u8
+p2peermsg_create_msgid
+p2peermsg_create_msgid_u8
+p2peermsg_data
+p2peermsg_data_size
+p2peermsg_destroy
+p2peermsg_get_destin
+p2peermsg_get_destin_u8
+p2peermsg_get_source
+p2peermsg_get_source_u8
+p2peermsg_is_reflected
+p2peermsg_is_wrapped
+p2peermsg_priority
+p2peermsg_redirect_factory
+p2peermsg_redirect_factory_u8
+p2peermsg_response_factory
+p2peermsg_response_factory_u8
+p2peermsg_set_destin
+p2peermsg_set_destin_u8
+p2peermsg_set_priority
+p2peermsg_set_source
+p2peermsg_set_source_u8
+p2peermsg_sizeof
+targetcore_cleanup
+targetcore_startup
