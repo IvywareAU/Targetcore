@@ -2064,7 +2064,7 @@ StartupP2Pmsg ( UINT nMaxHubs )
     //        so a second StartupP2Pmsg() - which the note above CleanupP2Pmsg()
     //        explicitly permits - overwrote the pointer and orphaned the first
     //        mutex.  On Windows a CRITICAL_SECTION is a struct and this cost
-    //        nothing visible; on Linux ../Platform/p2pthread.h allocates a
+    //        nothing visible; on Linux ../Msgcore/Platform/p2pthread.h allocates a
     //        std::recursive_mutex, so every startup/shutdown cycle leaked 40
     //        bytes.  Found by LeakSanitizer on the first sanitised Linux run
     //        since the three restart-cycling gates were written - p2p_ipv6,

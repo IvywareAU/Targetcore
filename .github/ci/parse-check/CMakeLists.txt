@@ -44,7 +44,7 @@
 #   * It therefore says nothing about whether TargetCore compiles, links, or
 #     works. It proves the build script is well-formed, and that is all.
 #   * The Linux branch of the component script is NOT exercised: it compiles
-#     ../Platform/p2piocp.cpp, which is in a sibling repository, and requires
+#     ../Msgcore/Platform/p2piocp.cpp, which is in a sibling repository, and requires
 #     liburing and OpenSSL via find_package/pkg_check_modules. A Linux
 #     parse-check would fail on a missing source file for reasons that are not
 #     defects. Only the WIN32 branch is covered here.
@@ -60,7 +60,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # STUBS. Real definitions live in ../Msgcore/CMakeLists.txt and
-# ../Platform/CMakeLists.txt in the unpublished parent solution. Empty on
+# ../Msgcore/Platform/CMakeLists.txt in the unpublished parent solution. Empty on
 # purpose: this project must never be able to compile anything, so that nobody
 # can mistake a green parse-check for a build.
 add_library(msgcore INTERFACE)

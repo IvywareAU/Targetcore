@@ -112,7 +112,7 @@ else()
     # p2p_iocp_* hooks. dllmain.cpp is excluded (§4.3).
     set(TARGETCORE_SOURCES ${TARGETCORE_SOURCES_COMMON}
         P2PCngCrypto_openssl.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../Platform/p2piocp.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/p2piocp.cpp)
 endif()
 
 add_library(targetcore SHARED ${TARGETCORE_SOURCES})
@@ -313,7 +313,7 @@ endif()
 # TargetCore_c.h is still the ONLY header here that a stranger can include. It
 # is the surface the Java/Panama bindings are generated from, and its 83 symbols
 # are exported from the DLL and the .so alike. The C++ headers are deliberately
-# NOT installed: every one of them reaches stdafx.h, which reaches ../Platform
+# NOT installed: every one of them reaches stdafx.h, which reaches ../Msgcore/Platform
 # and MFC, so installing them would publish a surface that cannot compile
 # anywhere outside this solution. Shipping a header that cannot be included is
 # worse than shipping none -- which is precisely the mistake the version header

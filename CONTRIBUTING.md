@@ -43,8 +43,10 @@ A report we can act on has:
 
 ### Before you file a build failure
 
-The single most common inbound report will be a build that cannot find `Msgcore` or `Platform`.
-Those are **sibling directories, not submodules**, and `WDMSCS_LIB` is an environment variable — the
+The single most common inbound report will be a build that cannot find `Msgcore`, or the
+`Platform` shim layer inside it. `Msgcore` is a **sibling directory, not a submodule** — and
+since 2026-09-03 it carries `Platform\`, so there is one checkout to get right rather than
+two. `WDMSCS_LIB` is an environment variable — the
 README's [build section](Readme.md#building) documents the contract in full, including which of the
 four distinct bindings fails in which way. Please read it first. A build report is still welcome if
 the contract is satisfied and it still fails; say which of the four bindings broke.
@@ -102,8 +104,8 @@ Two workflows, and the difference between them matters more than the fact that t
 
 [**`repo-invariants.yml`**](.github/workflows/repo-invariants.yml) runs on every push and pull
 request. It is scoped to what this repository can verify *about itself*, because TargetCore does
-not build on its own — `../Msgcore` and `../Platform` are siblings in a parent solution that is
-not published here. **It never compiles the library.** A green tick means the build-system
+not build on its own — `../Msgcore`, which carries the `Platform` shim layer, is a sibling in a
+parent solution that is not published here. **It never compiles the library.** A green tick means the build-system
 bookkeeping holds, the OpenSSL crypto core (4 of 30 translation units) passes its known-answer
 vectors and its refusal paths, and `CMakeLists.txt` generates. The routing kernel, the hubs, the
 pumps, all four transports and the `.vcxproj` build the README calls authoritative are not

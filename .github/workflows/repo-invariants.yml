@@ -19,9 +19,10 @@
 # READ THIS BEFORE TRUSTING A GREEN TICK FROM THIS WORKFLOW.
 #
 # TargetCore does not build on its own and this workflow does not pretend it
-# does. `..\Msgcore` and `..\Platform` are peer directories in a parent solution
-# that is not published alongside this repository; they are not submodules and
-# not vendored, and `WDMSCS_LIB` is an environment variable pointing at wherever
+# does. `..\Msgcore` -- which carries `Platform\` inside it since 2026-09-03, when
+# that repository was retired -- is a peer directory in a parent solution that is
+# not published alongside this repository; it is not a submodule and not vendored
+# here, and `WDMSCS_LIB` is an environment variable pointing at wherever
 # the caller stages import libraries. Readme.md "The sibling dependencies"
 # documents all four bindings. The consequence for CI is blunt:
 #
@@ -48,7 +49,7 @@
 #                   login/seal core is compiled and its own KATs and refusal
 #                   paths are executed. OpenSSL backend only -- the CNG backend
 #                   cannot be built standalone (P2PCngCrypto.cpp includes
-#                   stdafx.h, which reaches ../Platform and MFC), so this proves
+#                   stdafx.h, which reaches ../Msgcore/Platform and MFC), so this proves
 #                   nothing about Windows and nothing about whether the two
 #                   backends agree on the wire.
 #
@@ -157,7 +158,7 @@ jobs:
   # header explains why a green result here is NOT "the repo builds standalone".
   #
   # Windows-only on purpose: the Linux branch of CMakeLists.txt compiles
-  # ../Platform/p2piocp.cpp, which is in a sibling repository, so a Linux
+  # ../Msgcore/Platform/p2piocp.cpp, which is in a sibling repository, so a Linux
   # parse-check would fail for a reason that is not a defect.
   # ---------------------------------------------------------------------------
   cmake-parse:

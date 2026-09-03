@@ -74,7 +74,12 @@ DOCUMENTED_VCXPROJ_ONLY = {"stdafx.cpp"}
 # Readme.md "The sibling dependencies" documents (binding 4); the check below
 # pins the count so a NEW cross-repo source cannot appear without a reviewer
 # noticing that the standalone-build story got worse.
-EXPECTED_SIBLING_SOURCES = {"../Platform/p2piocp.cpp"}
+#
+# The path moved on 2026-09-03 and the count did not: the Platform repository was
+# retired and its tree vendored into Msgcore, so the io_uring shim is now reached
+# at ../Msgcore/Platform/p2piocp.cpp. One sibling source, one sibling repository --
+# it is the SAME coupling, spelled through the repository that owns it now.
+EXPECTED_SIBLING_SOURCES = {"../Msgcore/Platform/p2piocp.cpp"}
 
 REQUIRED_FILES = [
     "LICENSE",       # Apache-2.0, referenced from Readme.md "License"

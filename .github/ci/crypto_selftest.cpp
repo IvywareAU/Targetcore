@@ -32,7 +32,7 @@
 //   the security-critical core be verified by anyone who clones only this repo.
 //
 //   The CNG half of the same core canNOT be built this way: P2PCngCrypto.cpp:20
-//   includes "stdafx.h", which pulls <afx.h>/<afxwin.h> and ../Platform/platform.h.
+//   includes "stdafx.h", which pulls <afx.h>/<afxwin.h> and ../Msgcore/Platform/platform.h.
 //   So this driver covers the OpenSSL backend only, and the Windows CNG backend
 //   is verified solely by the sibling-complete build (see solution-build.yml).
 //

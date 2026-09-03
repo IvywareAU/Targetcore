@@ -128,7 +128,9 @@ permissions:
 
 env:
   SOLUTION_REPO: IvywareAU/MscsSolution
-  PLATFORM_REPO: IvywareAU/Platform
+  # No PLATFORM_REPO: the Platform repository was retired on 2026-09-03 and its
+  # tree vendored into Msgcore, so the shim layer arrives with the Msgcore
+  # checkout below and there is one fewer repository to hold a token for.
   MSGCORE_REPO: IvywareAU/Msgcore
   UNITTESTS_REPO: IvywareAU/MscsUnitTests
 
@@ -149,8 +151,8 @@ jobs:
             echo "cannot read across repositories. The checkouts below would fail"
             echo "with a 404 that reads like a deleted repo."
             echo
-            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
-            echo "Msgcore and MscsUnitTests, then:"
+            echo "Fix: create a PAT with read access to MscsSolution, Msgcore"
+            echo "and MscsUnitTests, then:"
             echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
             exit 1
           fi
@@ -162,12 +164,6 @@ jobs:
           repository: ${{ env.SOLUTION_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs
-      - name: Check out Platform
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.PLATFORM_REPO }}
-          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
-          path: mscs/Platform
       - name: Check out Msgcore
         uses: actions/checkout@v5
         with:
@@ -281,12 +277,6 @@ jobs:
           repository: ${{ env.SOLUTION_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs
-      - name: Check out Platform
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.PLATFORM_REPO }}
-          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
-          path: mscs/Platform
       - name: Check out Msgcore
         uses: actions/checkout@v5
         with:

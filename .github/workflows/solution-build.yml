@@ -42,8 +42,10 @@
 # THE TOKEN. Every one of these repositories is PRIVATE, and the automatic
 # GITHUB_TOKEN is scoped to this repository alone -- it cannot read the others.
 # Cross-repository checkout therefore needs a Personal Access Token in the
-# MSCS_SOLUTION_TOKEN secret, with read access to MscsSolution, Platform,
-# Msgcore and MscsUnitTests. Without it the checkout steps fail with a 404 that
+# MSCS_SOLUTION_TOKEN secret, with read access to MscsSolution, Msgcore and
+# MscsUnitTests -- Platform came off that list on 2026-09-03, when its repository
+# was retired and the shim layer vendored into Msgcore. Without it the checkout
+# steps fail with a 404 that
 # reads like a deleted repository; the preflight step below turns that into a
 # sentence that says what to do.
 #
@@ -86,11 +88,6 @@ on:
         required: false
         default: ""
         type: string
-      platform_ref:
-        description: Ref of Platform (blank = its default branch).
-        required: false
-        default: ""
-        type: string
       msgcore_ref:
         description: Ref of Msgcore (blank = its default branch).
         required: false
@@ -115,7 +112,9 @@ permissions:
 
 env:
   SOLUTION_REPO: IvywareAU/MscsSolution
-  PLATFORM_REPO: IvywareAU/Platform
+  # No PLATFORM_REPO: the Platform repository was retired on 2026-09-03 and its
+  # tree vendored into Msgcore, so the shim layer arrives with the Msgcore
+  # checkout and there is one fewer repository to hold a token for.
   MSGCORE_REPO: IvywareAU/Msgcore
   UNITTESTS_REPO: IvywareAU/MscsUnitTests
 
@@ -165,7 +164,7 @@ jobs:
             echo "cannot read across repositories. The four checkout steps that"
             echo "follow would fail with a 404 that reads like a deleted repo."
             echo
-            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
             echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
             exit 1
@@ -203,7 +202,7 @@ jobs:
           echo
           echo "        reach, per repository the checkouts need:"
           missing=0
-          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+          for r in "$SOLUTION_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
             code=$(api "repos/$r")
             case "$code" in
               200) echo "          ok       $r" ;;
@@ -221,7 +220,7 @@ jobs:
             exit 1
           fi
           echo
-          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+          echo "ok      all three siblings are readable; the checkouts below cannot fail for credential reasons."
 
       # The parent solution is the outer checkout; every component nests inside
       # it, which is the layout the top-level CMakeLists.txt assumes.
@@ -232,14 +231,6 @@ jobs:
           ref: ${{ inputs.solution_ref }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs
-
-      - name: Check out Platform
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.PLATFORM_REPO }}
-          ref: ${{ inputs.platform_ref }}
-          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
-          path: mscs/Platform
 
       - name: Check out Msgcore
         uses: actions/checkout@v5
@@ -406,7 +397,7 @@ jobs:
             echo "cannot read across repositories. The four checkout steps that"
             echo "follow would fail with a 404 that reads like a deleted repo."
             echo
-            echo "Fix: create a PAT with read access to MscsSolution, Platform,"
+            echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
             echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
             exit 1
@@ -444,7 +435,7 @@ jobs:
           echo
           echo "        reach, per repository the checkouts need:"
           missing=0
-          for r in "$SOLUTION_REPO" "$PLATFORM_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+          for r in "$SOLUTION_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
             code=$(api "repos/$r")
             case "$code" in
               200) echo "          ok       $r" ;;
@@ -462,7 +453,7 @@ jobs:
             exit 1
           fi
           echo
-          echo "ok      all four siblings are readable; the checkouts below cannot fail for credential reasons."
+          echo "ok      all three siblings are readable; the checkouts below cannot fail for credential reasons."
 
       - name: Check out the parent solution
         uses: actions/checkout@v5
@@ -471,14 +462,6 @@ jobs:
           ref: ${{ inputs.solution_ref }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs
-
-      - name: Check out Platform
-        uses: actions/checkout@v5
-        with:
-          repository: ${{ env.PLATFORM_REPO }}
-          ref: ${{ inputs.platform_ref }}
-          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
-          path: mscs/Platform
 
       - name: Check out Msgcore
         uses: actions/checkout@v5
