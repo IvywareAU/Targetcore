@@ -66,6 +66,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(msgcore INTERFACE)
 add_library(p2pplatform INTERFACE)
 
+# msgcore has to be in an INSTALLED EXPORT SET, or this project does not generate
+# at all -- and it did not, from the day repo-invariants.yml was added until
+# 2026-09-04. The component script links msgcore as a bare PUBLIC dependency,
+# deliberately: Msgcore/CMakeLists.txt explains that the installed targetcore
+# really does need the installed msgcore beside it to load, so unlike p2pplatform
+# it must NOT be wrapped in $<BUILD_INTERFACE:>. install(TARGETS targetcore EXPORT
+# TargetCoreTargets) then refuses at GENERATE time -- "requires target msgcore that
+# is not in any export set" -- and a generate failure is not something the stub can
+# opt out of. In the real parent solution msgcore is exported, by
+# install(TARGETS msgcore EXPORT MsgcoreTargets). These two lines are that fact.
+#
+# BOTH are needed. install(TARGETS ... EXPORT) alone still fails: CMake wants the
+# export set to be installed somewhere, not merely named. Nothing is installed by
+# either -- the CI job stops after generate and never runs `cmake --install` -- so
+# the destination below is a required argument pointing at a directory that will
+# never exist, and the stub stays as inert as the rest of this file.
+install(TARGETS msgcore EXPORT MsgcoreTargets)
+install(EXPORT MsgcoreTargets DESTINATION lib/cmake/Msgcore)
+
 # The component script under test. EXCLUDE_FROM_ALL so that even an accidental
 # `cmake --build` does not try to compile it.
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../.. targetcore-parse-check EXCLUDE_FROM_ALL)
