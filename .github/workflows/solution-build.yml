@@ -24,12 +24,13 @@
 # "the repository's wiring is intact" -- worth having, and not evidence about
 # behaviour.
 #
-# WHAT CHANGED. The parent solution and the platform layer are now repositories:
+# WHAT CHANGED. The parent solution is a repository now:
 #
 #     IvywareAU/MscsSolution   CMakeLists.txt + CMakePresets.json
-#     IvywareAU/Platform       the POSIX/Win32 shim layer
 #
-# joining Msgcore and MscsUnitTests, which were already published. So a runner
+# joining Msgcore and MscsUnitTests, which were already published. The platform
+# layer was briefly a repository of its own too; it was retired on 2026-09-03 and
+# its tree lives in Msgcore, so it arrives with the Msgcore checkout. So a runner
 # can assemble the tree BY NAME, and this workflow runs on push.
 #
 # WHY THE OLD FILE'S RULE STILL HOLDS. Its predecessor refused to skip: a job
@@ -50,7 +51,7 @@
 # sentence that says what to do.
 #
 # WHAT A GREEN RUN PROVES
-#   * MscsSolution + Platform + Msgcore + TargetCore + MscsUnitTests configure,
+#   * MscsSolution + Msgcore + TargetCore + MscsUnitTests configure,
 #     build and link together under CMake, on Windows/MSVC and Linux/GCC.
 #   * The full CTest suite passes on both.
 #   * On Windows: that ctest works with NOTHING on PATH. See the ctest step --
@@ -261,7 +262,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Platform Msgcore MscsUnitTests TargetCore; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests TargetCore; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
@@ -273,7 +274,7 @@ jobs:
           fi
           echo
           echo "Refs actually built:"
-          for d in Platform Msgcore MscsUnitTests TargetCore; do
+          for d in Msgcore MscsUnitTests TargetCore; do
             printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
           done
 
@@ -488,7 +489,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Platform Msgcore MscsUnitTests TargetCore; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests TargetCore; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
@@ -500,7 +501,7 @@ jobs:
           fi
           echo
           echo "Refs actually built:"
-          for d in Platform Msgcore MscsUnitTests TargetCore; do
+          for d in Msgcore MscsUnitTests TargetCore; do
             printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
           done
 

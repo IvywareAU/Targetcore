@@ -222,7 +222,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Msgcore Platform MscsUnitTests; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
@@ -373,7 +373,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Msgcore Platform MscsUnitTests; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
