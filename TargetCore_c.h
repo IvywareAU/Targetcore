@@ -175,6 +175,23 @@ P2PC_API int                p2peerconwsa_has_state        (P2PeerConWsaHandle h,
 // part of the published enum rather than a convention.
 P2PC_API int                p2peerconwsa_get_mode         (P2PeerConWsaHandle h);
 P2PC_API const wchar_t*     p2peerconwsa_get_address      (P2PeerConWsaHandle h);
+// What this socket can vouch for about where its frames go, and what the hub's
+// per-class link policy (p2peerhub_set_link_policy) is read with for it:
+//   0 wire   1 local (the kernel keeps it on this machine)   2 in-process
+//
+// A socket answers 1 when the kernel says its peer is on loopback -- which is
+// true for a client that dialled 127.0.0.1 or ::1 and for a service's accepted
+// child alike, because the answer is getpeername()'s and not a copied setting.
+// Everything else is 0, including a socket with no peer yet unless it was bound
+// with the loopback listen scope. 0 for a refused handle.
+//
+// demote_trust holds a connection to NO BETTER than the class given. It only
+// ever tightens: a call naming a higher class does nothing, and there is no
+// promote, because a class this library cannot verify is an intention rather
+// than a fact and a policy must not read one as the other.
+P2PC_API int                p2peerconwsa_get_trust_class  (P2PeerConWsaHandle h);
+P2PC_API void               p2peerconwsa_demote_trust     (P2PeerConWsaHandle h,
+                                                            int                trustClass);
 // PostP2PeerMsg takes ownership of msgHandle; do not destroy it after this call.
 // NULL back means delivered to the queue. Non-NULL is msgHandle returned as "not
 // delivered": the message is spent either way, and destroying the handle after
@@ -244,6 +261,76 @@ P2PC_API const wchar_t*     p2peerhub_get_address    (P2PeerHubHandle h);
 // nothing.
 P2PC_API void               p2peerhub_require_auth   (P2PeerHubHandle h, int require);
 P2PC_API int                p2peerhub_is_auth_required(P2PeerHubHandle h);
+
+// What a link of a given TRUST CLASS must do, when require_auth is on.
+//
+// trustClass is what the TRANSPORT vouches for about where its frames can go:
+//   0 wire       leaves the machine, or nothing can say it does not
+//   1 local      cannot leave the machine; the kernel enforces it
+//   2 in-process cannot leave the process; construction enforces it
+// policy is what this hub demands of a link in that class:
+//   0 full       key agreement, link cypher, signed and verified login
+//   1 open       none of the three
+//
+// This is the answer to paying for a handshake on a link that cannot benefit
+// from one. An in-process connection is a pointer handoff between two objects
+// on one heap; before this, requiring authentication on the hub made it run an
+// ECDH agreement, hold a key object nothing consults, and sign four ECDSA
+// operations onto its login, and the only way to say otherwise was
+// p2peerhub_require_auth(h, 0) — which opens every link the hub will ever
+// hold, including a socket posted to it later.
+//
+// TRUST CLASS 0 CANNOT BE OPENED. The call is accepted and ignored. A wire is
+// what every transport that has vouched for nothing answers — a serial line, a
+// socket that is not on loopback, and as coded a named pipe, which accepts a
+// client arriving over SMB from another host — so opening it would relax the
+// whole tree through a call that reads as though it named one kind of link.
+// p2peerhub_require_auth(h, 0) is how a wire is opened, and the posture and
+// the arming gate both report it.
+//
+// BOTH ENDS OF A LINK NEED THE SAME SETTING, exactly as require_auth does. A
+// peer that skipped the agreement against a hub that wanted one is refused.
+//
+// Every class defaults to 0 (full), so a consumer that never calls this gets
+// what it has always had. Call it before p2peerhub_create_hub /
+// p2peerhub_spawn_hub, like every other hub setting.
+//
+// It is a per-LINK setting and does not touch the per-MESSAGE protections:
+// relay attestation and end-to-end sealing are properties of an origin and a
+// destination rather than of one hop, and an opened link still signs and still
+// seals. p2peerhub_require_seal is where those live.
+P2PC_API void               p2peerhub_set_link_policy(P2PeerHubHandle h,
+                                                       int             trustClass,
+                                                       int             policy);
+P2PC_API int                p2peerhub_get_link_policy(P2PeerHubHandle h,
+                                                       int             trustClass);
+
+// THE FENCE: the lowest trust class this hub will hold a link of. A connection
+// whose class is below it is refused at p2peerhub_post_con, which returns 0 and
+// names the class it refused.
+//
+// It is the other half of p2peerhub_set_link_policy rather than a separate
+// feature, and it is what makes the relaxation safer than the old opt-out and
+// not merely cheaper. p2peerhub_require_auth(h, 0) opens every link the hub
+// will ever hold, including one posted an hour later by code that never read
+// the setting; set_link_policy(h, 2, 1) with require_trust_at_least(h, 2) opens
+// the links that cannot leave the process and refuses the rest outright.
+//
+// 0 - the wire - is the default and means NO fence: it is the class every
+// transport that has vouched for nothing answers, so a floor there refuses
+// nothing. Call it before p2peerhub_create_hub / p2peerhub_spawn_hub, like
+// every other hub setting. A class this build does not have is ignored.
+//
+// IT ALSO CHANGES WHAT ARMING MEANS FOR ONE SHAPE OF HUB. A hub that requires
+// auth, has fenced out every class it will not carry, and has opened every
+// class it will, can never demand a signature from anybody - so it arms with
+// no identity and no allow-list, reporting p2pauth::ArmNotRequiredByPolicy (8)
+// rather than refusing. The posture still reads AuthRequired=1 beside
+// TrustFloor and the three LinkPol fields, which is what makes that a stated
+// decision rather than the omission the arming gate exists to catch.
+P2PC_API void               p2peerhub_require_trust_at_least(P2PeerHubHandle h,
+                                                       int             trustClass);
+P2PC_API int                p2peerhub_get_required_trust(P2PeerHubHandle h);
 
 // Load (create, with createIfAbsent non-zero) this hub's own identity key, and
 // the file naming the peers it will accept. Both return a p2pcng::IdResult as

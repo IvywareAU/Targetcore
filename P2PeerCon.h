@@ -72,11 +72,45 @@ typedef enum
 //         mode is constant
 typedef enum
 {
-    P2PeerCon_Unknown     = 0, 
+    P2PeerCon_Unknown     = 0,
     P2PeerCon_CLIENT      = 1,         // Active  connection
     P2PeerCon_SERVICE     = 2,         // Passive service
     P2PeerCon_Accept      = 3,         // Neutral accepted
 } P2PeerConMode_e;
+
+///////////////////////////////////////////////////////////////////////
+//  What a TRANSPORT can vouch for about where its frames can go
+//  NOTES: A FACT, not a setting, and the distinction is the whole reason this
+//         can exist at all.  SECURITY.md says RequireAuth is a hub property
+//         with no per-connection override, because an accepted P2PeerCon is
+//         built by AcceptSpawn from a hand-maintained list of copied fields
+//         and a security SETTING living on the connection is one forgotten
+//         line away from silently not applying.  That argument is about
+//         policy.  This is the same shape as P2Peerio::LeavesProcess(): the
+//         connection states something it knows and the hub cannot, the hub
+//         still decides what to do about it, and there is no field for
+//         AcceptSpawn to forget - TrustClass() is a virtual on the class
+//       : ORDERED, and the order is load-bearing.  Wire is 0 and is the
+//         answer for any transport that has not said otherwise; every
+//         relaxation is expressed as "no worse than", so a lower value is
+//         always the stricter reading and EffectiveTrust() is a min()
+//       : Local is NOT Trusted.  It says no NETWORK adversary can reach this
+//         link, and only that.  Another principal on the same host is A7 in
+//         THREAT_MODEL.md and is answered by the endpoint's DACL and the
+//         identity file's permissions, neither of which is in this enum
+//       : A transport may only claim a class the KERNEL or CONSTRUCTION
+//         enforces.  An intention is not a fact: P2PeerConPipe answers Wire
+//         until CreateNamedPipe is called with PIPE_REJECT_REMOTE_CLIENTS,
+//         because as coded a named pipe is reachable over SMB from another
+//         host and a policy must not be allowed to rely on a locality the
+//         code does not make true
+typedef enum
+{
+    P2PeerConTrust_Wire      = 0,      // leaves the machine, or nobody can
+                                       //   say it does not - the default
+    P2PeerConTrust_Local     = 1,      // cannot leave the machine; kernel
+    P2PeerConTrust_InProcess = 2,      // cannot leave the process; construction
+} P2PeerConTrust_e;
 
 ///////////////////////////////////////////////////////////////////////
 //  P2PeerConPlc 
@@ -510,6 +544,34 @@ class TargetCore_EXT P2PeerCon : public P2PeerConPlc
       bool
         LeavesProcess   ( );
 
+      //  What this TRANSPORT can vouch for, and what the hub's per-class link
+      //  policy is read with.
+      //  NOTES: TrustClass() is the transport's own answer and is a VIRTUAL on
+      //         the class - it is never copied by AcceptSpawn, so a child of a
+      //         DMX service is InProcess for the same reason it is a
+      //         P2PeerConDmx, and a forgotten line in that function cannot
+      //         reach it.  The base answers Wire, exactly as
+      //         P2Peerio::LeavesProcess() answers true, and for the same
+      //         reason: a transport that has not thought about the question
+      //         must not be given the benefit of it
+      //       : DemoteTrust() is the operator's override and it can only
+      //         TIGHTEN.  A pipe an operator does not believe is local is a
+      //         wire; a wire an operator "trusts" is still a wire, because a
+      //         promise this library cannot check is not a fact it can act on.
+      //         There is deliberately no PromoteTrust
+      //       : EffectiveTrust() is min(TrustClass(), the demotion) and is what
+      //         every policy question reads.  It is the ONE per-object piece of
+      //         state here, it is copied by AcceptSpawn, and losing that copy
+      //         makes a child read the class its transport vouches for rather
+      //         than a weaker one - the safe direction, and pinned by the gate
+      //         test rather than left to the direction
+      virtual P2PeerConTrust_e
+        TrustClass      ( ) const { return P2PeerConTrust_Wire; }
+      void
+        DemoteTrust     ( P2PeerConTrust_e eNoBetterThan );
+      P2PeerConTrust_e
+        EffectiveTrust  ( ) const;
+
     // Attributes
     public:
       HANDLE           m_hP2PmsgCon;
@@ -602,6 +664,13 @@ class TargetCore_EXT P2PeerCon : public P2PeerConPlc
       CString         *m_pstrVisualSummary;
       P2PeerConMode_e  m_eP2PeerConMode;
 
+      // The operator's trust CEILING for this connection - refer DemoteTrust().
+      // Initialised to P2PeerConTrust_InProcess, which is the top of the enum
+      // and therefore "no ceiling": until somebody demotes it the transport's
+      // own answer stands unmodified. It is the only per-object state behind
+      // EffectiveTrust(), and it is copied by AcceptSpawn
+      P2PeerConTrust_e m_eTrustCeiling;
+
       // Peer login authentication - per-connection runtime state
       unsigned char    m_AuthNonce[16];  // the nonce this login signed
       bool             m_bAuthNonce;     // ...and whether it is set
@@ -682,12 +751,34 @@ class TargetCore_EXT P2PeerCon : public P2PeerConPlc
       void
         GateRelayInbound ( P2PeerMsg *pMsg );
 
+      // Has this hub RELAXED the per-link protections for this link's trust
+      // class? True only when the hub requires authentication AND the policy
+      // it holds for EffectiveTrust() is P2PeerLinkPolicy_Open.
+      //
+      // NOTES: It is deliberately false for a hub with RequireAuth(false).
+      //        That hub has turned the whole switch off and the reasons a
+      //        login is or is not signed there are unchanged by any of this -
+      //        which is what keeps an existing deployment byte-identical
+      //      : It is what LoginSend/LoginAck consult before signing, and it is
+      //        the second half of one decision rather than a second decision.
+      //        F-S6-1 was a login SIGNED on a connection with no channel to
+      //        bind it to; a relaxed link has no channel by intent, so a
+      //        signature on it would recreate exactly that state - a proof
+      //        naming no connection - on purpose and by default
+      bool
+        AuthLinkRelaxed ( );
+
       // Session key agreement.
       // NOTES: KeyXWanted() is the single gate - it answers "does this
       //        connection run an exchange", and everything else keys off it.
       //        An unconfigured hub answers false and none of this executes
       //      : KeyXOnRequest/KeyXOnAck consume their message; the caller
       //        deletes it and does not post it
+      //      : Since the per-class link policy landed it is the composed
+      //        question - the hub's switch AND this link's class - and
+      //        AuthGateInbound asks THIS rather than IsAuthRequired() so the
+      //        two ends of a link cannot read different halves of one switch.
+      //        That separation is what F-S6-1 was
       bool
         KeyXWanted    ( );
       void

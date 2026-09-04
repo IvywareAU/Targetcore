@@ -99,6 +99,24 @@ class TargetCore_EXT P2PeerConDmx : public P2PeerCon
       virtual DWORD_PTR
         GetUDState ( );
 
+      //  This transport's frames cannot leave the process.
+      //  NOTES: Not a claim about a socket, a bind or a firewall - a
+      //         P2PeerConDmx handoff is a pointer passed between two objects
+      //         on one heap, so CONSTRUCTION enforces it and there is nothing
+      //         for an adversary to be on the path of.  It is the same fact
+      //         P2PeerioDmx::LeavesProcess() already states, said in the
+      //         vocabulary the link policy reads
+      //       : Unconditional, and correct for a SERVICE, a CLIENT and an
+      //         accepted child alike.  A P2PeerConDmx service spawns a
+      //         P2PeerConDmx, so the child answers this because of what it IS
+      //         and not because AcceptSpawn remembered to say so
+      //       : InProcess is NOT a licence.  It says only that no adversary
+      //         outside this process can reach the link; what the hub does
+      //         with that is P2PeerHub::SetLinkPolicy's, and the default is
+      //         still the full handshake
+      virtual P2PeerConTrust_e
+        TrustClass ( ) const { return P2PeerConTrust_InProcess; }
+
     // Attributes
     protected:
       P2PeerConDmx    *m_pConThat;

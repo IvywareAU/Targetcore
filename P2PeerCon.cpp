@@ -232,6 +232,11 @@ P2PeerCon::RenderThisSafe ( )
     m_pP2Peerio          = 0;
     m_pstrVisualSummary  = 0;
 
+    // Transport trust class - the operator's ceiling only.  The transport's
+    // own answer is a virtual and has nothing to initialise here; this is the
+    // demotion, and the top of the enum means "not demoted"
+    m_eTrustCeiling      = P2PeerConTrust_InProcess;
+
     // Peer login authentication
     // NOTES: Per-connection runtime state, not configuration. Refer
     //        P2PeerCon.h and P2PAuthLogin.h
@@ -412,6 +417,20 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
            pConSpawn -> m_eP2PeerIDmap    = m_eP2PeerIDmap;
            pConSpawn -> m_eP2PeerConMode  =    P2PeerCon_Accept;
            pConSpawn -> m_oP2Padomain     = m_oP2Padomain;
+      //  The trust CEILING, and it is the one line in the trust-class feature
+      //  that this function can forget.
+      //  NOTES: The CLASS is not here and cannot be - TrustClass() is a
+      //         virtual, the child is the same class as the service, and that
+      //         is the whole reason this feature is allowed to exist beside
+      //         the hub-only rule in SECURITY.md
+      //       : The DEMOTION is per-object state and has to be carried, or an
+      //         operator who demoted a listener demoted only the object that
+      //         never carries traffic.  Losing this line makes a child read
+      //         the class its transport vouches for instead of the lower one
+      //         the operator asked for - which is the direction that fails
+      //         towards the transport's own honest answer rather than past it,
+      //         and it is pinned by a gate-test phase rather than left to that
+           pConSpawn -> m_eTrustCeiling   = m_eTrustCeiling;
            pConSpawn -> m_dwState
                        = m_dwState & ~( ConState_Recv
                                       | ConState_Send
@@ -2419,16 +2438,50 @@ P2PeerCon::GetAuthHub ( )
 //
 
 //
+//  Has this hub relaxed the per-link protections for this link's class?
+//  NOTES: Two conditions and both are needed.  A hub with RequireAuth(false)
+//         is NOT relaxed: it has turned the switch off outright, and every
+//         reason a login is or is not signed on such a hub is what it was
+//         before this feature existed.  Only a hub that still REQUIRES
+//         authentication and has named a class it will not require it ON can
+//         answer true here, which is what keeps every existing deployment
+//         byte-identical
+//       : Wire can never reach P2PeerLinkPolicy_Open - SetLinkPolicy refuses
+//         it - so a link the transport could not vouch for cannot arrive here
+//         and be relaxed by a policy the operator set for something else
+//
+bool
+P2PeerCon::AuthLinkRelaxed ( )
+{
+    P2PeerHub *pHub = GetAuthHub ( );
+    if ( !pHub || !pHub -> IsAuthRequired ( ) )
+      return false;
+    return pHub -> GetLinkPolicy ( EffectiveTrust ( ) )
+             != P2PeerLinkPolicy_Full;
+}
+
+//
 //  Does this connection run a key agreement?
 //  NOTES: The single gate.  Tied to RequireAuth rather than given a switch
 //         of its own, because a confidential channel to an unproven peer and
 //         a proven peer on a readable wire are each half an answer
+//       : Two inputs since the per-class link policy landed, and they are
+//         asked in this order for a reason.  The hub's switch is still the
+//         thing an operator turns; the class only says whether the hub's
+//         answer for THAT class applies.  A hub that requires nothing is
+//         unaffected by any of it
+//       : This is the question AuthGateInbound asks too, by calling this
+//         function rather than composing it a second time.  F-S6-1 was two
+//         ends of one link reading different halves of one switch, and the
+//         cheapest way to be sure that cannot recur through a change that
+//         ADDS a half is to have exactly one place the halves are put
+//         together
 //
 bool
 P2PeerCon::KeyXWanted ( )
 {
     P2PeerHub *pHub = GetAuthHub ( );
-    return pHub && pHub -> IsAuthRequired ( );
+    return pHub && pHub -> IsAuthRequired ( ) && !AuthLinkRelaxed ( );
 }
 
 //
@@ -3368,7 +3421,14 @@ P2PeerCon::AuthGateInbound ( P2PeerMsg *pMsg, bool bAck )
     // Not enforcing?
     // NOTES: A hub that requires nothing verifies nothing, and behaviour
     //        is byte-identical to a tree without this feature.
-    if ( !pHub -> IsAuthRequired ( ) )
+    //      : KeyXWanted() and NOT IsAuthRequired(), since the per-class link
+    //        policy landed.  There are now two ways to reach "this link does
+    //        not authenticate" - the hub's switch is off, or the hub has
+    //        relaxed the class this link belongs to - and the INITIATING side
+    //        already read both through KeyXWanted().  Asking the narrower
+    //        question here would demand a signature on a link whose peer was
+    //        told not to make one, which is F-S6-1 with the halves swapped
+    if ( !KeyXWanted ( ) )
     {
       // A peer that signs to a hub which does not require authentication
       // gets its block handed to the application, because stripping
@@ -3376,15 +3436,32 @@ P2PeerCon::AuthGateInbound ( P2PeerMsg *pMsg, bool bAck )
       // then refuses the payload loudly ("contains login data").  Named
       // here so the log identifies the misconfiguration rather than
       // leaving that message to be puzzled over.
+      //
+      // The two ways of arriving here need different advice, because the
+      // second one is not a misconfiguration on this hub at all: the peer's
+      // hub has this link in a class it still requires authentication on, and
+      // ours does not.  Naming the class is what lets an operator find the
+      // half that disagrees rather than re-reading the half that does not.
       if ( pMsg && pMsg->DataSize ( ) > 0 &&
            p2pauth::AuthPolicy::LooksLikeBlock ( pMsg->Data ( )
                                                , (size_t)pMsg->DataSize ( ) ) )
-        EVWRN->Module (__FUNCTION__)->AFPcon(this)
-             ->Message_T("Peer sent a login auth block, but this hub does "
-                         "not require authentication")
-             ->Advice_T ("RequireAuth(true) on this hub, or stop signing "
-                         "on the peer")
-             ->Display()->SetLast();
+      {
+        if ( AuthLinkRelaxed ( ) )
+          EVWRN->Module (__FUNCTION__)->AFPcon(this)
+               ->Message(_T("Peer sent a login auth block on a link this hub "
+                            "has relaxed (trust class %d)")
+                        , (int)EffectiveTrust ( ) )
+               ->Advice_T ("SetLinkPolicy(class, P2PeerLinkPolicy_Open) on the "
+                           "peer as well, or Full here")
+               ->Display()->SetLast();
+        else
+          EVWRN->Module (__FUNCTION__)->AFPcon(this)
+               ->Message_T("Peer sent a login auth block, but this hub does "
+                           "not require authentication")
+               ->Advice_T ("RequireAuth(true) on this hub, or stop signing "
+                           "on the peer")
+               ->Display()->SetLast();
+      }
       return;
     }
 
@@ -3659,11 +3736,18 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     //        reason about whose "this" is whose "that".
     //      : ...and with the channel binding when a key agreement ran, so
     //        the proof names THIS connection and is worthless on any other
+    //      : NOT signed on a link whose class this hub has relaxed.  There is
+    //        no agreement on such a link by intent, so a block built here
+    //        would pass a null binding into the transcript and name no
+    //        connection - which is the exact state F-S6-1 was, arrived at
+    //        deliberately instead of by accident.  A hub with
+    //        RequireAuth(false) is untouched by this test: refer
+    //        AuthLinkRelaxed()
     unsigned char *pAuthBuf   = 0;
     const void    *pvSendMsg  = pvLoginMsg;
     P2Psize_t      iSendSize  = iSize;
     P2PeerHub     *pAuthHub   = GetAuthHub ( );
-    if ( pAuthHub && pAuthHub -> CanAuthSign ( ) )
+    if ( pAuthHub && pAuthHub -> CanAuthSign ( ) && !AuthLinkRelaxed ( ) )
     {
       unsigned char       aBlock[p2pauth::kAuthLoginLen];
       p2pauth::AuthResult eAuth =
@@ -5211,6 +5295,43 @@ P2PeerCon::LeavesProcess ( )
     return pIO ? pIO -> LeavesProcess ( ) : false;
 }
 
+//
+//  Hold this connection to no better than the given trust class
+//  NOTES: TIGHTENS ONLY, and the test is one line because that is the whole
+//         guarantee: a caller asking for a HIGHER class than the ceiling
+//         already holds changes nothing, so no sequence of calls - and no
+//         caller that reaches this after another one did - can hand a
+//         connection back a class it was denied
+//       : There is no PromoteTrust and there must not be.  The classes above
+//         Wire are claims the kernel or construction makes good; an operator
+//         asserting one the library cannot check would be writing an
+//         intention into the field the policy reads as a fact, which is asset
+//         S9 in THREAT_MODEL.md
+//       : No lock.  It is a single enum store on a connection, it is meant to
+//         be called before the connection is posted to a hub, and a torn read
+//         of an enum whose values are 0, 1 and 2 is not a state this type has
+//
+void
+P2PeerCon::DemoteTrust ( P2PeerConTrust_e eNoBetterThan )
+{
+    if ( eNoBetterThan < m_eTrustCeiling )
+      m_eTrustCeiling = eNoBetterThan;
+}
+
+//
+//  What the policy reads: the transport's answer, capped by the operator's
+//  NOTES: min(), and it is a min BECAUSE the enum is ordered from least
+//         trusted upwards - refer P2PeerConTrust_e.  Both inputs can only
+//         lower the answer, so there is no combination of a transport and an
+//         operator that produces a class neither of them stated
+//
+P2PeerConTrust_e
+P2PeerCon::EffectiveTrust ( ) const
+{
+    const P2PeerConTrust_e eClass = TrustClass ( );
+    return eClass < m_eTrustCeiling ? eClass : m_eTrustCeiling;
+}
+
 P3PmsgItem
 P2PeerCon::Serialise ( LPCTNAM lpszVar )
 {
@@ -5278,6 +5399,31 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     P3PmsgField_SERIALISE ( oNodeVar, _N("OffProcess")
                           , (UINT32)( LeavesProcess ( ) ? 1 : 0 ), bDsc
                           , _T("Frames on this transport leave this process") );
+
+    //  SEVEN since the trust class landed, and the two new ones are what make
+    //  Cypher=0 readable as a DECISION rather than only as an exemption.
+    //  OffProcess above already told a reader that DMX is the tree's one
+    //  legitimate plaintext transport; it says nothing about a loopback socket,
+    //  and nothing at all about whether the hub was ASKED to relax the link.
+    //  NOTES: TWO fields and not one, for the reason there are five above.
+    //         TrustClass is what the TRANSPORT vouches for; Trust is what the
+    //         policy actually read after the operator's DemoteTrust(). They
+    //         agree on every connection nobody has demoted, and a reader that
+    //         saw only the second could not tell a transport that answered
+    //         Wire from one that was held down to it
+    //       : Values are P2PeerConTrust_e - 0 Wire, 1 Local, 2 InProcess - and
+    //         are rendered as the number rather than a name for the same
+    //         reason AuthArm renders an int: the enumeration is the ABI, and a
+    //         string in a snapshot is a second spelling of it that can drift
+    //       : Neither takes a lock or can throw.  TrustClass() reads a socket
+    //         or nothing at all, and answers Wire for a connection being torn
+    //         down - refer the note on the other four
+    P3PmsgField_SERIALISE ( oNodeVar, _N("TrustClass")
+                          , (UINT32)TrustClass ( ), bDsc
+                          , _T("What this transport vouches for: 0 wire, 1 local, 2 in-process") );
+    P3PmsgField_SERIALISE ( oNodeVar, _N("Trust")
+                          , (UINT32)EffectiveTrust ( ), bDsc
+                          , _T("...after the operator's demotion - what the policy reads") );
 
     // Tidy up and
     return oNodeVar;

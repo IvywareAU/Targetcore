@@ -674,6 +674,35 @@ const wchar_t* p2peerconwsa_get_address(P2PeerConWsaHandle h)
     catch (...) { return nullptr; }
 }
 
+// What this socket can vouch for: 0 wire, 1 local, 2 in-process.
+//
+// EffectiveTrust() rather than TrustClass(), because this is the value the
+// hub's per-class link policy is actually read with, and a diagnostic that
+// reported the transport's answer while the gate used a demoted one would be
+// the kind of disagreement the posture accessors exist to prevent.
+//
+// 0 on a null handle or a throw. Wire is the fail-closed answer everywhere
+// else in this feature and it is the answer here.
+int p2peerconwsa_get_trust_class(P2PeerConWsaHandle h)
+{
+    P2PeerConWsa* p = wsa(h);
+    if (!p) return (int)P2PeerConTrust_Wire;
+    try         { return (int)p->EffectiveTrust(); }
+    catch (...) { return (int)P2PeerConTrust_Wire; }
+}
+
+// Hold this connection to no better than the given class. TIGHTENS ONLY: a
+// call naming a class above the one already in force does nothing, and there
+// is deliberately no promote. A class this build does not have is ignored by
+// the same rule.
+void p2peerconwsa_demote_trust(P2PeerConWsaHandle h, int trustClass)
+{
+    P2PeerConWsa* p = wsa(h);
+    if (!p) return;
+    try         { p->DemoteTrust((P2PeerConTrust_e)trustClass); }
+    catch (...) { }
+}
+
 P2PeerMsgHandle p2peerconwsa_post_msg(P2PeerConWsaHandle h, P2PeerMsgHandle m)
 {
     // Return contract (unchanged): null means posted, non-null means NOT posted.
@@ -784,6 +813,60 @@ int p2peerhub_is_auth_required(P2PeerHubHandle h)
     if (!p) return 0;
     try         { return p->IsAuthRequired() ? 1 : 0; }
     catch (...) { return 0; }
+}
+
+// The per-trust-class link policy. Both enums cross as ints for the reason
+// IdResult and ArmResult do - an FFI consumer cannot see a C++ enum - and the
+// numbers are written down in the header.
+//
+// A trust class this build does not have, and the wire class, are ignored by
+// P2PeerHub::SetLinkPolicy rather than reported. That is the C++ contract and
+// this does not invent a second one: a flat-C caller that could distinguish
+// "refused because it is the wire" from "accepted" would be reading a decision
+// the C++ surface does not expose either, and the posture reports what was
+// actually set.
+void p2peerhub_set_link_policy(P2PeerHubHandle h, int trustClass, int policy)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return;
+    try         { p->SetLinkPolicy((P2PeerConTrust_e)trustClass,
+                                   (P2PeerLinkPolicy_e)policy); }
+    catch (...) { }
+}
+
+// 0 full, 1 open. A null handle answers 0, which is the same fail-closed
+// reading a hub with no policy object gives: what cannot be read demands
+// everything.
+int p2peerhub_get_link_policy(P2PeerHubHandle h, int trustClass)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return (int)P2PeerLinkPolicy_Full;
+    try         { return (int)p->GetLinkPolicy((P2PeerConTrust_e)trustClass); }
+    catch (...) { return (int)P2PeerLinkPolicy_Full; }
+}
+
+// The fence. An out-of-range class is ignored one layer down, in
+// AuthPolicy::SetTrustFloor, so this entry point and the C++ one cannot come
+// apart on it - the same arrangement set_link_policy has with the wire class.
+void p2peerhub_require_trust_at_least(P2PeerHubHandle h, int trustClass)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return;
+    try         { p->RequireTrustAtLeast((P2PeerConTrust_e)trustClass); }
+    catch (...) { }
+}
+
+// 0 wire (no fence), 1 local, 2 in-process. A null handle answers 0, which is
+// the reading that changes nothing: it is what an unconfigured hub reports, and
+// the opposite direction from get_link_policy's fail-closed 0 for the reason
+// written out at P2PeerHub::GetRequiredTrust - there the strict answer DEMANDS
+// a handshake, here it would REFUSE a link nobody fenced out.
+int p2peerhub_get_required_trust(P2PeerHubHandle h)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return (int)P2PeerConTrust_Wire;
+    try         { return (int)p->GetRequiredTrust(); }
+    catch (...) { return (int)P2PeerConTrust_Wire; }
 }
 
 int p2peerhub_set_identity(P2PeerHubHandle h, const char* pathUtf8, int createIfAbsent)

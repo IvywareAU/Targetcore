@@ -454,6 +454,50 @@ NormaliseP2PeerConSockaddr ( SOCKADDR_STORAGE &rAddr, int nLen )
 }
 
 //
+//  Description: Is this address on THIS machine's loopback?
+//
+//               NOTES: The whole of 127.0.0.0/8 and ::1/128 - exactly the two
+//                      prefixes AllowAcceptLoopback() writes into the accept
+//                      allow-list, and deliberately the same two.  v4 has a
+//                      loopback NET and v6 has a single loopback ADDRESS, so
+//                      the asymmetry is the standards' and not a shortcut
+//                    : Reads the BYTES through P2PeerConAddrBytes(), so an
+//                      address family this transport does not open answers
+//                      false rather than being interpreted as something it is
+//                      not.  A length without a meaning is worse than none
+//                    : The caller must have normalised first.  A v4-mapped
+//                      ::ffff:127.0.0.1 is sixteen bytes here and would NOT
+//                      match ::1 - which is the correct reading of the bytes
+//                      and the wrong answer about the host, and is why every
+//                      call site runs NormaliseP2PeerConSockaddr() ahead of
+//                      this one
+//
+//  Parameters:  const sockaddr *pName, int nNameLen
+//               The address, normalised
+//
+//  Returns:     bool
+//               Whether the kernel can reach that address without a network
+//
+static bool
+IsP2PeerConSockaddrLoopback ( const sockaddr *pName, int nNameLen )
+{
+    const UCHAR *pucAddr = 0;
+    const int    nBytes  = P2PeerConAddrBytes ( pName, nNameLen, pucAddr );
+
+    if ( nBytes == 4 )
+      return pucAddr[0] == 127;                 // 127.0.0.0/8
+
+    if ( nBytes == 16 )
+    {
+      static const UCHAR ucV6Loopback[16] =
+        { 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1 };
+      return memcmp ( pucAddr, ucV6Loopback, sizeof(ucV6Loopback) ) == 0;
+    }
+
+    return false;                               // unnameable - refer above
+}
+
+//
 //  Description: Renders a socket address as text, for a diagnostic
 //
 //               NOTES: getnameinfo(NI_NUMERICHOST) rather than four %u and a
@@ -1254,6 +1298,58 @@ P2PeerConWsa::AcceptSourceKey ( ) const
     SOCKADDR_STORAGE oPeer;
     const int        nLen = AcceptSourceAddress ( oPeer );
     return KeyP2PeerConSource ( oPeer, nLen );
+}
+
+//
+//  Description: What this socket can vouch for about where its frames go
+//
+//               NOTES: Refer the block comment on the declaration in
+//                      P2PeerConWsa.h for the argument.  The code is the
+//                      argument in three lines: ask the kernel who the peer
+//                      is, and if there is no peer to ask about, answer from
+//                      the bind
+//                    : m_oSocket and NOT m_oSocketAccept.  The second is the
+//                      half-accepted endpoint a SERVICE holds for the instant
+//                      between accept and AcceptSpawn(); by the time anything
+//                      asks a connection what class it is, that socket has
+//                      been handed to the child and is the child's m_oSocket
+//                    : A getpeername() that FAILS falls through to the listen
+//                      scope rather than answering Wire outright, because the
+//                      commonest failure here is ENOTCONN on a service's
+//                      listening socket - which is precisely the case the
+//                      fallback exists for.  Every other failure lands on
+//                      Wire, which is the fail-closed direction
+//
+//  Returns:     P2PeerConTrust_e
+//               P2PeerConTrust_Local for a link the kernel keeps on this
+//               machine, P2PeerConTrust_Wire otherwise
+//
+P2PeerConTrust_e
+P2PeerConWsa::TrustClass ( ) const
+{
+    if ( m_oSocket != INVALID_SOCKET )
+    {
+      SOCKADDR_STORAGE oPeer;
+      memset ( &oPeer, 0, sizeof(oPeer) );
+      socklen_t nLen = (socklen_t)sizeof(oPeer);
+      if ( getpeername ( m_oSocket, (sockaddr *)&oPeer, &nLen ) != SOCKET_ERROR
+           && nLen > 0 && nLen <= (socklen_t)sizeof(oPeer) )
+      {
+        const int nNormalised = NormaliseP2PeerConSockaddr ( oPeer, (int)nLen );
+        return IsP2PeerConSockaddrLoopback ( (const sockaddr *)&oPeer
+                                           , nNormalised )
+                 ? P2PeerConTrust_Local
+                 : P2PeerConTrust_Wire;
+      }
+    }
+
+    //  No peer to name: a SERVICE, or a client that has not dialled.  What it
+    //  BOUND is then the only kernel fact available, and it is the honest
+    //  answer for a posture reading of an object that carries no traffic
+    if ( m_eListenScope == P2PeerConScope_Loopback )
+      return P2PeerConTrust_Local;
+
+    return P2PeerConTrust_Wire;
 }
 
 P2PeerCon*

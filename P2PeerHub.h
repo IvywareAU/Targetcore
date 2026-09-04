@@ -33,6 +33,28 @@
 
 namespace p2pauth { class AuthPolicy; }
 
+///////////////////////////////////////////////////////////////////////
+//  What a link of a given TRUST CLASS must do
+//  NOTES: The other half of P2PeerConTrust_e (P2PeerCon.h). The connection
+//         states a FACT about where its frames can go; this is what the hub
+//         DEMANDS of a link that stated it, and it stays on the hub - one
+//         object, one lock, one place to read - which is the property
+//         SECURITY.md's "no per-connection override" sentence exists to hold
+//       : Full is what every link gets today: an ephemeral ECDH agreement, the
+//         session cypher installed on the io object, and a login signed at one
+//         end and verified at the other. Open is none of those three
+//       : They are a PAIR and they move together. A link that skips the
+//         agreement has no channel binding, so a signature on its login would
+//         name no connection - which is F-S6-1's state - and a link that
+//         signs without a cypher is the same finding from the other side. The
+//         one thing this must never offer is a way to take one of the three
+//         and leave the others
+typedef enum
+{
+    P2PeerLinkPolicy_Full = 0,         // agreement, cypher, signed login
+    P2PeerLinkPolicy_Open = 1,         // none of the three
+} P2PeerLinkPolicy_e;
+
 typedef void (P2PeerHub::*RUN_HUB)(void);
 #define RUN_HUB_cast(method) ((RUN_HUB)(RUN_HUB) \
 		(static_cast<void (P2P_MSG_CALL P2PeerHub::*)(void)>(method)))
@@ -253,6 +275,28 @@ class TargetCore_EXT P2PeerHub : public P2PeerTarget
         bool      bRevocOk;           // revocation is not refusing logins
         bool      bRevocFresh;        // ...and what it knows is current
         long long llRevocEpoch;       // epoch of the applied list
+        //  Per-trust-class link policy, indexed by P2PeerConTrust_e, values
+        //  P2PeerLinkPolicy_e. [0] is the wire and is always Full.
+        //
+        //  It is here for the reason OffProcess was added to the CONNECTION
+        //  snapshot closing F-S6-3: without it, a connection reporting
+        //  Cypher=0 on a hub reporting AuthRequired=1 is unreadable. That pair
+        //  is a defect on a wire, the tree's one legitimate exemption on DMX,
+        //  and now also a stated decision - and an operator must be able to
+        //  tell the three apart without reading the source. The connection's
+        //  half is its Trust field; this is the hub's.
+        int       anLinkPolicy[3];
+        //  RequireTrustAtLeast(), as a P2PeerConTrust_e.  0 - the wire - is
+        //  "no fence" and is what an unconfigured hub reads.
+        //
+        //  It is rendered beside the three above it because the pair is what
+        //  makes an opened class legible: anLinkPolicy says which classes may
+        //  skip the handshake, and this says which classes this hub will
+        //  accept a connection of at all.  A hub reading InProcess/Open with
+        //  nTrustFloor 0 has relaxed its in-process links and can still be
+        //  handed a socket; the same hub reading nTrustFloor 2 cannot, and
+        //  the difference between those two is not visible anywhere else.
+        int       nTrustFloor;
       };
       bool
         TryReadPosture ( Posture& rOut );
@@ -307,6 +351,91 @@ class TargetCore_EXT P2PeerHub : public P2PeerTarget
         IsAuthRequired   ( );
       bool
         CanAuthSign      ( );
+
+      // What a link of the given TRUST CLASS must do, when RequireAuth is on.
+      //
+      // This is the answer to "a DMX connection is a pointer handoff between
+      // two objects on one heap, and it runs an ECDH agreement, installs a
+      // BCrypt key object nothing ever consults, and signs four ECDSA
+      // operations onto a login, to protect a channel that has no wire".
+      // RequireAuth(false) was the only way to say so and it is all or
+      // nothing: a hub with three DMX links and one TCP link either paid on
+      // all four or authenticated none of them.
+      //
+      // THE POLICY IS STILL THE HUB'S AND THERE IS STILL NO PER-CONNECTION
+      // OVERRIDE. What the connection contributes is P2PeerConTrust_e - a
+      // fact about its transport, a virtual on the class, and nothing
+      // AcceptSpawn can fail to copy. What must a link of that class do is
+      // answered here, once, under this hub's lock, and is reported by
+      // TryReadPosture. Refer the note on the AcceptSpawn hazard above: it is
+      // about a security SETTING living on the connection, and this puts none
+      // there.
+      //
+      // P2PeerConTrust_Wire CANNOT BE OPENED and this refuses to. Wire is
+      // what every transport that has vouched for nothing answers - a serial
+      // line, a socket that is not on loopback, and as coded a named pipe,
+      // which accepts a client arriving over SMB from another host. Opening
+      // it would relax the entire tree through a call that reads as though it
+      // named one kind of link. RequireAuth(false) is how a wire is opened;
+      // it is hub-wide, and the posture and the arming gate both say so.
+      //
+      // BOTH ENDS OF A LINK NEED THE SAME ANSWER. The initiating end reads
+      // this to decide whether to run the agreement and sign; the accepting
+      // end reads it to decide whether to demand one. A client that skipped
+      // the agreement against a server that wanted it is refused exactly as it
+      // is today - that refusal is F-S6-1's fix and this change is routed
+      // through the same single predicate so it cannot come apart.
+      //
+      // Every class defaults to P2PeerLinkPolicy_Full, so a hub nobody has
+      // configured is byte-for-byte what it was. Configure BEFORE
+      // CreateHub()/SpawnHub(), like everything else here.
+      //
+      // WHAT THIS DOES NOT DO. It is a per-LINK policy and it does not touch
+      // the two per-MESSAGE protections. Relay attestation and end-to-end
+      // sealing are properties of an ORIGIN and a DESTINATION, not of one
+      // hop: a DMX first hop says nothing about a TCP third one, so an
+      // in-process link under Open still signs and still seals. Those are
+      // gated on whether the destination is in this process, which is a
+      // separate change and is not this one.
+      void
+        SetLinkPolicy    ( P2PeerConTrust_e   eClass
+                         , P2PeerLinkPolicy_e ePolicy );
+      P2PeerLinkPolicy_e
+        GetLinkPolicy    ( P2PeerConTrust_e   eClass );
+
+      // THE FENCE, and it is the other half of SetLinkPolicy rather than a
+      // separate feature. Refuse to hold a connection whose EffectiveTrust()
+      // is below eClass: a hub that exists to route inside a process says
+      // P2PeerConTrust_InProcess here, and a P2PeerConWsa posted to it later
+      // is refused at PostP2PeerCon with a diagnostic naming the class,
+      // rather than authenticated in full and quietly making the hub a
+      // network endpoint.
+      //
+      // THIS IS WHAT MAKES THE OPT-OUT SAFER THAN THE OLD ONE AND NOT MERELY
+      // CHEAPER. RequireAuth(false) opens every link the hub will ever hold,
+      // including one posted an hour later by code that never read the
+      // setting. SetLinkPolicy(InProcess, Open) with RequireTrustAtLeast
+      // (InProcess) opens the links that cannot leave the process and refuses
+      // the rest outright.
+      //
+      // P2PeerConTrust_Wire is the default and means NO fence - it is the
+      // class every transport that has vouched for nothing answers, so a
+      // floor there refuses nothing. Configure before CreateHub()/SpawnHub(),
+      // like everything else here.
+      //
+      // WHAT IT IS MEASURED AGAINST is EffectiveTrust(), not TrustClass(): a
+      // connection an operator demoted is refused on the class they demoted
+      // it to, which is the reading every other gate in this feature takes.
+      // The check is made where the connection joins the hub, so it covers
+      // the object the caller posts. An ACCEPTED child does not pass through
+      // here - it is spawned by its service, which was fenced when IT was
+      // posted, and it inherits both the class (a virtual) and the ceiling
+      // (the one copied field), so it cannot read higher than the service the
+      // fence already admitted.
+      void
+        RequireTrustAtLeast ( P2PeerConTrust_e eClass );
+      P2PeerConTrust_e
+        GetRequiredTrust    ( );
 
       // Can this hub enforce what it is set to require? Pure query, valid at
       // any time, and what CreateHub()/SpawnHub() consult before arming.

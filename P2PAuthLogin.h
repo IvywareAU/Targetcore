@@ -303,9 +303,32 @@ namespace p2pauth
         //  and SealErrVersion follow in P2PeerSeal.h.
         ArmNoRevocation,      // no revocation list, and no SetRevocationRequired
                               //   (false) to say that was deliberate
-        ArmRevocationUnusable // configured, and the last load of it FAILED -
+        ArmRevocationUnusable,// configured, and the last load of it FAILED -
                               //   which refuses every peer, so it refuses at
                               //   startup instead of at the first login
+
+        //  APPENDED, not slotted in beside the results it belongs with, for
+        //  the same reason the two revocation values were: every value above
+        //  keeps the number it has always had.
+        //
+        //  SetTrustFloor names a class this hub will not hold a link below,
+        //  and every class at or above that floor is Open.  So this hub can
+        //  never demand a signature from anybody: PostP2PeerCon refuses the
+        //  classes under the floor, and the policy for the classes over it
+        //  asks for no agreement, no cypher and no signature.
+        //
+        //  It passes the SAME test this enum is governed by - does the
+        //  unprovisioned state refuse EVERYONE, or one narrow shape?  It
+        //  refuses nobody, which is the identical verdict SetRequired(false)
+        //  gets, and it arms for the identical reason.
+        //
+        //  What it is NOT is quiet.  The posture still reads AuthRequired=1,
+        //  beside TrustFloor and the three LinkPol fields, so an operator
+        //  reading it sees a hub that asked for authentication and then
+        //  described a set of links on which there is none of it left to do.
+        //  That is a decision.  ArmNoIdentity exists to catch an omission,
+        //  and this is not one.
+        ArmNotRequiredByPolicy
 
         //  THERE IS NO ArmNoAgreement, AND THERE WAS ONE FOR AN HOUR ON
         //  2026-08-21. Recorded because the reasoning that removed it is the
@@ -664,6 +687,64 @@ namespace p2pauth
         // NOTHING, which is what the old default made the easy path.
         void SetRequired ( bool bRequire );
         bool IsRequired  ( ) const { return m_bRequired; }
+
+        // What a link of a given TRUST CLASS must do, when SetRequired is on.
+        //
+        // 0 is "full" - the key agreement, the link cypher and a signed,
+        // verified login, which is what every link gets today. 1 is "open" -
+        // none of the three. The class is P2PeerConTrust_e: 0 wire, 1 local,
+        // 2 in-process.
+        //
+        // WHY THIS IS INTS AND NOT THE TWO ENUMS. Both of them live in
+        // P2PeerCon.h, which reaches stdafx.h and MFC; this translation unit
+        // is one of the three that deliberately compiles without either,
+        // because the login transcript IS the wire and a byte of drift
+        // between the CNG and OpenSSL builds is a login that works only
+        // within one operating system. P2PeerHub's typed surface is where the
+        // enums belong and it is the only caller.
+        //
+        // CLASS 0 CANNOT BE OPENED and this refuses to do it. A wire is the
+        // answer for every transport that has not vouched for anything, so
+        // opening class 0 would relax every link in the tree through a call
+        // that reads as though it relaxed one kind - and RequireAuth(false)
+        // already says that, hub-wide, loudly, and in one place an operator
+        // and a posture reader both already know to look.
+        //
+        // Both classes default to full, so a hub nobody has configured
+        // behaves exactly as it did before this existed.
+        void SetLinkPolicy ( int nTrustClass, int nPolicy );
+        int  GetLinkPolicy ( int nTrustClass ) const;
+
+        // THE FENCE.  The lowest trust class this hub will hold a link of;
+        // P2PeerHub::PostP2PeerCon refuses anything below it.  0 - the wire -
+        // is the default and means NO fence, because a wire is what every
+        // transport that has vouched for nothing answers and a floor there
+        // would refuse nothing.
+        //
+        // It is the half of SetLinkPolicy that keeps a relaxation from
+        // becoming an exposure.  A hub that opens its in-process class is one
+        // PostP2PeerCon away from carrying a socket it did not plan for.  The
+        // socket would authenticate in full - the wire's policy is Full and
+        // cannot be set otherwise - so nothing is WEAKENED; what happens is
+        // that a hub which exists to route inside a process quietly becomes a
+        // network endpoint.  SetTrustFloor(2) says out loud that it is not
+        // one, and the refusal names the class it refused.
+        //
+        // Ints and not the enum, for the reason written out over
+        // SetLinkPolicy.  An out-of-range class is ignored.
+        void SetTrustFloor ( int nTrustClass );
+        int  GetTrustFloor ( ) const;
+
+        // Is there a fence, and is every class at or above it Open?  Then
+        // this policy can never demand a signature from anybody, which is
+        // what ArmNotRequiredByPolicy reports.
+        //
+        // FALSE WHEN THERE IS NO FENCE, whatever the classes say, and that is
+        // the load-bearing half.  Without a floor, a link of a class this hub
+        // has NOT opened can still be posted to it, so "everything held is
+        // open" is not a property the hub has - it is one it happens to have
+        // until the next PostP2PeerCon.
+        bool LinkPolicyOpensAllHeld ( ) const;
 
         // Can this policy enforce what it is set to require? Pure query - it
         // loads nothing, changes nothing, and is safe to call at any time.
@@ -1074,6 +1155,16 @@ namespace p2pauth
         p2pcng::EcdhP256  *m_pAgreement;     // this peer's static ECDH key
         bool               m_bHaveAgreement;
         bool               m_bRequired;
+        //  Per-trust-class link policy, indexed by P2PeerConTrust_e. Three
+        //  entries because the enum has three members; [0] is the wire and is
+        //  pinned to "full" by SetLinkPolicy, so the array is uniform and the
+        //  refusal lives in one place rather than in every reader.
+        unsigned char      m_aLinkPolicy[3];
+        //  The fence - refer SetTrustFloor.  0 is P2PeerConTrust_Wire and is
+        //  "no fence": it is what an unconfigured hub has and what every
+        //  transport that vouches for nothing answers, so a floor there
+        //  refuses nothing and changes nothing.
+        unsigned char      m_nTrustFloor;
         bool               m_bRelayRequired;
         bool               m_bRelayReplay;
         bool               m_bSealReplay;

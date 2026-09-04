@@ -22,6 +22,56 @@
 #include "P2PeerConPipe.h"
 #include "P2Pwin32.h"
 
+#ifdef _WIN32
+#  include <sddl.h>
+#  pragma comment(lib, "advapi32.lib")   // ConvertStringSecurityDescriptorToSecurityDescriptor
+#endif
+
+//
+//  The descriptor a P2PeerConPipeAccess_Owner pipe is created with.
+//  NOTES: Protected (D:P), so nothing is inherited from anywhere, and three
+//         ACEs and no more:
+//           (A;;FA;;;SY)  LocalSystem     - full
+//           (A;;FA;;;BA)  Administrators  - full (they can take ownership
+//                                           regardless; denying is theatre)
+//           (A;;FA;;;OW)  Owner Rights    - full, so the creating account can
+//                                           still open the pipe it made
+//       : What is NOT here is the change.  The platform's default descriptor
+//         for a named pipe grants READ to Everyone and to Anonymous; a client
+//         opening GENERIC_READ|GENERIC_WRITE failed on it anyway, but as a
+//         side effect of the access mask rather than as a decision.  This is
+//         the decision
+//       : Byte for byte the descriptor P2PIdentityStore.cpp writes on an
+//         identity file, deliberately.  Both are answering "which account may
+//         reach this endpoint", and two answers to one question that drift
+//         apart are worse than one answer that is wrong in one place
+//
+static LPCTSTR kPipeSddlOwner = _T("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)");
+
+//
+//  Whether a pipe name names the LOCAL named-pipe device.
+//  NOTES: \\.\pipe\Name is NPFS on this machine and nothing else can be;
+//         \\host\pipe\Name goes out through the SMB redirector and is a
+//         network path even when host resolves back here.  \\localhost\pipe\
+//         and \\127.0.0.1\pipe\ are therefore Wire by this test, which is
+//         the fail-closed direction and is meant
+//       : This is the CLIENT's half of the locality question.  A client
+//         cannot see whether the server passed PIPE_REJECT_REMOTE_CLIENTS -
+//         but it does not need to, because the reject is what stops a REMOTE
+//         client, and the only claim being made here is about this end
+//       : GetNamedPipeServerProcessId() would be a stronger reading (it fails
+//         for a remote server) but needs the handle and one more syscall on
+//         every posture read, and the device path is already a kernel fact
+//
+static bool
+P2PeerConPipenameIsLocal ( LPCTSTR pszName )
+{
+    if ( pszName == 0 || *pszName == 0 )
+      return false;
+    return _tcsnicmp ( pszName, _T("\\\\.\\pipe\\"), 9 ) == 0 ||
+           _tcsnicmp ( pszName, _T("//./pipe/"),    9 ) == 0;
+}
+
 ///////////////////////////////////////////////////////////////////////
 //  Constructors and destructor
 
@@ -75,7 +125,16 @@ void
 P2PeerConPipe::RenderThisSafe()
 {
     // Attributes
-    m_hFile = 0;
+    m_hFile       = 0;
+
+    // Locality
+    // NOTES: The DEFAULT MOVED.  Every pipe this transport creates now
+    //        refuses remote clients and takes the descriptor above; the old
+    //        call is P2PeerConPipeAccess_Legacy and has to be asked for
+    //      : m_bPipeLocal is false because there is no handle yet, and it is
+    //        never true of anything but a handle
+    m_ePipeAccess = P2PeerConPipeAccess_Owner;
+    m_bPipeLocal  = false;
 }
 
 P2PeerConPipe*
@@ -144,6 +203,18 @@ P2PeerConPipe::AcceptSpawn ( P2PeerCon *pConSpawn )
     pConSpawnPipe -> m_sPipename  = m_sPipename;
     pConSpawnPipe -> m_eP2PeerConMode  =    P2PeerCon_SERVICE;
              this -> m_eP2PeerConMode  =    P2PeerCon_Accept;
+
+    // Locality
+    // NOTES: The roles swap here - THIS becomes the accepted connection and
+    //        keeps the handle it created, the SPAWN becomes the service and
+    //        re-arms with a CreateListenPipe() of its own.  So the SETTING
+    //        travels (or the second instance of a pipe would be a different
+    //        pipe from the first) and the FACT does not: m_bPipeLocal stays
+    //        false on the spawn until its own CreateNamedPipe succeeds, and
+    //        stays whatever it was on this, which is what this handle was
+    //        actually made with
+    pConSpawnPipe -> m_ePipeAccess = m_ePipeAccess;
+    pConSpawnPipe -> m_sPipeSddl   = m_sPipeSddl;
 
     // Done
     // NOTES: Spawned object is free floating
@@ -314,6 +385,7 @@ P2PeerConPipe::Drop ( P2Pevent *pEVENT )
               ->HResult ( GetLastError() );
       m_hFile      = 0;
       m_hFileCPort = 0;
+      m_bPipeLocal = false;            // the fact goes with the handle
     }
 
     // Always delegate
@@ -390,14 +462,73 @@ P2PeerConPipe::CreateListenPipe ( )
     //        different whereby the listening P2PeerCon morphs into the
     //        accepted connection
     ASSERT(m_hFile==0);
+
+    // Locality
+    // NOTES: PIPE_REJECT_REMOTE_CLIENTS and an explicit descriptor together,
+    //        because they answer different halves and only both make the
+    //        class true: the reject keeps the SMB redirector out, the DACL
+    //        decides which local account may open what is left
+    //      : Legacy reproduces the pre-revision call exactly - no reject,
+    //        NULL descriptor - and the pipe it makes reads Wire.  It exists
+    //        so that a deployment which shares a pipe across accounts, or
+    //        reaches one over SMB, upgrades by naming that rather than by
+    //        finding out
+    //      : On the Linux mapping CreateNamedPipe is socket/bind/listen on an
+    //        AF_UNIX path and BOTH arguments are ignored (Msgcore Platform
+    //        README, "where the substrate shows through" 2 and 4).  There is
+    //        no AF_UNIX equivalent of a pipe over SMB, so locality is a
+    //        property of the address family and holds in every mode; what has
+    //        no counterpart is the DACL, and access control there is the 0700
+    //        directory plus the process umask.  Hence Local for all three
+    //        modes on that platform, and a comment rather than a pretence
+    //        that the descriptor was applied
+#ifdef _WIN32
+    DWORD                dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
+    SECURITY_ATTRIBUTES  oSA;
+    PSECURITY_DESCRIPTOR pSD  = NULL;
+    LPSECURITY_ATTRIBUTES pSA = NULL;
+    if ( m_ePipeAccess != P2PeerConPipeAccess_Legacy )
+    {
+      LPCTSTR pszSddl = ( m_ePipeAccess == P2PeerConPipeAccess_Descriptor )
+                        ? (LPCTSTR)m_sPipeSddl
+                        : kPipeSddlOwner;
+      // A descriptor that does not parse THROWS.  Falling back to the
+      // platform default would hand the caller a wider pipe than the one
+      // they asked for, silently, which is the failure this whole change
+      // exists to remove
+      if ( !ConvertStringSecurityDescriptorToSecurityDescriptor (
+               pszSddl, SDDL_REVISION_1, &pSD, NULL ) )
+        EVERR->MODULE
+             ->Message(_N("SDDL(%s) for pipe %s does not parse\n")
+                       "ADVICE\t: Check the string given to SetPipeAccess"
+                       ", or ask for P2PeerConPipeAccess_Owner"
+                      , pszSddl, (LPCTSTR)m_sPipename )
+             ->HResult( GetLastError() )->Throw();
+
+      oSA.nLength              = sizeof(oSA);
+      oSA.lpSecurityDescriptor = pSD;
+      oSA.bInheritHandle       = FALSE;
+      pSA                      = &oSA;
+      dwPipeMode              |= PIPE_REJECT_REMOTE_CLIENTS;
+    }
+#else
+    DWORD                dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
+    void                *pSA = NULL;
+#endif
+
     m_hFile = CreateNamedPipe ( m_sPipename
                               , PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
-                              , PIPE_TYPE_BYTE | PIPE_READMODE_BYTE
+                              , dwPipeMode
                               , 2                    // maximum number of instances
                               , 64000              // output buffer size
                               , 64000              // input buffer size
                               , 1000                 // time-out interval
-                              , NULL );
+                              , pSA );
+    const DWORD dwCreateErr = GetLastError ( );
+#ifdef _WIN32
+    if ( pSD )
+      LocalFree ( pSD );
+#endif
     if ( m_hFile == INVALID_HANDLE_VALUE )
     {
       m_hFile = 0;
@@ -405,8 +536,33 @@ P2PeerConPipe::CreateListenPipe ( )
            ->Message(_N("CreateNamePipe(%s) failed\n")
                      "ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
-           ->HResult( GetLastError() )->Throw();
+           ->HResult( dwCreateErr )->Throw();
     }
+
+    // The FACT, and DERIVED FROM THE ARGUMENTS THAT WERE ACTUALLY PASSED
+    // rather than recorded beside them.
+    // NOTES: This is a deliberate three lines rather than one assignment in
+    //        the branch that asked for the reject.  A flag set beside a
+    //        request records the request; reading back the two values the
+    //        kernel was handed records what the kernel was told.  Delete
+    //        either the |= or the descriptor above and this answer changes,
+    //        and p2p_linktrust phase 9 goes red - which an adjacent
+    //        "m_bPipeLocal = true" would not have done
+    //      : BOTH halves, because the class needs both to be true.  Neither
+    //        one alone: a reject with the platform's descriptor still lets
+    //        Everyone read the endpoint, and a descriptor without the reject
+    //        still lets the redirector carry it off the machine
+    //      : On the Linux mapping neither argument reached the kernel - the
+    //        call was socket/bind/listen on an AF_UNIX path - so neither can
+    //        be read back.  What makes the class true there is the address
+    //        family, which is not an argument and cannot be got wrong.  Refer
+    //        the note above
+#ifdef _WIN32
+    m_bPipeLocal = ( dwPipeMode & PIPE_REJECT_REMOTE_CLIENTS ) != 0 &&
+                     pSA != NULL;
+#else
+    m_bPipeLocal = true;
+#endif
 
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued
@@ -636,12 +792,29 @@ P2PeerConPipe::Connect ( )
     // Open COM port
     // NOTES: FILE_FLAG_OVERLAPPED is mandatory when using IO
     //        completion ports
+    // NOTES: SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION.  Without them a
+    //        pipe server may impersonate whoever opens it, at the default
+    //        level, and act as that account - so a rogue server squatting the
+    //        name is handed the client's token rather than merely its bytes.
+    //        IDENTIFICATION lets the server ask who the client is, which is
+    //        what a server legitimately wants, and stops it from being them,
+    //        which nothing here ever wanted.  securityRevision.md finding 3
+    //      : Guarded because the flags are a Win32 CreateFile concept.  The
+    //        Linux mapping turns this call into an AF_UNIX connect and ignores
+    //        its flags entirely; a server there learns the peer's credentials
+    //        through SO_PEERCRED and has no way to assume them
+#ifdef _WIN32
+    const DWORD dwOpenFlags = FILE_FLAG_OVERLAPPED
+                            | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION;
+#else
+    const DWORD dwOpenFlags = FILE_FLAG_OVERLAPPED;
+#endif
     m_hFile = CreateFile ((LPCTSTR)m_sPipename
                          , GENERIC_READ | GENERIC_WRITE
                          , 0    // exclusive access 
                          , NULL // no security attributes 
                          , OPEN_EXISTING
-                         , FILE_FLAG_OVERLAPPED
+                         , dwOpenFlags
                          , NULL );
     if ( m_hFile == INVALID_HANDLE_VALUE )
     {
@@ -652,6 +825,11 @@ P2PeerConPipe::Connect ( )
                     , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
            ->HResult( GetLastError() )->Throw();
     }
+
+    // The FACT for the client end: which DEVICE this handle was opened on.
+    // \\.\pipe\Name is NPFS here; anything reached through the redirector is
+    // a network path.  Refer P2PeerConPipenameIsLocal()
+    m_bPipeLocal = P2PeerConPipenameIsLocal ( (LPCTSTR)m_sPipename );
 
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued
@@ -706,6 +884,7 @@ P2PeerConPipe::OnClose ( )
       CloseHandle ( m_hFile );
       m_hFile      = 0;                // P2PeerCon attribute
       m_hFileCPort = 0;                // P2PeerCon attribute
+      m_bPipeLocal = false;            // the fact goes with the handle
     }
 
     // Always delegate
@@ -736,6 +915,96 @@ P2PeerConPipe::HasDroppedOut ( HRESULT hr )
     if ( hr == ERROR_BROKEN_PIPE )
       return true;
     return false;
+}
+
+///////////////////////////////////////////////////////////////////////
+//  Locality
+
+//
+//  Description: Chooses what the next pipe this object creates will be
+//               NOTES: Refer P2PeerConPipeAccess_e in the header
+//                    : Takes effect at the next CreateNamedPipe and not
+//                      before.  A pipe that already exists keeps the
+//                      descriptor and the mode it was created with, which is
+//                      why TrustClass() prefers the handle to this setting
+//                    : An out-of-range mode is IGNORED rather than clamped.
+//                      Clamping would pick one of three answers on the
+//                      caller's behalf and every choice is wrong for someone;
+//                      leaving the default in place at least leaves the
+//                      TIGHTER one
+//                    : pszSddl is copied, not held.  Descriptor mode with an
+//                      empty string is left to fail at CreateNamedPipe, where
+//                      it throws with the string in the diagnostic - the
+//                      caller finds out with the pipe name in hand rather
+//                      than at a setter that could only say "empty"
+//
+//  Parameters:  P2PeerConPipeAccess_e eAccess
+//               Owner, Descriptor or Legacy
+//
+//               LPCTSTR pszSddl
+//               The descriptor, read only by Descriptor mode
+//
+void
+P2PeerConPipe::SetPipeAccess ( P2PeerConPipeAccess_e eAccess
+                             , LPCTSTR pszSddl )
+{
+    if ( eAccess != P2PeerConPipeAccess_Owner      &&
+         eAccess != P2PeerConPipeAccess_Descriptor &&
+         eAccess != P2PeerConPipeAccess_Legacy        )
+      return;
+
+    m_ePipeAccess = eAccess;
+    m_sPipeSddl   = ( pszSddl != 0 ) ? pszSddl : _T("");
+}
+
+P2PeerConPipeAccess_e
+P2PeerConPipe::GetPipeAccess ( ) const
+{
+    return m_ePipeAccess;
+}
+
+//
+//  Description: What this pipe can vouch for about where its frames go
+//               NOTES: The handle first, and the settings only where there is
+//                      no handle.  The same shape as
+//                      P2PeerConWsa::TrustClass(), and for the same reason: a
+//                      class is a fact about a link, so where a link exists
+//                      it is the only thing worth reading.  It also means a
+//                      SetPipeAccess() arriving after Listen() cannot re-label
+//                      a pipe that is already carrying traffic
+//                    : With no handle the answer is a POSTURE reading of an
+//                      object that carries nothing, and the honest thing to
+//                      report is what it is configured to become.  Which
+//                      configuration that is depends on the end: a service
+//                      creates the pipe, so its access mode decides; a client
+//                      only opens a name, so the name decides
+//                    : A SERVICE reads its access mode and NOT its name.  A
+//                      CreateNamedPipe against a remote name fails outright,
+//                      so a server's name is never the thing that makes it
+//                      remote - the missing reject is
+//                    : Accept mode is the morphed listener and always has the
+//                      handle it created, so it never reaches the fallback.
+//                      It is not named below for that reason: if it ever did
+//                      reach it, the access mode is still the right question
+//
+//  Returns:     P2PeerConTrust_e
+//               P2PeerConTrust_Local for a pipe the kernel keeps on this
+//               machine, P2PeerConTrust_Wire otherwise
+//
+P2PeerConTrust_e
+P2PeerConPipe::TrustClass ( ) const
+{
+    if ( m_hFile != 0 )
+      return m_bPipeLocal ? P2PeerConTrust_Local : P2PeerConTrust_Wire;
+
+    if ( m_eP2PeerConMode == P2PeerCon_CLIENT )
+      return P2PeerConPipenameIsLocal ( (LPCTSTR)m_sPipename )
+               ? P2PeerConTrust_Local
+               : P2PeerConTrust_Wire;
+
+    return ( m_ePipeAccess != P2PeerConPipeAccess_Legacy )
+             ? P2PeerConTrust_Local
+             : P2PeerConTrust_Wire;
 }
 
 ///////////////////////////////////////////////////////////////////////

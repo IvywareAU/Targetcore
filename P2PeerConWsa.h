@@ -312,6 +312,36 @@ class TargetCore_EXT P2PeerConWsa : public P2PeerCon
       const CString&
         GetListenAddress   ( ) const { return m_sListenAddress; }
 
+      //  P2PeerConTrust_Local when the KERNEL says this link cannot leave the
+      //  machine, and P2PeerConTrust_Wire otherwise.
+      //  NOTES: Asked of the SOCKET first, not of m_eListenScope, and that is
+      //         the whole of the design.  getpeername() on a connected socket
+      //         is the kernel's own answer to "who is on the other end", it is
+      //         the same reading the accept allow-list is tested against, and
+      //         it is true for a CLIENT that dialled loopback, for a SERVICE's
+      //         accepted CHILD, and for a connection nobody configured -
+      //         uniformly and with nothing copied
+      //       : The listen scope is only the fallback, and only for a socket
+      //         with no peer: a service object, or a client before it dials.
+      //         Neither carries traffic, so what it answers is a posture
+      //         reading rather than a gate input.  It matters that the CHILD
+      //         does not depend on it - AcceptSpawn does not copy
+      //         m_eListenScope, and a class that needed it copied would have
+      //         put back exactly the hazard SECURITY.md:205 is about
+      //       : A loopback PEER is a kernel fact and not a claim on the wire.
+      //         An off-host packet whose source is 127.0.0.0/8 is a martian
+      //         and is dropped by the stack before anything here sees it, and
+      //         a v4-mapped ::ffff:127.0.0.1 is normalised to the v4 address
+      //         it stands for first - refer NormaliseP2PeerConSockaddr()
+      //       : Local says no NETWORK adversary can reach this link.  It says
+      //         nothing about another PRINCIPAL on the same host (A7), who
+      //         reaches a loopback port exactly as easily as this process
+      //         does; that is what the accept allow-list and the peer's own
+      //         login are for, and it is why relaxing Local is a decision an
+      //         operator takes rather than one this class takes for them
+      virtual P2PeerConTrust_e
+        TrustClass         ( ) const;
+
     // Accept source admission - WHO may connect, as against WHERE we listen
     // NOTES: An allow-list of IPv4 prefixes, tested at accept against the
     //        origin the KERNEL reports - AcceptSourceKey(), getpeername(), a

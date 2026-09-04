@@ -108,6 +108,52 @@ mattered. **It is now written in the tree as well, at `P2PeerioDmx`'s own declar
 (`LeavesProcess()` returning false), so the exemption is something the class asserts rather than
 something a reader has to reconstruct — see F-S6-3 in §8.
 
+**Three classes, not two, and the third is the one to be careful about.** `P2PeerCon::TrustClass()`
+puts the same kind of assertion on the *connection*, in the vocabulary the hub's per-class link
+policy reads:
+
+| Class | Member | What makes it true | Who enforces it |
+|---|---|---|---|
+| `InProcess` | `P2PeerConDmx` | the handoff is a pointer | construction |
+| `Local` | `P2PeerConWsa` whose peer the kernel reports on loopback | the bind, and the stack's refusal of an off-host packet claiming `127.0.0.0/8` | the kernel |
+| `Local` | `P2PeerConPipe` created with `PIPE_REJECT_REMOTE_CLIENTS` and this transport's DACL, or a client opened on `\\.\pipe\` | the redirector is refused; the device is local | the kernel |
+| `Wire` | `P2PeerConWsa` otherwise, `P2PeerConPipe` under `P2PeerConPipeAccess_Legacy`, `P2PeerCon232` | nothing | nobody |
+
+Serial is deliberately a wire: "directly attached hardware bus" describes where it is usually
+deployed, not what someone with access to the cable can do, and RS-232 has no DACL.
+
+**`P2PeerConPipe` was a wire here until 2026-09-04, and that was a statement about the code rather
+than about pipes.** `CreateListenPipe` called `CreateNamedPipe` without
+`PIPE_REJECT_REMOTE_CLIENTS` and with a null security descriptor, so as coded the pipe was
+reachable over SMB from another host as `\\host\pipe\name` wherever file sharing is on — asset S9
+exactly, a locality that could not be read off the code. It passes both now and answers `Local`;
+F-SR-1 in §8 records what changed. **The wire row still has a pipe in it**, and deliberately:
+`SetPipeAccess(P2PeerConPipeAccess_Legacy)` reproduces the old call for a deployment that needs it,
+and a pipe made that way reads `Wire`.
+
+**A class is read off the HANDLE, not off the setting.** `m_bPipeLocal` is computed back out of the
+pipe mode and the security attributes `CreateNamedPipe` was actually given, so a `SetPipeAccess()`
+arriving after the pipe exists cannot re-label a link that is already carrying traffic, and
+deleting either argument changes the class rather than leaving a flag that still says `Local`. The
+two ends answer from different evidence — the service from what it created, the client from the
+device its name resolves to — and they are allowed to disagree: a legacy service is `Wire` while a
+client on `\\.\pipe\` is truthfully `Local`, and the server refuses the login, which is the
+conservative direction and the same shape as F-S6-1.
+
+`Local` is **not** `Trusted`. It says no *network* adversary can reach the link. A7 — another
+principal on the same host — reaches a loopback port exactly as easily as this process does, and is
+answered by the endpoint's DACL, the identity file's permissions, and the peer's own login, none of
+which is in that word.
+
+**A class describes a link; it does not bound the set of links a hub will hold.** Those are
+different statements and the second one needs its own call. `P2PeerHub::RequireTrustAtLeast(class)`
+is that call: it refuses, at `PostP2PeerCon`, any connection whose `EffectiveTrust()` is below the
+class named, so a hub that opened its in-process links cannot silently acquire a socket later. The
+socket would have authenticated in full — `Wire` is `Full` and cannot be set otherwise — so this is
+not a confidentiality control; it is the control that keeps a hub's *shape* the shape its operator
+described. The floor defaults to `Wire`, which is what every unexamined transport answers, so an
+unconfigured hub refuses nothing.
+
 ---
 
 ## 4. Assets
@@ -159,7 +205,10 @@ won.
 
 Every protection in the tree, the adversary it answers, where it is enforced, and what checks it.
 **Default** says whether it is on without configuration. A row with no check is a **claim**, not a
-promise, and is marked as one — there are five.
+promise, and is marked as one — there are six. The sixth is the pipe client's SQOS level: what it
+prevents is a *server* impersonating its caller, and showing that would need a second logon session
+to impersonate into — the same reason the pipe's DACL half is unchecked. Both are A7, and A7 is out
+of this suite's reach rather than out of mind.
 
 ### 6.1 Getting in
 
@@ -169,6 +218,12 @@ promise, and is marked as one — there are five.
 | Refusal to arm when it cannot enforce what it requires | operator error | **on** | `P2PeerHub::AuthArm`, consulted by `CreateHub`/`SpawnHub` | `p2p_armgate` |
 | Channel binding folded into the transcript (login `kVersion` 2) | A2 forwarding a genuine proof | **on** | `AuthChannelBind` ← `KeyXDerive`; `Transcript()` | `p2p_authrelay` |
 | **The agreement is required at the VERIFIER, not only at the initiator** | A4 downgrading its own channel; A1 thereafter | **on** | `AuthGateInbound`, `KeyXWanted() && !m_bKeyXDone` | `p2p_authchannel` |
+| **Per-class link policy: what a link may skip is decided by what its transport can vouch for** | operator error — a hub relaxed for its in-process links later handed a socket | **on** (every class `Full`) | `P2PeerHub::SetLinkPolicy` ← `P2PeerCon::KeyXWanted()` / `AuthLinkRelaxed()`; the class is `P2PeerCon::TrustClass()`, a virtual | `p2p_linktrust` |
+| **A relaxation cannot reach a wire, and an operator's demotion reaches the accepted child** | an in-process opt-out extended onto a network | **on** | `p2pauth::AuthPolicy::SetLinkPolicy` refuses class 0; `P2PeerCon::AcceptSpawn` carries `m_eTrustCeiling` | `p2p_linktrust` |
+| **The fence: a hub refuses to hold a link below a class it names** | a hub relaxed for its own process being handed a socket and becoming a network endpoint nobody asked for | off (floor `Wire`, which refuses nothing) | `P2PeerHub::RequireTrustAtLeast` ← `PostP2PeerCon`, against `EffectiveTrust()` | `p2p_linktrust` |
+| **A hub that can never demand a signature arms without the files it would demand one with** | operator error in the other direction — an in-process-only hub refusing to start for want of a key it will never use, and being opened with `RequireAuth(false)` instead | n/a (reachable only with a fence set **and** every class above it `Open`) | `p2pauth::AuthPolicy::Arm` → `ArmNotRequiredByPolicy`, admitted in `P2PeerHub::AuthArmOrRefuse` | `p2p_linktrust` |
+| **Pipe locality: the named pipe refuses the SMB redirector and takes a DACL this transport wrote** | A1/A2/A3 arriving over SMB at an endpoint the tree describes as single-machine (F-SR-1); A7 reading it as Everyone | **on** (`P2PeerConPipeAccess_Owner`; the old call is `_Legacy` and reads `Wire`) | `P2PeerConPipe::CreateListenPipe`, `PIPE_REJECT_REMOTE_CLIENTS` + `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)`, **kernel-enforced**; the class is derived back out of both | `p2p_linktrust` |
+| **The pipe client cannot be impersonated by the server it dialled** | A7 squatting a pipe name to acquire the caller's token | **on** | `P2PeerConPipe::Connect`, `SECURITY_SQOS_PRESENT \| SECURITY_IDENTIFICATION` on `CreateFile`, **kernel-enforced** | — *claim* |
 | Nonce cache and a ±300 s freshness window | A2 replay | **on** | `AuthPolicy::NoteNonce` / `SeenNonce` | `p2p_replayguard` |
 | Login deadline on an accepted connection | A3 holding a slot in silence | **on** | `P2PeerCon::ArmLoginDeadline` | `p2p_logindeadline` |
 | Pre-login application traffic discarded, connection dropped | A3 | **on** | `P2PeerCon`, `ConState_Login` | `p2p_authgate` |
@@ -306,8 +361,73 @@ Each of these is a decision, not an omission, and each has a reason that is not 
 
 ## 8. Gaps found by writing this
 
-The step's exit criterion asks for at least one. There are three, and they are of three different
-kinds — which is itself the argument for having done it.
+The step's exit criterion asks for at least one. There were three, and they are of three different
+kinds — which is itself the argument for having done it. A fourth was found on 2026-09-04 while
+writing `securityRevision.md`, by the same method and in the same place: reading what the code does
+against what a document says it does.
+
+### F-SR-1 — the named-pipe transport is not local-only ✅ **FIXED 2026-09-04, found the same day**
+
+*Lettered `SR` rather than continuing the `F-S6-` run: those three were found by writing this
+document and this one was not, and a finding whose id claims the wrong provenance is the kind of
+small untruth the rest of this file spends its length catching.*
+
+**What it is.** `SECURITY.md`'s "appropriate use" list describes the pipe transport as
+single-machine, and the tree reasons about it that way. `P2PeerConPipe::CreateListenPipe` calls
+`CreateNamedPipe` **without** `PIPE_REJECT_REMOTE_CLIENTS` and with a **null** security descriptor
+(`P2PeerConPipe.cpp`, the `CreateNamedPipe` call). Two things follow:
+
+- **Remote clients are accepted.** A named-pipe server without that flag accepts a client arriving
+  through the SMB redirector as `\\host\pipe\name`. Whether that happens depends on the host's
+  file-sharing and firewall state, which is outside this library and invisible to it — asset **S9**
+  exactly, a locality that cannot be read off the code.
+- **The DACL is the platform's default**, which grants read access to Everyone and Anonymous. A
+  different non-administrative local user's open fails today only as a side effect of the client
+  opening `GENERIC_READ | GENERIC_WRITE`, not as a decision anyone took.
+
+Separately, the client opens the pipe with no `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, so
+a hostile server on the same pipe name can impersonate the client at the default level.
+
+**What was done first, on the day it was found.** Nothing that changed the transport — only enough
+to stop anything relying on it: `P2PeerCon::TrustClass()` answered `P2PeerConTrust_Wire` for this
+transport, so a pipe link authenticated in full whatever the per-class link policy said. That is
+the ordering the tree already took with TCP — `SetListenScope(Loopback)` exists because a bind is
+the kernel's promise, and only a kernel's promise is worth letting a policy read.
+
+**What closed it**, `securityRevision.md` §8.2 step 4:
+
+- `PIPE_REJECT_REMOTE_CLIENTS` in the pipe mode, which is what refuses the SMB redirector.
+- An explicit protected descriptor, `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)` — LocalSystem,
+  Administrators and Owner Rights, and nothing for Everyone or Anonymous. Byte for byte the
+  descriptor `P2PIdentityStore.cpp` writes on an identity file, because both answer the same
+  question about the same account and two answers that drift apart are worse than one.
+- `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` on the client's `CreateFile`, which closes the
+  impersonation half quoted above. It was §9's incidental finding 3 and is fixed with the rest.
+- The old call kept reachable **by name**: `SetPipeAccess(P2PeerConPipeAccess_Legacy)` is the
+  pre-revision `CreateNamedPipe`, unchanged, so a deployment that shares a pipe between two
+  accounts upgrades by naming that rather than by finding out. It reads `Wire`.
+  `P2PeerConPipeAccess_Descriptor` keeps the reject and takes the caller's SDDL.
+- `P2PeerConPipe::TrustClass()`, which reads the handle first and the configuration only where
+  there is no handle — refer §3.
+
+**The Linux answer**, which §6.6 left open. `CreateNamedPipe` there is `socket`/`bind`/`listen` on
+an `AF_UNIX` path (`Msgcore/Platform/p2psock.h`) and both arguments are ignored. There is no
+`AF_UNIX` equivalent of a pipe over SMB — the client dispatch matches `\\.\pipe\` and `//./pipe/`
+only, so a `\\server\pipe\Name` fails rather than silently resolving to a local socket — so
+locality is a property of the address family and holds in every access mode. What has **no**
+counterpart is the DACL: the endpoint is protected by a `0700` directory and the socket file takes
+the process umask. Equivalent for a single-user daemon, different in kind for a multi-user host,
+and the class does not claim to answer that either way — it claims no *network* adversary, and
+`AF_UNIX` makes that unconditionally true.
+
+**What is still not checked by a test.** The DACL half. Demonstrating that Everyone no longer has
+read access needs a second logon session; A7 is out of scope for the class and out of reach for the
+suite. `p2p_linktrust` phases 9 and 10 check the half the class does claim.
+
+**Gate.** `p2p_linktrust` phase 0 (four pipe declarations), phase 9 (a default pipe reads `Local`
+and its hub may open the class) and phase 10 (a legacy pipe reads `Wire` and authenticates in full
+regardless). Falsified three ways: removing the reject, removing the descriptor, and letting
+`Legacy` take the new pipe anyway — each reddens exactly one of those phases.
 
 ### F-S6-1 — a hub that required authentication did not require the channel ✅ **FIXED 2026-08-20**
 
@@ -559,7 +679,7 @@ turns on something already on and believes something else instead.
 ## 9. What this document does not do
 
 - It does not claim the protections in §6 are correctly implemented. It claims they exist, says
-  where, and says what checks them. Five rows have no check and are marked *claim* — the most
+  where, and says what checks them. Six rows have no check and are marked *claim* — the most
   interesting being that nothing injects a cleartext frame into an established session to prove the
   receive path refuses it. It does, by construction; by construction is not by measurement. **That
   one has now been seen to work exactly once**, and by accident: falsifying F-S6-3's second gate

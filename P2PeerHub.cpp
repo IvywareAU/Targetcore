@@ -673,6 +673,55 @@ P2PeerHub::PostP2PeerCon ( P2PeerCon *pCon, P2PumpID nPumpID )
       return FALSE;
     }
 
+    // THE FENCE
+    // NOTES: RequireTrustAtLeast() names the lowest class this hub will hold a
+    //        link of, and this is where that is enforced.  It is the other
+    //        half of SetLinkPolicy: a hub that opened its in-process class is
+    //        otherwise one call to this function away from carrying a socket
+    //        it did not plan for.  That socket would authenticate IN FULL -
+    //        the wire's policy is Full and cannot be set otherwise - so the
+    //        refusal is not about weakening; it is about a hub that exists to
+    //        route inside a process quietly becoming a network endpoint
+    //      : EffectiveTrust() and not TrustClass(), so a connection the
+    //        operator demoted is measured on the class they demoted it TO.
+    //        Every other gate in this feature reads the same value
+    //      : BEFORE the duplicate scan, and before m_pP2PeerTarget is
+    //        assigned, so a refused connection leaves this hub in the state it
+    //        was in.  The caller keeps ownership either way, exactly as it
+    //        does for the two refusals around this one
+    //      : An ACCEPTED child does not come through here - P2PeerCon::
+    //        AcceptSpawn posts it directly - and it does not need to.  It is
+    //        spawned by a SERVICE that was fenced when the service was posted,
+    //        it inherits the class through a virtual and the ceiling through
+    //        the one copied field, and neither of those can read HIGHER than
+    //        the service's own.  A service admitted by the fence cannot accept
+    //        a child the fence would have refused
+    //      : The default floor is P2PeerConTrust_Wire, which is 0, which is
+    //        what every transport that has vouched for nothing answers.  So an
+    //        unconfigured hub compares 0 < 0 and refuses nothing
+    //  eFloor is tested FIRST so that a hub nobody has fenced does not ask
+    //  the connection anything at all.  EffectiveTrust() on a socket is a
+    //  getpeername(), which is cheap and is still a syscall this function did
+    //  not make before; an unconfigured hub must be able to compare 0 < 0 and
+    //  reach the same instruction it reached yesterday.
+    const P2PeerConTrust_e eFloor = GetRequiredTrust ( );
+    if ( eFloor > P2PeerConTrust_Wire &&
+         pCon -> EffectiveTrust ( ) < eFloor )
+    {
+      EVERR->Module (_T(__FUNCTION__) )->AFPcon(pCon)->AFP(nPumpID)
+           ->Message(_T("P2PeerHub(%s) holds no link below trust class %i; ")
+                     _T("P2PeerCon(%s) is class %i and is not posted")
+                    , m_oP2PaddrHub.c_wstr()
+                    , (int)eFloor
+                    , oP2PaddrCon.c_wstr()
+                    , (int)pCon -> EffectiveTrust ( ) )
+           ->Advice_T ("0 wire, 1 kernel-local, 2 in-process. Post a connection "
+                       "of the class this hub was fenced to, or widen the fence "
+                       "with RequireTrustAtLeast()")
+           ->Display()->SetLast();
+      return FALSE;
+    }
+
     // Iterate through P2PeerCon list
     // NOTES: Trap duplicates.  Null identification addresses
     //        are special
@@ -1732,6 +1781,36 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       P3PmsgField_SERIALISE ( oNodeVar, _N("RevocEpoch")
                             , (INT64)oPosture.llRevocEpoch, bDsc
                             , _T("Epoch of the revocation list this hub has applied") );
+      //  The per-trust-class link policy: 0 full, 1 open. THREE fields rather
+      //  than one packed number, because a reader selects by NAME and a
+      //  bitfield would make the one interesting case - "which class did they
+      //  relax" - something a consumer has to decode rather than read.
+      //  LinkPolWire is always 0 and is rendered anyway: a field that is
+      //  present and pinned tells a reader the wire cannot be opened here,
+      //  where an absent one tells them nothing at all.
+      //
+      //  Paired with the CONNECTION snapshot's Trust field, this is what makes
+      //  Cypher=0 legible. Trust=2 with LinkPolProc=1 is a decision; Trust=0
+      //  with Cypher=0 on a hub with AuthRequired=1 is still the defect it
+      //  always was.
+      P3PmsgField_SERIALISE ( oNodeVar, _N("LinkPolWire")
+                            , (UINT32)oPosture.anLinkPolicy[0], bDsc
+                            , _T("Wire links: 0 full handshake (cannot be opened)") );
+      P3PmsgField_SERIALISE ( oNodeVar, _N("LinkPolLocal")
+                            , (UINT32)oPosture.anLinkPolicy[1], bDsc
+                            , _T("Kernel-local links: 0 full handshake, 1 opened") );
+      P3PmsgField_SERIALISE ( oNodeVar, _N("LinkPolProc")
+                            , (UINT32)oPosture.anLinkPolicy[2], bDsc
+                            , _T("In-process links: 0 full handshake, 1 opened") );
+      //  The fence, and it is rendered beside the three above it because it
+      //  is what makes them safe to read. LinkPolProc=1 with TrustFloor=0 is
+      //  a hub that has relaxed its in-process links and can still be handed
+      //  a socket by the next PostP2PeerCon; the same hub with TrustFloor=2
+      //  cannot. Nothing else in this snapshot distinguishes those two, and
+      //  they are a different exposure.
+      P3PmsgField_SERIALISE ( oNodeVar, _N("TrustFloor")
+                            , (UINT32)oPosture.nTrustFloor, bDsc
+                            , _T("Lowest link class this Hub will hold (0 no fence)") );
     }
 
     P3PmsgField_SERIALISE ( oNodeVar, _N("Name"), GetP2PaddrHub().c_name(), bDsc
@@ -1924,6 +2003,10 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bRevocOk         = true;
       rOut.bRevocFresh      = true;
       rOut.llRevocEpoch     = 0;
+      rOut.anLinkPolicy[0]  = (int)P2PeerLinkPolicy_Full;
+      rOut.anLinkPolicy[1]  = (int)P2PeerLinkPolicy_Full;
+      rOut.anLinkPolicy[2]  = (int)P2PeerLinkPolicy_Full;
+      rOut.nTrustFloor      = (int)P2PeerConTrust_Wire;
     }
     else
     {
@@ -1941,6 +2024,14 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bRevocOk         = m_pAuthPolicy -> IsRevocationUsable ( );
       rOut.bRevocFresh      = m_pAuthPolicy -> IsRevocationFresh ( );
       rOut.llRevocEpoch     = m_pAuthPolicy -> RevocationEpoch ( );
+      //  Read from the live policy like everything else here, and NOT from a
+      //  copy the setters refresh - refer the note on TryReadPosture in the
+      //  header. A posture that could disagree with the gate is the defect
+      //  this whole accessor exists to close
+      rOut.anLinkPolicy[0]  = m_pAuthPolicy -> GetLinkPolicy ( 0 );
+      rOut.anLinkPolicy[1]  = m_pAuthPolicy -> GetLinkPolicy ( 1 );
+      rOut.anLinkPolicy[2]  = m_pAuthPolicy -> GetLinkPolicy ( 2 );
+      rOut.nTrustFloor      = m_pAuthPolicy -> GetTrustFloor ( );
     }
 
     LeaveCriticalSection ( &m_oCSectionHub );
@@ -2082,6 +2173,85 @@ P2PeerHub::CanAuthSign ( )
 }
 
 //
+//  What a link of the given trust class must do
+//  NOTES: Hub scope and configure-before-arm, like RequireAuth and for the
+//         same reason. Refer the block on the declaration for why a per-class
+//         policy is not the per-connection override SECURITY.md refuses, and
+//         why P2PeerConTrust_Wire cannot be opened here
+//       : The refusal of the wire class lives in AuthPolicy::SetLinkPolicy,
+//         one layer down, so it applies to this call and to the flat C entry
+//         point without either of them having to remember it
+//
+void
+P2PeerHub::SetLinkPolicy ( P2PeerConTrust_e   eClass
+                         , P2PeerLinkPolicy_e ePolicy )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy )
+      m_pAuthPolicy -> SetLinkPolicy ( (int)eClass, (int)ePolicy );
+}
+
+//
+//  ...and what it is now
+//  NOTES: A hub with no policy object answers Full. That state is reachable
+//         only if the constructor's allocation failed, and a hub that cannot
+//         hold a policy must not be the one that says a link may skip the
+//         handshake - the same fail-closed reading IsAuthRequired() gives
+//
+P2PeerLinkPolicy_e
+P2PeerHub::GetLinkPolicy ( P2PeerConTrust_e eClass )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( !m_pAuthPolicy )
+      return P2PeerLinkPolicy_Full;
+    return m_pAuthPolicy -> GetLinkPolicy ( (int)eClass ) == 0
+             ? P2PeerLinkPolicy_Full
+             : P2PeerLinkPolicy_Open;
+}
+
+//
+//  The lowest link class this hub will hold
+//  NOTES: Hub scope and configure-before-arm, like RequireAuth and
+//         SetLinkPolicy, and it is the other half of the second of those.
+//         Refer the block on the declaration
+//       : Kept on the policy object rather than in a member here, so the one
+//         thing that reads it at arm time - AuthPolicy::Arm(), deciding
+//         ArmNotRequiredByPolicy - reads the same byte PostP2PeerCon refuses
+//         on.  A hub-side copy would be one forgotten line away from an
+//         arming decision made against a fence the gate does not have
+//
+void
+P2PeerHub::RequireTrustAtLeast ( P2PeerConTrust_e eClass )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy )
+      m_pAuthPolicy -> SetTrustFloor ( (int)eClass );
+}
+
+//
+//  ...and what it is now
+//  NOTES: A hub with no policy object answers Wire - no fence.  That state is
+//         reachable only if the constructor's allocation failed, and it is the
+//         reading that changes nothing: a hub which cannot hold a policy must
+//         not be the one that starts refusing connections nobody asked it to
+//         refuse.  It is the opposite direction from GetLinkPolicy's
+//         fail-closed answer, and deliberately so - there, the strict reading
+//         DEMANDS a handshake; here, the strict reading would REFUSE a link
+//         the operator never fenced out
+//
+P2PeerConTrust_e
+P2PeerHub::GetRequiredTrust ( )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( !m_pAuthPolicy )
+      return P2PeerConTrust_Wire;
+    const int nFloor = m_pAuthPolicy -> GetTrustFloor ( );
+    return ( nFloor >= (int)P2PeerConTrust_InProcess ) ? P2PeerConTrust_InProcess
+         : ( nFloor >= (int)P2PeerConTrust_Local     ) ? P2PeerConTrust_Local
+         :                                               P2PeerConTrust_Wire;
+}
+
+//
 //  Can this hub enforce what it is set to require?
 //  NOTES: Stage 3 step 8. Pure query - CreateHub() and
 //         SpawnHub() consult it, and so may the caller.
@@ -2206,7 +2376,16 @@ bool
 P2PeerHub::AuthArmOrRefuse ( LPCTSTR lpszCaller )
 {
     p2pauth::ArmResult eArm = AuthArm ( );
-    if ( eArm == p2pauth::ArmOk || eArm == p2pauth::ArmNotRequired )
+    //  THREE results arm, and the third is the one that looks least like the
+    //  other two.  ArmNotRequiredByPolicy is a hub that requires auth, holds
+    //  no identity, and has fenced and opened every class it will carry - so
+    //  there is no link on it that a signature could be demanded of.  Refer
+    //  the note at ArmNotRequiredByPolicy for why that passes the same test
+    //  ArmNotRequired passes; it is admitted HERE, beside it, so the two
+    //  answers cannot drift apart.
+    if ( eArm == p2pauth::ArmOk               ||
+         eArm == p2pauth::ArmNotRequired      ||
+         eArm == p2pauth::ArmNotRequiredByPolicy )
     {
       //  WHAT STANDS IN FOR AN ARMING GATE ON SEALING, and it is a warning
       //  rather than a refusal on purpose - refer the note at the end of

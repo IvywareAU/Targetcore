@@ -33,11 +33,13 @@ p2peerconwsa_client_factory
 p2peerconwsa_client_factory_u8
 p2peerconwsa_close
 p2peerconwsa_connect
+p2peerconwsa_demote_trust
 p2peerconwsa_destroy
 p2peerconwsa_get_address
 p2peerconwsa_get_address_u8
 p2peerconwsa_get_mode
 p2peerconwsa_get_state
+p2peerconwsa_get_trust_class
 p2peerconwsa_has_state
 p2peerconwsa_listen
 p2peerconwsa_post_msg
@@ -61,6 +63,8 @@ p2peerhub_destroy
 p2peerhub_get_address
 p2peerhub_get_address_u8
 p2peerhub_get_hub_id
+p2peerhub_get_link_policy
+p2peerhub_get_required_trust
 p2peerhub_is_auth_required
 p2peerhub_is_revocation_required
 p2peerhub_is_seal_required
@@ -72,9 +76,11 @@ p2peerhub_reload_allow_list
 p2peerhub_require_auth
 p2peerhub_require_revocation
 p2peerhub_require_seal
+p2peerhub_require_trust_at_least
 p2peerhub_set_agreement_key
 p2peerhub_set_allow_list
 p2peerhub_set_identity
+p2peerhub_set_link_policy
 p2peerhub_set_revocation_list
 p2peerhub_set_sink
 p2peerhub_set_sink_u8

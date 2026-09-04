@@ -28,6 +28,45 @@
 #include "P2PeerCon.h"
 
 ///////////////////////////////////////////////////////////////////////
+//  What a named pipe this transport creates will let through
+//  NOTES: A named pipe is local ONLY if it was created to be.  Without
+//         PIPE_REJECT_REMOTE_CLIENTS in the pipe mode a server accepts a
+//         client arriving through the SMB redirector as \\host\pipe\name,
+//         so on any host with file sharing on the endpoint is a NETWORK
+//         endpoint - and no policy may be allowed to rely on a locality
+//         the code does not make true.  This enum is how the transport
+//         makes it true, and how it is made READABLE: TrustClass()
+//         answers Local only for a pipe this transport actually created
+//         with that reject and a descriptor it wrote itself
+//       : Owner is the default, and it MOVES a default.  Every pipe this
+//         library creates from here on refuses remote clients and takes
+//         an explicit protected DACL - the creating account, LocalSystem
+//         and Administrators, and NOTHING for Everyone or Anonymous,
+//         which the platform's default descriptor grants read access to.
+//         Same three ACEs, same order, as the identity file's descriptor
+//         in P2PIdentityStore.cpp, because they are answering the same
+//         question about the same account
+//       : Legacy is that platform default kept reachable BY NAME, byte
+//         for byte: no reject, NULL descriptor, exactly the call this
+//         transport made before.  A deployment that shares a pipe between
+//         two accounts, or reaches one over SMB, upgrades by NAMING that
+//         rather than by discovering that it stopped working.  It is a
+//         Wire-class pipe and TrustClass() says so, which is the point:
+//         the compatibility escape hatch is the one that does not get to
+//         claim the class
+//       : Descriptor is the middle.  The reject stays and the caller
+//         supplies the SDDL.  Still Local: the reject is what makes the
+//         class TRUE, while the DACL decides WHICH local principal may
+//         open the endpoint - that is A7 in THREAT_MODEL.md, and A7 is
+//         explicitly not what this class claims to answer
+//
+enum P2PeerConPipeAccess_e
+{ P2PeerConPipeAccess_Owner      = 0    // reject remote + this account only
+, P2PeerConPipeAccess_Descriptor        // reject remote + the caller's SDDL
+, P2PeerConPipeAccess_Legacy            // the pre-revision call, unchanged
+};
+
+///////////////////////////////////////////////////////////////////////
 //  P2PeerConPipe serial connection management
 //  NOTES: Instances of these objects wholly manage single named pipe
 //         serial connections.  Collections of P2PeerConPipe objects are
@@ -94,6 +133,37 @@ class TargetCore_EXT P2PeerConPipe : public P2PeerCon
       virtual BOOL
         OnClose  ( );
 
+    // Locality
+    // NOTES: Refer P2PeerConPipeAccess_e above for what the three modes
+    //        mean and why the legacy one is kept
+    //      : SetPipeAccess() must be called BEFORE Listen()/Accept().  It
+    //        describes the pipe the next CreateNamedPipe will make; it
+    //        cannot reach through a HANDLE that already exists, and
+    //        TrustClass() reads the handle in preference to the setting
+    //        precisely so that a late call cannot re-label a pipe that is
+    //        already carrying traffic
+    //      : pszSddl is read only by P2PeerConPipeAccess_Descriptor and is
+    //        an SDDL string in the form
+    //        ConvertStringSecurityDescriptorToSecurityDescriptor takes -
+    //        "D:P(A;;FA;;;SY)(A;;FA;;;OW)" and the like.  A descriptor that
+    //        does not parse is a THROW at pipe creation, not a silent
+    //        fallback to the platform default: falling back would hand the
+    //        caller a wider pipe than the one they asked for
+    public:
+      void
+        SetPipeAccess ( P2PeerConPipeAccess_e eAccess
+                      , LPCTSTR pszSddl = 0 );
+      P2PeerConPipeAccess_e
+        GetPipeAccess ( ) const;
+
+      // What this pipe can vouch for about where its frames go
+      // NOTES: Refer the definition for the argument.  It reads what the
+      //        HANDLE was made with and falls back to what this object is
+      //        configured to make, exactly as P2PeerConWsa::TrustClass()
+      //        reads getpeername() and falls back to the listen scope
+      virtual P2PeerConTrust_e
+        TrustClass    ( ) const;
+
     // Troubleshooting
     public:
       virtual void
@@ -107,5 +177,26 @@ class TargetCore_EXT P2PeerConPipe : public P2PeerCon
     // Attributes
     protected:
       CString  m_sPipename;
+
+      // What the NEXT pipe this object creates will ask for, and the
+      // descriptor P2PeerConPipeAccess_Descriptor uses.  A SETTING, and
+      // copied by AcceptSpawn onto the re-armed service so that the second
+      // instance of a pipe is the same pipe as the first
+      P2PeerConPipeAccess_e m_ePipeAccess;
+      CString               m_sPipeSddl;
+
+      // What the pipe this object HOLDS was actually made with.  True only
+      // where the kernel is keeping the promise: a CreateNamedPipe that
+      // succeeded with PIPE_REJECT_REMOTE_CLIENTS and a descriptor this
+      // transport wrote, an AF_UNIX socket on the Linux mapping, or a
+      // client CreateFile against a local NPFS name
+      // NOTES: NOT copied by AcceptSpawn, and that is not an omission.  The
+      //        spawn holds no handle - it is the re-armed SERVICE and will
+      //        set this for itself in CreateListenPipe().  A fact about a
+      //        handle that was never opened is a lie
+      //      : Separate from m_ePipeAccess because a setting is an
+      //        INTENTION and a class has to be a FACT.  TrustClass() reads
+      //        this one wherever there is a handle to read it from
+      bool                  m_bPipeLocal;
 };
 

@@ -77,7 +77,33 @@ Worked example: `_TargetCore_UseExamples/ErrorReportingExamples/DialogOrLogFile`
 
 Appropriate use today:
 
-- Loopback and single-machine inter-process messaging (`P2PeerConPipe`)
+- Loopback and single-machine inter-process messaging — and since 2026-09-04 **`P2PeerConPipe`
+  enforces it**. `CreateListenPipe` passes `PIPE_REJECT_REMOTE_CLIENTS`, which keeps the SMB
+  redirector out, and an explicit protected DACL —
+  `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)`, the same three ACEs the identity file gets — in place
+  of the platform default that granted Everyone and Anonymous read access. The client opens with
+  `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, so a server squatting the pipe name is handed
+  the client's bytes and not its token. Such a pipe answers `TrustClass() == Local` and its hub may
+  relax it with `SetLinkPolicy(P2PeerConTrust_Local, P2PeerLinkPolicy_Open)`
+  (`THREAT_MODEL.md` F-SR-1, now closed)
+- **The old pipe is still reachable, by name.** `SetPipeAccess(P2PeerConPipeAccess_Legacy)` on the
+  service connection reproduces the pre-2026-09 `CreateNamedPipe` byte for byte — no reject, null
+  descriptor — for a deployment that shares a pipe between a service account and an interactive
+  user, or reaches one over SMB. That pipe is a wire and reads `Wire`, which is the point: the
+  compatibility escape hatch is precisely the one that does not get to claim the class.
+  `SetPipeAccess(P2PeerConPipeAccess_Descriptor, sddl)` is the middle — the reject stays, the
+  caller supplies the DACL
+
+  ```cpp
+      // this account only, no remote clients, and the class says so
+      P2PeerConPipe *pSvc = P2PeerConPipe::ServiceFactory ( L"App.*", L"\\\\.\\pipe\\MyApp" );
+      oHub.SetLinkPolicy ( P2PeerConTrust_Local, P2PeerLinkPolicy_Open );
+      oHub.PostP2PeerCon ( pSvc );        // pSvc->TrustClass() == Local
+  ```
+
+  On Linux the pipe is an `AF_UNIX` socket and there is no equivalent of a pipe over SMB, so the
+  class is a property of the address family and holds in every mode; what has no counterpart there
+  is the DACL, and access control is the `0700` directory plus the process umask
 - Trusted LAN segments and lab networks
 - Directly attached hardware buses (`P2PeerCon232`, `P2PeerConDmx`)
 - Research, teaching, and modernisation work on the codebase itself
@@ -204,6 +230,66 @@ One line per hub, and it must be an explicit one:
   claim at login, exactly: an entry is **not** a pattern, and `Peer.*` in that column admits nothing.
 - **`RequireAuth` is a hub property with no per-connection override.** That is deliberate — it is
   the one setting that must not be losable when an accepted connection is built from the listener.
+  It stays true after `SetLinkPolicy` below, and the distinction is the whole reason that call is
+  allowed to exist: what moved to the connection is a **classification**, not a permission. A
+  transport answers `TrustClass()` — a fact about where its frames can go, a virtual on the class,
+  and therefore nothing `AcceptSpawn` can fail to copy — and the hub still decides, in one place
+  and under its own lock, what a link of that class must do.
+- **`SetLinkPolicy(class, policy)` is what a link that cannot benefit from the handshake pays
+  instead.** A DMX connection is a pointer handoff between two objects on one heap, and under
+  `RequireAuth(true)` it ran a full ECDH agreement, held a BCrypt key object that is never
+  consulted, and signed four ECDSA operations onto its login — to protect a channel with no wire on
+  it. `RequireAuth(false)` was the only way to say so, and it opens *every* link the hub will ever
+  hold, including a socket posted to it later.
+
+  ```cpp
+      oHub.SetLinkPolicy ( P2PeerConTrust_InProcess, P2PeerLinkPolicy_Open );  // DMX
+      // ...and a TCP link on the same hub is untouched.
+  ```
+
+  Three classes: `Wire` (0, the default for every transport that has vouched for nothing — a serial
+  line, a socket that is not on loopback, and a named pipe asked for
+  `P2PeerConPipeAccess_Legacy`, which accepts a client arriving over SMB from another host),
+  `Local` (1, the kernel keeps it on this machine — a loopback socket, and since 2026-09-04 a named
+  pipe this transport created), and
+  `InProcess` (2, construction keeps it in this process). **`Wire` cannot be opened** — the call is
+  ignored — because a wire is what an unexamined transport answers, so opening it would relax the
+  whole tree through a call that reads as though it named one kind of link.
+
+  `Local` is **not** *trusted*: it says no network adversary can reach the link, and nothing about
+  another principal on the same host, who reaches a loopback port exactly as easily as this process
+  does. **Both ends need the same setting**, as with `RequireAuth`: a peer that skipped the
+  agreement against a hub that wanted one is refused. And it is a per-**link** setting only —
+  relay attestation and end-to-end sealing are properties of an origin and a destination rather
+  than of one hop, so an opened link still signs and still seals.
+
+  Every class defaults to `Full`, so a hub that never calls this behaves exactly as it did.
+- **`RequireTrustAtLeast(class)` is the other half of that call, and it is what makes the opt-out
+  safer than `RequireAuth(false)` rather than merely cheaper.** A hub that has opened its
+  in-process links is one `PostP2PeerCon` away from carrying a socket it did not plan for. That
+  socket authenticates in full — `Wire` is `Full` and cannot be set otherwise — so nothing is
+  weakened; what happens is that a hub which exists to route inside a process quietly becomes a
+  network endpoint, and no field anywhere says so. The fence refuses it instead, at the moment it
+  is offered, naming the class:
+
+  ```cpp
+      oHub.SetLinkPolicy       ( P2PeerConTrust_InProcess, P2PeerLinkPolicy_Open );
+      oHub.RequireTrustAtLeast ( P2PeerConTrust_InProcess );   // ...and nothing else, ever
+  ```
+
+  It is measured against `EffectiveTrust()`, so a connection an operator demoted is judged on the
+  class they demoted it to. `Wire` — the default — means *no* fence. An accepted child does not
+  pass through `PostP2PeerCon`; it does not need to, because it is spawned by a service the fence
+  already admitted and cannot read a higher class than that service.
+
+  **It also changes what arming means for one shape of hub.** A hub that requires authentication,
+  has fenced out every class it will not carry and has opened every class it will, can never demand
+  a signature from anybody — so it arms with no identity and no allow-list, reporting
+  `p2pauth::ArmNotRequiredByPolicy` rather than refusing to start for want of a key it will never
+  use. That is not quiet: the posture still reads `AuthRequired=1` beside `TrustFloor` and the
+  three `LinkPol` fields, which is what makes it a stated decision rather than the omission the
+  arming gate exists to catch. Take either half away — a class above the floor still `Full`, or the
+  floor removed — and it reports `ArmNoIdentity` again.
 - **`SetIdentity` alone makes a hub sign; `RequireAuth` makes it demand.** A peer that signs to a
   hub which does not require authentication has its block handed to the application, and the stock
   `On_ConLogin` refuses the payload loudly. Configure both ends.

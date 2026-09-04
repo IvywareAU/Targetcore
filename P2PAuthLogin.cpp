@@ -548,6 +548,18 @@ AuthPolicy::AuthPolicy ( )
 {
     std::memset ( m_aAuthority, 0, sizeof(m_aAuthority) );
 
+    //  Every trust class gets the FULL link posture until an operator names
+    //  one and relaxes it, so a hub configured against the tree as it was
+    //  behaves byte for byte as it did. Zeroed rather than assigned per index:
+    //  0 is P2PeerLinkPolicy_Full, and a fourth class added later inherits the
+    //  strict default by existing rather than by being remembered here.
+    std::memset ( m_aLinkPolicy, 0, sizeof(m_aLinkPolicy) );
+
+    //  ...and no fence.  0 is P2PeerConTrust_Wire, which is the class every
+    //  transport that has vouched for nothing answers, so a floor there
+    //  refuses nothing - which is exactly what an unconfigured hub must do.
+    m_nTrustFloor = 0;
+
     m_pAllow    = new AllowVec   ( );
     m_pSealReaders = new ReaderVec ( );
     m_pSeen     = new SeenVec    ( );
@@ -660,6 +672,20 @@ ArmResult
 AuthPolicy::Arm ( ) const
 {
     if ( !m_bRequired )      return ArmNotRequired;
+
+    //  ...and the second way to have nothing to enforce, which unlike the
+    //  first is arrived at rather than declared.  A hub that has fenced out
+    //  every class it will not carry and opened every class it will can never
+    //  demand a signature, so the files it would demand one WITH are files it
+    //  will never open.  Refer ArmNotRequiredByPolicy for why this passes the
+    //  same test SetRequired(false) passes.
+    //
+    //  ASKED BEFORE THE PROVISIONING CHECKS AND NOT AFTER, because the whole
+    //  point is a hub that holds none of those files.  Asked after
+    //  m_bRequired, because a hub that turned auth off outright has already
+    //  said so in the one place an operator and a posture reader both look.
+    if ( LinkPolicyOpensAllHeld ( ) ) return ArmNotRequiredByPolicy;
+
     if ( !m_bHaveIdentity )  return ArmNoIdentity;
     if ( !m_pszAllowPath )   return ArmNoAllowList;
     if ( !m_bAllowUsable )   return ArmAllowUnusable;
@@ -714,12 +740,97 @@ AuthArmText ( ArmResult eResult )
       case ArmEmptyAllow:    return "allow-list names nobody - this hub would refuse every peer";
       case ArmNoRevocation:  return "no revocation list - SetRevocationList(path), or RequireRevocation(false)";
       case ArmRevocationUnusable: return "revocation list unreadable - missing, or a line that will not parse";
+      case ArmNotRequiredByPolicy: return "armed - every class this hub will hold is open";
     }
     return "unknown arm result";
 }
 
 void AuthPolicy::SetWindow   ( int nSeconds ) { m_nWindow  = nSeconds < 0 ? 0 : nSeconds; }
 void AuthPolicy::SetRequired ( bool bRequire ) { m_bRequired = bRequire; }
+
+//  What a link of the given trust class must do - refer the header.
+//  NOTES: An out-of-range class is IGNORED rather than clamped. Clamping would
+//         write a relaxation onto whichever class happened to sit at the
+//         boundary, and a caller passing a class this build does not have is
+//         asking about something that cannot reach the gate anyway
+//       : Class 0 - the wire - is refused, silently and by design. It is not
+//         an error a caller can do anything about beyond not making the call:
+//         a wire is what every transport that has vouched for nothing answers,
+//         so opening it would relax the whole tree through a call that reads
+//         as though it named one kind of link. RequireAuth(false) is the way
+//         to open a wire, it is hub-wide, and both the posture and the arming
+//         gate already report it
+//       : Anything that is not "full" is stored as "open". There are two
+//         states and there is no third to fall into
+void AuthPolicy::SetLinkPolicy ( int nTrustClass, int nPolicy )
+{
+    if ( nTrustClass <= 0 ||
+         nTrustClass >= (int)( sizeof(m_aLinkPolicy) / sizeof(m_aLinkPolicy[0]) ) )
+      return;
+    m_aLinkPolicy[nTrustClass] = (unsigned char)( nPolicy == 0 ? 0 : 1 );
+}
+
+//  ...and what it is now.
+//  NOTES: An out-of-range class answers 0 - full - which is the fail-closed
+//         reading and the same answer the wire gets. A policy that cannot see
+//         its subject demands everything of it
+int AuthPolicy::GetLinkPolicy ( int nTrustClass ) const
+{
+    if ( nTrustClass < 0 ||
+         nTrustClass >= (int)( sizeof(m_aLinkPolicy) / sizeof(m_aLinkPolicy[0]) ) )
+      return 0;
+    return (int)m_aLinkPolicy[nTrustClass];
+}
+
+//  The lowest class this hub will hold a link of - refer the header.
+//  NOTES: Out of range is IGNORED, as SetLinkPolicy ignores it, and for the
+//         same reason: a caller naming a class this build does not have is
+//         asking about something that cannot reach the gate anyway.  Clamping
+//         would fence on whichever class happened to sit at the boundary,
+//         which is a policy nobody asked for
+//       : Class 0 IS accepted here, unlike SetLinkPolicy, and the asymmetry is
+//         deliberate.  0 is "no fence" - it is the value the constructor sets
+//         and the one an operator uses to say they do not want one.  Refusing
+//         it would leave the default unreachable by name
+//       : It is a plain assignment and not a max().  A fence is a statement
+//         about what this hub is FOR, made once before it arms, alongside the
+//         other settings in the same block; a hub that raises it and then
+//         lowers it has changed its mind, not lost a guarantee, because
+//         nothing below the old floor was ever admitted while it stood.  That
+//         is the opposite of P2PeerCon::DemoteTrust, which only tightens
+//         because it is per-object state that AcceptSpawn carries onward
+void AuthPolicy::SetTrustFloor ( int nTrustClass )
+{
+    if ( nTrustClass < 0 ||
+         nTrustClass >= (int)( sizeof(m_aLinkPolicy) / sizeof(m_aLinkPolicy[0]) ) )
+      return;
+    m_nTrustFloor = (unsigned char)nTrustClass;
+}
+
+int AuthPolicy::GetTrustFloor ( ) const
+{
+    return (int)m_nTrustFloor;
+}
+
+//  Can this policy ever demand a signature from anybody?
+//  NOTES: Two halves and BOTH are needed.  Without a floor there is no class
+//         this hub refuses to hold, so a link of a class it never opened can
+//         arrive at the next PostP2PeerCon - "everything I hold is open" is
+//         then not a property, it is a coincidence with a deadline
+//       : The loop starts AT the floor rather than at 1, so a floor of 0 asks
+//         about the wire, m_aLinkPolicy[0] is pinned Full, and the answer is
+//         false.  That is the no-fence case falling out of the arithmetic
+//         rather than out of a second test that could disagree with the first
+bool AuthPolicy::LinkPolicyOpensAllHeld ( ) const
+{
+    if ( m_nTrustFloor == 0 )
+      return false;
+    const int nClasses = (int)( sizeof(m_aLinkPolicy) / sizeof(m_aLinkPolicy[0]) );
+    for ( int i = (int)m_nTrustFloor; i < nClasses; ++i )
+      if ( m_aLinkPolicy[i] == 0 )
+        return false;
+    return true;
+}
 
 void AuthPolicy::SetRelayRequired ( bool bRequire ) { m_bRelayRequired = bRequire; }
 //  Intent only. It never reaches a verification path - a configured list is
