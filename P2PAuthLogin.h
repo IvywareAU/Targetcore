@@ -1116,6 +1116,19 @@ namespace p2pauth
         bool IsSealBroadcastRequired  ( ) const
              { return m_bSealBroadcastRequired; }
 
+        // Waive the two END-TO-END protections - relay attestation and the
+        // seal - for a destination that is a hub in THIS process. OFF by
+        // default, and it is the one setting in this class whose correctness
+        // rests on a deployment assumption rather than on a mechanism.
+        //
+        // Refer P2PeerHub::WaiveEndToEndInProcess for the assumption, the
+        // failure mode, and why it is opt-in. This class only holds the bit;
+        // P2PeerCon applies it, and the registry lookup that keys it lives in
+        // P2Pwin32.
+        void SetEndToEndWaivedInProcess ( bool bWaive );
+        bool IsEndToEndWaivedInProcess  ( ) const
+             { return m_bWaiveE2EInProcess; }
+
         // Hubs this peer will name as ADDITIONAL readers on everything it
         // seals - the answer to "we need an intermediate hub to read the
         // body". Empty by default, which is the v1 behaviour: only the
@@ -1174,6 +1187,10 @@ namespace p2pauth
         //  because a broadcast has an audience rather than a destination, so
         //  it is a different question with a different answer.
         bool               m_bSealBroadcastRequired;
+        //  The end-to-end waiver (securityRevision.md §6.3, 2026-09-04). OFF,
+        //  and the default is the whole of its safety: every other member here
+        //  fails closed on a mechanism, this one fails closed on being unset.
+        bool               m_bWaiveE2EInProcess;
         //  std::vector<std::wstring> behind a void*, the same pimpl shape the
         //  allow-list and the caches use - this header is included by TUs that
         //  must not pull in <vector>.

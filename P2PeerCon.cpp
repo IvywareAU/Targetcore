@@ -2955,6 +2955,34 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     if ( m_oThatP2Paddr == strScope )
       return true;
 
+    // Is the destination a hub in THIS process, on a hub that has waived?
+    // NOTES: securityRevision.md §6.3, and it is the ONE exemption on this
+    //        path whose correctness rests on a deployment assumption rather
+    //        than on something the library can check.  Refer
+    //        P2PeerHub::WaiveEndToEndInProcess for the A-B-C failure mode; the
+    //        short version is that the DESTINATION being in this process is a
+    //        fact, and the ROUTE staying in this process is not
+    //      : OFF BY DEFAULT, so this branch does nothing at all unless an
+    //        operator has written the assumption down - the same shape as the
+    //        broadcast exemption above it, and for the same reason
+    //      : NOT A BROADCAST, and the test is HasScope() rather than a
+    //        comparison, exactly as the exemption above uses it.  A scope
+    //        names a SUBTREE; a subtree cannot be established to be in this
+    //        process even when its root hub is, because a child hub may sit on
+    //        another host.  Sealing a fan-out is RequireSealBroadcast's
+    //        decision and it is a different one
+    //      : THE HUB LOCK IS NOT HELD ACROSS THE LOOKUP.  The accessor takes
+    //        and releases P2PeerHub's lock, and IsP2PmsgHubInProcess then
+    //        takes the process-wide hub lock on its own - refer the note on
+    //        its declaration in P2Pwin32.h.  Written as two statements rather
+    //        than one && so that the order is not a matter of how the compiler
+    //        sequences it
+    if ( !pMsg->HasScope ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    {
+      if ( IsP2PmsgHubInProcess ( strScope ) )
+        return true;
+    }
+
     // Nothing to hide
     if ( pMsg->DataSize ( ) == 0 )
       return true;
@@ -3190,6 +3218,42 @@ P2PeerCon::GateRelayInbound ( P2PeerMsg *pMsg )
     //        pre-fix report shape from a peer not entitled to it and requires
     //        this function to refuse it.
 
+    // Is the SOURCE a hub in this process, on a hub that has waived?
+    // NOTES: The receive-side half of the §6.3 waiver, and it must exist or
+    //        the send-side half breaks this gate: AttestAppMsgOutbound stops
+    //        signing for an in-process destination, and an unsigned message is
+    //        exactly what the check below refuses
+    //      : KEYED ON THE REGISTRY, NEVER ON THE LINK'S TRUST CLASS, and this
+    //        is the part a fast implementation gets wrong.  Keyed on the class
+    //        - "it arrived over DMX, so it is ours" - a REMOTE ancestor that
+    //        relays into this process would have its unattested traffic
+    //        admitted the moment the last hop happened to be in-process.  The
+    //        source being a hub THIS PROCESS HOLDS is the fact that has to be
+    //        true, and it is the same fact the sender keyed on
+    //      : NOT the class exemption the block above describes, and the
+    //        difference is the whole of why that one was deleted.  That test
+    //        asked what a message was NAMED; this one asks the registry a
+    //        question about the process it is running in.  A peer cannot put
+    //        itself in this process by choosing a message name
+    //      : PLACED AFTER THE IFADDR REFUSAL, deliberately.  Interface address
+    //        mapping and relay attestation remain incompatible whatever this
+    //        hub has waived - waiving a protection for some destinations must
+    //        not make an unsupported configuration look supported for all of
+    //        them
+    //      : THE RESIDUAL IS THE ASSUMPTION ITSELF, stated rather than hidden:
+    //        a remote peer claiming a source that IS an in-process hub is
+    //        admitted here.  Under the deployment rule the waiver requires -
+    //        in-process hubs form one subtree - such a message cannot arise,
+    //        and if that rule does not hold the operator has already accepted
+    //        a larger hole on the send side.  Refer
+    //        P2PeerHub::WaiveEndToEndInProcess
+    if ( pHub -> IsEndToEndWaivedInProcess ( ) )
+    {
+      CString strSrcWaive = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+      if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrcWaive ) )
+        return;
+    }
+
     // Is there anything to check?
     // NOTES: An absent block is refused, not waved through.  A message with no
     //        attestation is exactly what an ancestor forging a source would
@@ -3365,6 +3429,34 @@ P2PeerCon::AttestAppMsgOutbound ( P2PeerMsg *pMsg )
     CString  strDst  = pMsg->GetScopeOrDestin ( )
                          ? pMsg->GetScopeOrDestin ( ) : L"";
     CString  strName = pMsg->c_name    ( ) ? pMsg->c_name    ( ) : L"";
+
+    // Is the destination a hub in THIS process, on a hub that has waived?
+    // NOTES: The other half of the §6.3 waiver, and it is placed AFTER the
+    //        entitlement test above rather than before it deliberately: a hub
+    //        that may not attest for this source must not reach a state where
+    //        turning the waiver on is what stopped it signing.  The two
+    //        outcomes are the same message on the wire and completely
+    //        different postures, and only one of them is a decision
+    //      : Reads strDst - GetScopeOrDestin, the same accessor the signature
+    //        covers and the same one SealAppMsgOutbound seals to.  Refusing
+    //        scoped messages here for the reason given there: a subtree is not
+    //        a hub, and this process cannot vouch for one
+    //      : AFTER THE FOUR COPIES, and not between them and the accessors
+    //        they come from.  The block above is one group for a reason its
+    //        own note gives - off Windows those accessors return slots in a
+    //        recycled ring of 16 thread-local buffers - and putting a test
+    //        with its own accessor calls in the middle of that group is the
+    //        mistake GateRelayInbound's header records having already been
+    //        made once.  Four CString copies on a message about to skip a
+    //        468 us signature is not a trade worth thinking about
+    //      : SILENT, unlike the "could not sign" ending below.  A waived
+    //        message is not a failure to attest, it is a decision not to, and
+    //        an operator who wants to see it reads WaiveE2E off TryReadPosture
+    if ( !pMsg->HasScope ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    {
+      if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strDst ) )
+        return;
+    }
 
     unsigned char aBlock[p2pauth::kRelayMaxLen];
     size_t        cbBlock = 0;

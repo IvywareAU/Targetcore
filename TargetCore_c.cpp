@@ -983,6 +983,27 @@ int p2peerhub_is_seal_required(P2PeerHubHandle h)
     catch (...) { return 0; }
 }
 
+// The end-to-end waiver. Refer the header for the assumption it rests on -
+// this is the only entry point in the file that carries one.
+void p2peerhub_waive_end_to_end_in_process(P2PeerHubHandle h, int waive)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return;
+    try         { p->WaiveEndToEndInProcess(waive != 0); }
+    catch (...) { }
+}
+
+// A null handle, and a throw, both answer 0 - NOT waived. That is the
+// fail-closed reading for this one: 0 leaves the two end-to-end protections
+// ON, and it is the answer an unconfigured hub gives.
+int p2peerhub_is_end_to_end_waived_in_process(P2PeerHubHandle h)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return 0;
+    try         { return p->IsEndToEndWaivedInProcess() ? 1 : 0; }
+    catch (...) { return 0; }
+}
+
 int p2peerhub_set_agreement_key(P2PeerHubHandle h, const char* pathUtf8,
                                  int createIfAbsent)
 {

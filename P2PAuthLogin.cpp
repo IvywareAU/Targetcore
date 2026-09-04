@@ -514,6 +514,10 @@ AuthPolicy::AuthPolicy ( )
     //  than quietly sent in clear. Turning it off is a deployment writing down
     //  that its broadcasts are not confidential - see the header.
     , m_bSealBroadcastRequired ( true )
+    //  OFF, and it stays off unless an operator writes it down. This is the
+    //  one setting whose correctness rests on a deployment assumption rather
+    //  than on a mechanism, so its default is the assumption NOT being made.
+    , m_bWaiveE2EInProcess ( false )
     , m_pSealReaders ( nullptr )
     , m_nWindow ( kAuthWindowDefault )
     , m_nSealWindow ( kSealWindowDefault )
@@ -846,6 +850,12 @@ void AuthPolicy::SetSealRequired ( bool bRequire ) { m_bSealRequired = bRequire;
 //  this one moot - there is no ordering to get wrong.
 void AuthPolicy::SetSealBroadcastRequired ( bool bRequire )
                                           { m_bSealBroadcastRequired = bRequire; }
+//  Intent, like the three above it, and it does not weaken anything on its
+//  own: P2PeerCon consults it ONLY together with a registry lookup that says
+//  the destination is a hub in this process. Setting it on a hub whose peers
+//  are all out of process changes nothing at all.
+void AuthPolicy::SetEndToEndWaivedInProcess ( bool bWaive )
+                                          { m_bWaiveE2EInProcess = bWaive; }
 //  Turning the refusal OFF does not empty the cache. Nothing reads it while
 //  the switch is off, and keeping it means a hub toggled off and on again does
 //  not hand an attacker a window in which everything it captured is fresh.

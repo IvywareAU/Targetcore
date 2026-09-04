@@ -1760,6 +1760,23 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       P3PmsgField_SERIALISE ( oNodeVar, _N("SealBcast")
                             , (UINT32)( oPosture.bSealBcast ? 1 : 0 ), bDsc
                             , _T("The seal requirement extends to broadcasts") );
+      //  The §6.3 waiver, and it is rendered HERE - beside SealReq rather than
+      //  beside the link-policy block below - because it is the field that
+      //  makes SealReq readable. SealReq=1 WaiveE2E=1 is a hub that requires
+      //  sealing and does not always do it, which is not deducible from any
+      //  other field in this snapshot and is exactly the state an operator
+      //  would otherwise have to read the source to discover.
+      //
+      //  It is also the ONLY field here that reports an ASSUMPTION rather
+      //  than a mechanism. Every other 1 in this block is something the
+      //  library enforces; this one is something an operator asserted about
+      //  the deployment - that in-process hubs form one address subtree - and
+      //  it is rendered so that the assertion is visible to whoever has to
+      //  live with it. Refer P2PeerHub::WaiveEndToEndInProcess.
+      P3PmsgField_SERIALISE ( oNodeVar, _N("WaiveE2E")
+                            , (UINT32)( oPosture.bWaiveE2E ? 1 : 0 ), bDsc
+                            , _T("Seal and attestation waived for an "
+                                 "in-process destination") );
       //  FIVE since 2026-08-21, and the new one is INTENT where the four
       //  below are capability - the same separation AuthRequired keeps from
       //  AuthArm, and it earns its place for the same reason. RevocList=0
@@ -1997,6 +2014,7 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bSealReplay      = false;
       rOut.bSealRequired    = false;
       rOut.bSealBcast       = false;
+      rOut.bWaiveE2E        = false;
       rOut.bSealCanOpen     = false;
       rOut.bRevocRequired   = false;
       rOut.bRevocConfigured = false;
@@ -2018,6 +2036,7 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bSealReplay      = m_pAuthPolicy -> IsSealReplayRefused ( );
       rOut.bSealRequired    = m_pAuthPolicy -> IsSealRequired ( );
       rOut.bSealBcast       = m_pAuthPolicy -> IsSealBroadcastRequired ( );
+      rOut.bWaiveE2E        = m_pAuthPolicy -> IsEndToEndWaivedInProcess ( );
       rOut.bSealCanOpen     = m_pAuthPolicy -> CanOpen ( );
       rOut.bRevocRequired   = m_pAuthPolicy -> IsRevocationRequired ( );
       rOut.bRevocConfigured = m_pAuthPolicy -> IsRevocationConfigured ( );
@@ -2546,6 +2565,41 @@ P2PeerHub::IsSealBroadcastRequired ( )
 {
     P2PsafeCS oSafeCS = m_oCSectionHub;
     return m_pAuthPolicy ? m_pAuthPolicy -> IsSealBroadcastRequired ( ) : false;
+}
+
+//
+//  Waive the two end-to-end protections for an in-process destination
+//  NOTES: Hub scope and configure-before-arm, like RequireSeal.  Refer
+//         WaiveEndToEndInProcess in the header for the assumption, the A-B-C
+//         failure mode and what it is worth, and P2PeerCon::SealAppMsgOutbound
+//         / AttestAppMsgOutbound / GateRelayInbound for the three places it is
+//         applied
+//       : This setter takes the HUB lock and nothing else.  The registry
+//         lookup that keys the waiver takes the PROCESS hub lock, and the two
+//         are never held together - P2PeerCon reads this accessor, lets the
+//         lock go, and only then asks IsP2PmsgHubInProcess.  Refer the note on
+//         the declaration in P2Pwin32.h
+//
+void
+P2PeerHub::WaiveEndToEndInProcess ( bool bWaive )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy ) m_pAuthPolicy -> SetEndToEndWaivedInProcess ( bWaive );
+}
+
+//
+//  ...and is it waived
+//  NOTES: A hub with no policy object answers FALSE, which is the fail-closed
+//         reading here: FALSE keeps the protections ON.  Every other accessor
+//         in this file fails closed by refusing something; this one does it by
+//         declining to waive
+//
+bool
+P2PeerHub::IsEndToEndWaivedInProcess ( )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    return m_pAuthPolicy ? m_pAuthPolicy -> IsEndToEndWaivedInProcess ( )
+                         : false;
 }
 
 p2pcng::IdResult

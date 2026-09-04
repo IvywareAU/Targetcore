@@ -290,6 +290,39 @@ One line per hub, and it must be an explicit one:
   three `LinkPol` fields, which is what makes it a stated decision rather than the omission the
   arming gate exists to catch. Take either half away — a class above the floor still `Full`, or the
   floor removed — and it reports `ArmNoIdentity` again.
+- **`WaiveEndToEndInProcess(true)` is the only switch that reaches the end-to-end cost, and it is
+  the only one in this file whose correctness rests on an assumption rather than a mechanism.**
+  `SetLinkPolicy` above relaxes a *hop*; the two end-to-end protections are properties of an origin
+  and a destination, so an opened link still signs and still seals — and that is not a technicality.
+  **Measured** (`p2p_linkcost`, five postures, three runs): the default posture costs 14× the CPU
+  per message of the same chain with nothing on, **93% of it is the seal and the attestation**, and
+  `SetLinkPolicy(InProcess, Open)` recovers **none** of it. This switch is what that measurement was
+  taken to decide.
+
+  It waives the seal and the relay attestation when the destination is a hub **this process holds**,
+  which is a registry lookup and an **exact** address match — a hub `Alice` here says nothing about
+  `Alice.Bob`, which may be a child hub on another host.
+
+  ```cpp
+      oHub.WaiveEndToEndInProcess ( true );   // off by default
+  ```
+
+  **Read the assumption before turning it on.** It holds only if a message to an in-process hub
+  never transits an out-of-process one — true of a tree whose in-process hubs form one subtree, and
+  not guaranteed otherwise. The failure mode in full, because a paraphrase is not enough to decide
+  by: hubs A and C in one process, B on another host, wired A-B-C. A sends to C, C is in this
+  process, so nothing is sealed or signed — and the body crosses the wire to B **in clear**, because
+  the destination being local is a fact and the *route* staying local is not. Nothing in the library
+  can tell those two apart, which is why this is opt-in: the assumption becomes something an
+  operator wrote down rather than something the library made on their behalf.
+
+  It waives nothing for a **broadcast** (a scope names a subtree, and a subtree cannot be shown to
+  be in this process even when its root is — that is `RequireSealBroadcast`'s decision), and the
+  receive-side exemption in `GateRelayInbound` keys on the **same registry lookup, never on the
+  link's trust class**: keyed on the class, a remote ancestor could forward an unattested message
+  down an in-process link and be admitted. `TryReadPosture` reports it as `WaiveE2E`, so a hub
+  reading `SealRequired=1` beside `WaiveE2E=1` — requires sealing, does not always do it — is
+  legible without reading the source. Gated by `p2p_e2ewaive`, falsified three times.
 - **`SetIdentity` alone makes a hub sign; `RequireAuth` makes it demand.** A peer that signs to a
   hub which does not require authentication has its block handed to the application, and the stock
   `On_ConLogin` refuses the payload loudly. Configure both ends.

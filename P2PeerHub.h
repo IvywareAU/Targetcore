@@ -297,6 +297,19 @@ class TargetCore_EXT P2PeerHub : public P2PeerTarget
         //  handed a socket; the same hub reading nTrustFloor 2 cannot, and
         //  the difference between those two is not visible anywhere else.
         int       nTrustFloor;
+        //  WaiveEndToEndInProcess() - INTENT, and the one field here that
+        //  reports an ASSUMPTION rather than a mechanism. An operator reading
+        //  SealRequired=1 with this also 1 is looking at a hub that requires
+        //  sealing and does not always do it, which is not deducible from any
+        //  other field and must not have to be inferred from the source.
+        //
+        //  APPENDED, like anLinkPolicy and nTrustFloor before it, and not
+        //  grouped with the seal fields it belongs with. Inserting a member
+        //  moves every field after it, so a consumer compiled against the
+        //  previous header would read this one where bSealCanOpen used to be.
+        //  Appending leaves every existing offset alone and costs only that
+        //  the struct no longer reads in topic order.
+        bool      bWaiveE2E;
       };
       bool
         TryReadPosture ( Posture& rOut );
@@ -692,6 +705,58 @@ class TargetCore_EXT P2PeerHub : public P2PeerTarget
         RequireSealBroadcast    ( bool bRequire );
       bool
         IsSealBroadcastRequired ( );
+
+      // Waive the two END-TO-END protections - relay attestation and the seal
+      // - for a destination that is a hub in THIS process. OFF by default.
+      //
+      // READ THE ASSUMPTION BEFORE TURNING IT ON. It holds only if a message
+      // to an in-process hub never transits an out-of-process one. That is
+      // true of a tree whose in-process hubs form one subtree, and it is NOT
+      // guaranteed otherwise.
+      //
+      // THE FAILURE MODE, in full, because a paraphrase of it is not enough to
+      // decide by: hubs A and C in this process, hub B on another host, wired
+      // A-B-C. A sends to C. C is a hub in this process, so with this on A
+      // neither seals nor attests - and the body then crosses the wire to B
+      // IN CLEAR, unsigned, because B is where the route actually goes. The
+      // waiver's condition was true and its assumption was false, and nothing
+      // in the library can tell the two apart: the destination is a fact this
+      // process knows, the ROUTE is not.
+      //
+      // So this is the one setting here whose correctness cannot be made
+      // fail-closed by construction. Everything else in this class refuses
+      // when it cannot prove something; this one is an operator asserting a
+      // deployment property the library cannot check - the same shape as
+      // RequireAuth(false) and RequireSealBroadcast(false), and like those it
+      // is opt-in so that the assumption is something somebody WROTE DOWN
+      // rather than something the library assumed on their behalf.
+      //
+      // WHAT IT IS WORTH, measured rather than estimated (securityRevision.md
+      // §8.4, and the p2p_linkcost harness): the two end-to-end protections
+      // are 93% of the per-message CPU on a default hub - 1 080 us of 1 298 -
+      // and the per-LINK relaxations (SetLinkPolicy) recover none of it,
+      // because they are not properties of a link. This is the only switch
+      // that reaches that number.
+      //
+      // WHAT IT DOES NOT WAIVE, and each is deliberate:
+      //   - a BROADCAST. A scope names a subtree, and a subtree cannot be
+      //     established to be in this process even when its root is. Use
+      //     RequireSealBroadcast for that decision, which is a different one.
+      //   - anything on the RECEIVE side keyed on the link. GateRelayInbound's
+      //     matching exemption keys on the same registry lookup, never on the
+      //     link's trust class: keyed on the class, a REMOTE ancestor could
+      //     forward an unattested message down an in-process link and be
+      //     admitted.
+      //   - the per-hop protections. Key agreement, the signed login and the
+      //     link cypher are gated by SetLinkPolicy and are untouched here.
+      //
+      // Configure before CreateHub()/SpawnHub(), like everything else here,
+      // and TryReadPosture reports it as WaiveE2E so the choice stays visible
+      // afterwards.
+      void
+        WaiveEndToEndInProcess     ( bool bWaive );
+      bool
+        IsEndToEndWaivedInProcess  ( );
 
       // Name a hub that may ALSO read what this hub seals - the answer to
       // "an intermediate hub has to see the body".

@@ -66,6 +66,27 @@ P2PaddrSTR
 GetP2PmsgHubAddr ( const P2PeerCon *pCon );
 int TargetCore_EXT
 GetP2PmsgHubConCount ( P2PmsgHubID nHubID = 0 );
+//  Is this address a hub held by THIS process?  (securityRevision.md §6.3)
+//  NOTES: The mechanism the end-to-end waiver is keyed on, and the ONLY one it
+//         may be keyed on.  The process already knows every hub it holds -
+//         s_ThreadID_P2PmsgHub, under s_oCSectionP2PmsgHub - so this is a walk
+//         of that map and an address compare, not a new piece of state that
+//         could disagree with the registry it is derived from
+//       : EXACT MATCH, never at-or-below.  A hub Alice held here says nothing
+//         about Alice.Bob, which may perfectly well be a child hub on another
+//         host; answering TRUE for it would waive the protections on precisely
+//         the traffic that leaves the machine.  The router's own test is the
+//         same equality - refer P2PeerCon::OpenAppMsgInbound, which decides
+//         "is it for us" with oThisHub == strDst
+//       : DOES NOT THROW, unlike its neighbours above.  It is asked on the IO
+//         thread for every application message on a waived hub, and the answer
+//         to "no such hub" is FALSE - which is the fail-closed answer, because
+//         FALSE keeps the protections on
+//       : TAKES THE HUB LOCK ONLY, and callers must not hold P2PeerHub's own
+//         lock across it.  CreateP2PmsgHub takes HUB then PUMP; this takes HUB
+//         alone and calls nothing while it holds it
+TargetCore_EXT BOOL
+IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr );
 //  Hub observability (Stage 4 step 13)
 //  NOTES: Aggregates over ONE hub, for a monitor holding that hub's snapshot
 //         and nothing else.  P2PeerHub::Serialise() reports all three as the

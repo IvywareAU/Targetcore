@@ -429,6 +429,26 @@ P2PC_API int                p2peerhub_set_revocation_list (P2PeerHubHandle h,
 P2PC_API void               p2peerhub_require_seal   (P2PeerHubHandle h,
                                                        int             require);
 P2PC_API int                p2peerhub_is_seal_required(P2PeerHubHandle h);
+// Waive the two END-TO-END protections - relay attestation and the seal - for
+// a destination that is a hub in THIS process. 0 is the default and is off.
+//
+// This is the one call in this header whose correctness rests on a DEPLOYMENT
+// ASSUMPTION rather than on a mechanism, and an FFI consumer cannot read the
+// C++ header's block comment, so the assumption is written out here too: it
+// holds only if a message to an in-process hub never transits an
+// out-of-process one. Hubs A and C in this process with B on another host,
+// wired A-B-C, sends A's body to C over the wire IN CLEAR with this on -
+// because the destination being in this process is a fact, and the route
+// staying in this process is not.
+//
+// It waives nothing for a BROADCAST, and nothing on a per-hop path: key
+// agreement, the signed login and the link cypher are p2peerhub_set_link_policy's
+// decision and are untouched. Refer P2PeerHub::WaiveEndToEndInProcess.
+P2PC_API void               p2peerhub_waive_end_to_end_in_process
+                                                      (P2PeerHubHandle h,
+                                                       int             waive);
+P2PC_API int                p2peerhub_is_end_to_end_waived_in_process
+                                                      (P2PeerHubHandle h);
 P2PC_API int                p2peerhub_set_agreement_key (P2PeerHubHandle h,
                                                        const char*     pathUtf8,
                                                        int             createIfAbsent);

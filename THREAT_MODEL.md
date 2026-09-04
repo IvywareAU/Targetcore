@@ -271,9 +271,33 @@ is tested or keyed, so a v4 rule and a per-source share both mean the same thing
 | Relay attestation: a downward relay carries the **origin's** signature | A5 fabricating traffic it claims to have relayed | **on** | `RequireRelayAuth`, `AuthGateInbound` relay path | `p2p_authancestor`, `p2p_authrelay` |
 | End-to-end seal: body sealed to the destination | A5 reading what it carries | opt-in | `P2PeerHub::SealFor` / `OpenFrom` | `p2p_sealhop`, `seal_interop` |
 | Seal replay cache and floor | A5, A2 replaying a sealed body | **on** | `AuthPolicy::NoteSealSig`, `m_bSealReplay` | `p2p_replayguard` |
+| **Both of the two rows above may be WAIVED for a destination this process holds** | nothing — it is the one row here that *removes* a protection, on an operator's written assertion | **off** | `WaiveEndToEndInProcess`; applied in `SealAppMsgOutbound`, `AttestAppMsgOutbound`, `GateRelayInbound`, keyed on `IsP2PmsgHubInProcess` | `p2p_e2ewaive` |
 | Allow-list holds several keys per address, and every one is tried | rotation without a flag day | **on** | `FindPeer` | `p2p_keyrotate` |
 | Revocation list: fail-closed, reloadable live, merge-only, one issuer | A4 after compromise; A6 injecting a deny-list | opt-in | `SetRevocationList`, `ReloadRevocationList` | `p2p_keyrotate`, `p2p_revokedist` |
 | Revocation list bounded at **4096** entries | A6 exhausting memory with a signed list | **on** | `kRevMaxEntries`, `P2PAuthLogin.h:424` | — *claim* |
+
+**The waiver row is the only one in this document that takes a protection away, and it is worth its
+own paragraph for a reason the table cannot carry.** Every other row is enforced by a mechanism: the
+library refuses when it cannot prove something, and the row is true whether or not anyone understood
+it. This one cannot be. It waives the seal and the attestation when the **destination** is a hub
+this process holds — which is a fact, checked against the live hub registry on an **exact** address
+match — but what makes the waiver *safe* is that the **route** also stays in this process, and that
+is not a fact the library can establish. It is a property of how a deployment is wired: in-process
+hubs forming one address subtree.
+
+So the honest statement of the residual is a topology, not a caveat. Hubs A and C in one process
+with B on another host, wired A-B-C: A sends to C, the condition is true, and the body crosses the
+wire to B in clear and unsigned. That is why the default is off and why the switch is named for the
+assumption rather than for the saving. It buys a real number — **93%** of the per-message CPU on a
+default hub, measured by `p2p_linkcost` — and the per-link relaxations (`SetLinkPolicy`, §6.2 of
+`securityRevision.md`) buy none of it, because the two protections are not properties of a link.
+
+Two things about the mechanism keep the hole from being wider than the assumption. The address match
+is **equality**, so a hub `Alice` held here does not waive traffic to `Alice.Bob`, which may be a
+child hub on another host — `p2p_e2ewaive` phase 0 gates that, and falsifying it to an at-or-below
+test turns the phase red. And the receive-side exemption keys on the **same registry lookup rather
+than on the link's trust class**: keyed on the class, a remote ancestor relaying into this process
+would have its unattested traffic admitted the moment the last hop happened to be in-process.
 
 ### 6.3 Not falling over
 

@@ -26,6 +26,7 @@ were taken against.
 | **3** | **`RequireTrustAtLeast` + `ArmNotRequiredByPolicy`; §8.3 phases 5 and 8** | ✅ **done 2026-09-04 — falsified three times** |
 | **4** | **Pipe locality (`PIPE_REJECT_REMOTE_CLIENTS`, DACL, client SQOS), then `P2PeerConPipe::TrustClass()`; §8.3 phases 6 and 7** | ✅ **done 2026-09-04 — falsified three times** |
 | **5** | **The §8.4 measurement (`p2p_linkcost`), then the §6.3 end-to-end waiver decision** | ✅ **done 2026-09-04 — measured twice, decided** |
+| **6.3** | **The end-to-end waiver — `WaiveEndToEndInProcess`, `IsP2PmsgHubInProcess`, the three call sites, the flat C pair, `p2p_e2ewaive`** | ✅ **done 2026-09-04 — 26 checks, falsified three times** |
 
 The two end-to-end protections (relay attestation, seal) are **not** touched by any of the five
 steps. They are gated on the destination, not the link, and §6.3 says to ship §6.2 first and measure
@@ -59,6 +60,11 @@ recommendation — build §6.3 — is in *Step 5* below with the numbers it rest
 | `p2p_linkcost`, the origin link read off the connection | A `keyx=0 auth=0`; B/C/D `keyx=1 auth=1`; E `keyx=0 auth=0`; `cyph=0` in **every** row. So B really authenticated, E's `SetLinkPolicy` really took, and a DMX link never installs a cypher — §9's finding 2, measured |
 | `p2p_linkcost` as a registered ctest, Debug, N = 4 000 | **passes**, 21.8 s, label `measure`. Every posture delivered every message |
 | `ctest -C Debug -L security` still selects **37** tests | step 5 adds no test to that label — `p2p_linkcost` is `measure`, so a `-L security` count stays comparable across the whole pass |
+| `.github/ci/check_repo_invariants.py`, after §6.3 | **all seven sections green**; **101** flat C symbols, header and manifest agree |
+| `p2p_e2ewaive`, Debug (§6.3) | **26 checks, 0 failed, first run**; compiled first try in Debug and Release |
+| `p2p_e2ewaive` falsified **three** times | **red every time, and only on the rows written for it** — the at-or-below match (2 rows), the send-side branch removed (1 row), the default flipped on (3 rows) |
+| `ctest -C Debug -L security` after §6.3 | selects **38** — `p2p_e2ewaive` is the one added, and it is the first test this pass has added to that label since §8.3. **37/38**, 246 s; the one failure is `p2p_linktrust`, and it is finding 7 — see *The flake, re-measured* below |
+| **The flake, attributed rather than assumed** | `p2p_linktrust` on the **baseline tree** (`1a48340`, this work stashed, rebuilt): **3 pass / 3 fail in 6 runs**, dying in three *different* phases (9, 5, 8). On the §6.3 tree: 1 pass / 3 fail in 4. Indistinguishable at this sample size, and **the fault is reproducible without a line of this change present** |
 
 Warnings: no new ones. The build's existing C4100/C4996/C4244 noise is unchanged.
 
@@ -906,6 +912,11 @@ ephemeral is intended is worth asking **before** §6.3 is built, because if the 
 same 1 060 µs falls off *every* link and the waiver's assumption buys much less than this table
 suggests. Finding 12, and it is a question, not a proposal.
 
+**It was asked, and the answer is yes — see *Finding 12, settled* below.** The ephemeral is
+documented in three places and was priced against a rejected alternative, and the guess written into
+the sentence above is wrong: dropping the fresh key removes **230.5 µs of the 1 080 µs**, not all of
+it. This paragraph is left standing as it was written because the correction is the point.
+
 ### What step 5 did NOT change
 
 No library source. `TargetCore` is byte-identical to what step 4 left; the manifest is still 99
@@ -1049,7 +1060,10 @@ demotion algebra, which is the part of I4 that is code rather than absence.
    for want of a loader path. Not caused by this pass: a load failure cannot come from a change
    that only ADDS exported symbols, and the 37 security tests linking the same two DLLs all passed
    throughout.
-7. **`p2p_linktrust` terminates abruptly, intermittently, in its live TCP phases** — ⬜ **OPEN**.
+7. **`p2p_linktrust` terminates abruptly, intermittently, in its live TCP phases** — ⬜ **OPEN,
+   and RE-MEASURED 2026-09-04 during §6.3: the rate is now ~50% on this machine, and the baseline
+   tree was actually run this time — 3 pass / 3 fail in 6 runs of `1a48340` with the §6.3 work
+   stashed, failing in three different phases. Refer *The flake, re-measured*.**
    Debug exit **3** (`abort()`), Release **0xC0000409** (`__fastfail`), no diagnostic and no
    `RESULT:` line, always just after a hub arms and before its connection is accepted. Roughly one
    run in four. **Measured not to be this pass's**: the same tree with both of step 3's
@@ -1090,8 +1104,10 @@ demotion algebra, which is the part of I4 that is code rather than absence.
    `GateAppMsgInbound`'s notes argue it at length — but nothing argues the send side. **Not
    changed here**: narrowing what signs is a security change dressed as an optimisation, and it
    needs the `p2p_authancestor` shape to gate it.
-12. **A seal is three public-key operations and one of them is a fresh key** — ⬜ **OPEN, a
-   question for whoever owns `P2PeerSeal`.** `p2pseal::Seal` generates an ephemeral `EcdhP256` per
+12. **A seal is three public-key operations and one of them is a fresh key** — ✅ **CLOSED as
+   ANSWERED 2026-09-04.** As raised, it was a question for whoever owns `P2PeerSeal`, and it is
+   left below in the words it was raised in because the answer corrects it. `p2pseal::Seal`
+   generates an ephemeral `EcdhP256` per
    call (`P2PeerSeal.cpp:366`), derives a shared secret per reader, and signs. Measured: **468.8 µs
    to seal, 414.1 µs to open**, against 99 µs for the entire unprotected message. That is the
    single largest number anywhere in step 5's table, and §6.3's waiver removes it only where the
@@ -1100,6 +1116,290 @@ demotion algebra, which is the part of I4 that is code rather than absence.
    per-message forward secrecy) is worth settling **before** §6.3 is built: if it is not, the same
    **1 080 µs** (D − C) falls off *every* link — wire included — and the waiver's assumption buys
    much less than the table suggests.
+
+   ✅ **ASKED AND ANSWERED 2026-09-04, and the answer is that it is intended — §6.3 is not blocked.**
+   The ephemeral is a chosen property, documented three times, and **the paragraph above overstates
+   the prize by 4.7×**. Refer *Finding 12, settled* below for the reading and the arithmetic.
+   What the check turned up instead is a **security-neutral** saving the finding did not look for:
+   the per-call public-key imports. That is **finding 13**.
+
+13. **Every verify re-imports the peer's public key from the allow-list** — ⬜ **OPEN, and unlike
+   finding 12 it is free.** `P2PeerSeal.cpp:543` and `:637` (the two open paths) construct a local
+   `EcdsaP256` and `ImportPublic` the sender's identity key **per message**; `P2PAuthLogin.cpp:1305`
+   does the same on the relay-verify path; and `EcdhP256::DeriveRawSecret` does its own
+   `BCryptImportKeyPair` on the peer point every call (`P2PCngCrypto.cpp:437`). Measured below:
+   **76.8–78.1 µs** an import, which is **36%** of a `VerifyRelay` and **~19%** of an `OpenFrom`.
+   Memoising an imported public key per peer changes no wire format, no transcript and no security
+   property — it caches a deterministic parse of bytes the allow-list already holds — and it pays on
+   posture **C** as well as **D**, which no waiver does. Not done here: it is a `P2PIdentityStore`
+   lifetime question (when does a cached handle get dropped on a revocation?) and that is the module
+   owner's call, not step 5's.
+
+---
+
+## §6.3 — the end-to-end waiver
+
+Step 5 recommended building this and finding 12 was checked first, as asked. Both cleared, so §6.3
+is built as §6.3 specifies it: keyed on the in-process hub registry lookup at **both** ends, never
+on the link class, and **off by default**.
+
+### The predicate, and why it is the whole security argument
+
+`IsP2PmsgHubInProcess ( P2PaddrSTR )`, `P2Pwin32.cpp`. It walks `s_ThreadID_P2PmsgHub` under
+`s_oCSectionP2PmsgHub` — the registry §6.3 named — and compares addresses.
+
+**Three properties, and each is a decision rather than an implementation detail:**
+
+1. **The match is EQUALITY, never at-or-below.** A hub `Alice` held here says nothing about
+   `Alice.Bob`, which may perfectly well be a child hub on another host — so an at-or-below test
+   would waive the protections on precisely the traffic that leaves the machine. This is the same
+   equality the router itself uses: `OpenAppMsgInbound` decides "is it for us" with
+   `oThisHub == strDst`. Gated by `p2p_e2ewaive` phase 0 and **falsified** — swapping the compare
+   for `IsRable()` turns two rows red and nothing else.
+2. **It does not throw**, unlike every neighbour in that file. It is asked on the IO thread for
+   every application message on a waived hub, and the answer to "no such hub" is `FALSE` — which is
+   the fail-closed answer here, because `FALSE` *keeps the protections on*.
+3. **It is a walk, not a lookup**, because the map is keyed by thread ID. A second index by address
+   would be a second thing that can disagree with the registry, which is exactly what this must not
+   be. There is one hub per thread and the counts are single digits.
+
+The lock discipline is written down at the declaration and obeyed at all three call sites: the hub
+accessor takes and releases `P2PeerHub`'s own lock, and *then* the predicate takes the process-wide
+hub lock. The two are never held together, so this cannot invert against `CreateP2PmsgHub`, which
+takes HUB then PUMP. The call sites spell it as two statements rather than one `&&` so the ordering
+is not left to how the compiler sequences it.
+
+### The switch
+
+| Surface | Call |
+|---|---|
+| C++ | `P2PeerHub::WaiveEndToEndInProcess(bool)` / `IsEndToEndWaivedInProcess()` |
+| Policy | `AuthPolicy::SetEndToEndWaivedInProcess` / `IsEndToEndWaivedInProcess`, `m_bWaiveE2EInProcess` |
+| Posture | `Posture::bWaiveE2E`, read live from the policy like every other field |
+| Snapshot | `WaiveE2E`, rendered by `Serialise` beside `SealReq` |
+| Flat C (§6.7) | `p2peerhub_waive_end_to_end_in_process`, `p2peerhub_is_end_to_end_waived_in_process` |
+
+Two placement decisions, and they point opposite ways on purpose:
+
+- **In the `Posture` struct the field is APPENDED**, after `nTrustFloor`, not grouped with the seal
+  fields it belongs with. Inserting a member moves every field after it, so a consumer compiled
+  against the previous header would read this one where `bSealCanOpen` used to be. `anLinkPolicy`
+  and `nTrustFloor` were appended for the same reason in steps 2 and 3. The cost is that the struct
+  no longer reads in topic order, which is a comment's problem rather than a caller's.
+- **In the SNAPSHOT it is rendered beside `SealReq`**, where topic order is all there is and no
+  offset depends on it. That is the placement that matters to the person reading it: `SealReq=1`
+  with `WaiveE2E=1` is a hub that requires sealing and does not always do it, and no other field in
+  that snapshot says so. It is also the only `1` in that block reporting an **assumption** rather
+  than a mechanism, and its description says as much.
+
+`false` in the constructor, and **the default is the whole of its safety**: every other member of
+`AuthPolicy` fails closed on a mechanism, this one fails closed on being unset. A hub with no policy
+object answers `false` — the fail-closed reading here is the one that declines to waive.
+
+§6.7 names only the setter. The getter was added with it because every other policy pair in
+`TargetCore_c.h` has one and there is **no flat-C posture reader**, so without it an FFI consumer
+could set the waiver and never read it back. Two symbols; the manifest is now **101**.
+
+### The three call sites
+
+| Site | Keyed on | Note |
+|---|---|---|
+| `SealAppMsgOutbound` | the **scope**, after the last-hop test | placed where `strScope` already exists, so no accessor is called twice |
+| `AttestAppMsgOutbound` | the **destination**, after the entitlement test | after, deliberately — a hub that may not attest for this source must not reach a state where turning the waiver *on* is what stopped it signing |
+| `GateRelayInbound` | the **source**, after the IFaddr refusal | after, deliberately — IFaddr mapping and relay attestation stay incompatible whatever this hub waived |
+
+**Both send-side sites also require `!HasScope()`, and that condition is not in §6.3.** It is
+necessary: a scope names a **subtree**, and a subtree cannot be established to be in this process
+even when its root hub is, because a child hub may sit on another host. Without it, a fan-out copy
+whose scope happened to equal an in-process hub address would be waived. Sealing a broadcast is
+`RequireSealBroadcast`'s decision and it is a different one.
+
+**`OpenAppMsgInbound` needs nothing**, and that is worth stating rather than leaving as an absence:
+it returns early on a message that is not sealed, so an unsealed body from a waived origin is
+delivered by the path that was already there.
+
+### The part §6.3 said a fast implementation would get wrong
+
+The receive-side exemption keys on the **registry lookup, not the link's trust class**. Keyed on the
+class — "it arrived over DMX, so it is ours" — a **remote** ancestor relaying into this process
+would have its unattested traffic admitted the moment the last hop happened to be in-process. Keyed
+on the source being a hub this process holds, it is not. The call site carries that argument in its
+own notes, beside the block explaining why the *previous* exemption there — keyed on a message
+**class** — was deleted. The distinction is the same one twice: a peer can choose a message name, and
+cannot put itself in this process.
+
+### The residual, stated rather than hidden
+
+A remote peer claiming a source that **is** an in-process hub is admitted by the receive-side
+exemption. Under the deployment rule the waiver requires — in-process hubs form one address subtree
+— such a message cannot arise; if that rule does not hold, the operator has already accepted a
+larger hole on the send side. This is the assumption §6.3 says cannot be made fail-closed by
+construction, and it is now in three places an operator will actually read: the `P2PeerHub.h` block
+comment (with the A-B-C example in full, as step 5 required — not a paraphrase), `SECURITY.md`, and
+`THREAT_MODEL.md` §6.2, which gets the one row in that document that *removes* a protection.
+
+### `p2p_e2ewaive` — the gate
+
+26 checks, **0 failed on the first run**, no sockets, per-phase hub addresses.
+
+| Phase | Asserts |
+|---|---|
+| 0 | the predicate on a **live** registry: the hub's own address TRUE; one level below, two levels below, a prefix, a sibling, empty and null all FALSE; and FALSE again after the hub is destroyed |
+| 1 | the default is off, the posture reports `WaiveE2E` off **beside `SealRequired` on** — the pair an operator has to be able to read |
+| 1b | the flat C pair, on a handle `p2peerhub_create` owns, plus the null-handle reading |
+| 2 | the setter takes, the posture follows it, and it goes **back off** — a switch, not a latch |
+| 3 | **waiver OFF**: Alice requires sealing and holds no agreement key for Carol, so the message does **not** arrive |
+| 4 | **waiver ON**, Carol a hub in this process: the **same** message arrives |
+
+**The fixture is the point of phases 3 and 4.** Alice's allow-list entry for Carol carries an
+identity and **no agreement key**, so `SealAppMsgOutbound` must refuse to send — and the run's own
+log shows it doing so for the stated reason (`Will not send [P2PmsgBCast] scoped to [WvOff.Carol]
+unsealed: no agreement key`). The observable is **delivery**, not timing and not interception, and
+one switch separates the two runs. Phase 3 and 4 also each re-assert `IsP2PmsgHubInProcess` on the
+live destination before sending, so a green pair cannot mean the predicate quietly went false.
+
+### Falsified three times, once per enforcement
+
+| | Change | Result |
+|---|---|---|
+| **A** | `m_oP2Paddr == strP2Paddr` → `m_oP2Paddr.IsRable(strP2Paddr)` | **red**, and only on phase 0's two below-the-hub rows |
+| **B** | the waiver branch removed from `SealAppMsgOutbound` | **red**, and only on phase 4 — `delivered=0` where the run needs 1 |
+| **C** | `m_bWaiveE2EInProcess ( true )` in the constructor | **red** on all three default rows, in phases 1 and 1b |
+
+A is the one that matters: it is the at-or-below mistake, it compiles, it passes every other check in
+the suite, and it silently waives the seal on traffic bound for another host.
+
+### The flake, re-measured — and this time the baseline was actually run
+
+`ctest -C Debug -L security` came back **37/38** on the finished tree, with `p2p_linktrust` the one
+failure. Its signature is finding 7's, exactly: every phase that ran printed OK, and it died with
+`PostP2PmsgCon — P2PmsgCon object already posted` unhandled on a pump thread, `abort()`, exit 3 —
+phase 6 in the suite run, phase 10 when run alone.
+
+**But the rate had moved**, and that is the part worth recording. Finding 7 says "roughly one run in
+four"; this tree failed **3 of 4** in isolation. A rate change is exactly the shape of thing that
+gets waved through as "the known flake", so it was attributed instead of argued:
+
+| Tree | Runs | Result |
+|---|---|---|
+| **Baseline `1a48340`**, this work stashed and `targetcore` rebuilt from it | 6 | **3 pass / 3 fail**, failing in phases **9, 5 and 8** — three different ones |
+| §6.3 tree | 4 (+1 in the suite) | 1 pass / 4 fail, failing in phases 6 and 10 |
+
+**~50% on a tree with none of this change in it.** The two are indistinguishable at this sample
+size, the phases differ run to run in both, and the fault reproduces with the code removed. So the
+rate on this machine today is simply higher than the day finding 7 was written — load, not cause.
+
+There is also a structural reason it cannot be this change, and it is worth stating because it is
+checkable rather than statistical: **`p2p_linktrust` cannot reach any of the three new branches.**
+It never calls `RequireSeal` or `RequireRelayAuth`, so `AttestAppMsgOutbound` and `GateRelayInbound`
+both return at their existing policy test before the waiver is consulted; and every message it sends
+is direct client-to-server, so the far-end peer **is** the scope and `SealAppMsgOutbound` returns at
+the last-hop test — which sits above the waiver branch. The waiver is off by default and the harness
+never sets it.
+
+Finding 7 stays **OPEN** and its rate line is updated rather than its conclusion.
+
+### What §6.3 does NOT include, and is still open
+
+- **An out-of-process destination, gated behaviourally.** That needs a second **process** — no
+  address this harness can invent distinguishes an in-process hub from an out-of-process one, which
+  is the entire point of the predicate. Phase 0 tests the predicate directly instead.
+- **The attestation half on the receive side.** `GateRelayInbound` is never reached in a chain,
+  because the relay is a common ancestor of both ends — finding 11, already measured. Gating it
+  wants the `p2p_authancestor` shape.
+- **`examples.md`** — still finding 8, and now with a second thing to say.
+
+---
+
+## Finding 12, settled — the per-message ephemeral is intended, and it is not the whole bill
+
+Step 5 raised finding 12 as a question to answer **before** §6.3 is built, on the grounds that if the
+per-message ephemeral were accidental then removing it would drop the seal's whole cost off every
+link. Both halves were checked on 2026-09-04. **The ephemeral is intended, and the arithmetic in the
+finding is wrong by 4.7×.** §6.3 is not blocked by it.
+
+### It is intended — three places say so, one of them by rejecting an alternative for it
+
+1. **`Sealing.md:29`** describes the construction as ECIES and states the lifetime outright: *"Per
+   message the sender generates a throwaway ECDH P-256 pair and agrees it against the recipient's
+   **static agreement key**."* The two lifetimes are the design, not an artefact — `P2PCngCrypto.h:158-164`
+   makes the same split the reason `EcdhP256` grew `ImportPrivate`/`ExportPrivate` at all.
+2. **`P2PeerSeal.h:101-105` and `Sealing.md:85-86`** state the property it buys *and its exact
+   limit*: *"the ephemeral half gives forward secrecy against later compromise of the **sender**,
+   but not of the recipient."* A claim this narrow is a measured one, not an assumption.
+3. **`Sealing.md:273`** is the decisive one, because it is the design **paying** for the property.
+   Weighing a per-pattern group key for subtree fan-out, it is rejected in part because it *"loses
+   the forward secrecy the ephemeral half provides"*. The ephemeral was priced against an
+   alternative and kept. That is a decision, and this pass has no standing to reverse it.
+
+So the question finding 12 posed — "is a per-message ephemeral intended?" — is answered **yes**, and
+the honest reading is that step 5 raised it without having read `Sealing.md`.
+
+### What it actually costs — the primitives, decomposed
+
+Step 5 timed `SealFor` and `OpenFrom` **whole**, which is why it could attribute the whole of D − C
+to the ephemeral. A scratch harness (`sealcost.cpp`, built Release against
+`build/windows-msvc/TargetCore/Release/TargetCore.lib`, same instrument as `p2p_linkcost` — QPC for
+wall, `GetProcessTimes` for CPU) times the exported primitives individually. N = 4 000, three runs,
+CPU µs per call, **stable to under 5%**:
+
+| Primitive | µs CPU | What it is |
+|---|---|---|
+| `EcdhP256::Generate` + `ExportPublic` | **230.5** | **the fresh ephemeral** — `P2PeerSeal.cpp:366-368` |
+| `EcdhP256::DeriveRawSecret` | **130.2** | the agreement, per reader. Includes its own `BCryptImportKeyPair` on the peer point (`P2PCngCrypto.cpp:437`) |
+| `EcdsaP256::Sign` | **96.4** | the sender signature |
+| `EcdsaP256::Verify` | **108.1** | bare verify, key already loaded |
+| `EcdsaP256::ImportPublic` | **76.8** | taking a peer's point out of the allow-list |
+| `EcdhP256::ImportPublic` | **78.1** | the same, for an agreement key |
+
+**The decomposition closes against step 5's whole-operation numbers**, which is the check that both
+harnesses are measuring the same thing:
+
+| Step 5 measured | Primitives predict | Residual |
+|---|---|---|
+| `SealFor` **468.8** | 230.5 + 130.2 + 96.4 = **457.1** | 11.7 µs — the GCM body, the wrap, two transcripts |
+| `AttestRelay` **101.6** | 96.4 | 5.2 µs |
+| `VerifyRelay` **218.8** | 76.8 + 108.1 = **184.9** | 33.9 µs |
+| `OpenFrom` **414.1** | 76.8 + 108.1 + 130.2 = **315.1** | 99.0 µs — the slot tags, the unwrap, the allow-list lookups |
+
+A verify costing twice a sign is now explained rather than noted: **half of `VerifyRelay` is not the
+verify, it is the import.**
+
+### The arithmetic finding 12 got wrong
+
+The finding says that if the ephemeral were unintended, *"the same 1 080 µs (D − C) falls off every
+link"*. It does not. Dropping the fresh key removes **`Generate` and nothing else**:
+
+| | µs | Share of D − C (1 080.5) |
+|---|---|---|
+| The per-message ephemeral, on its own | **230.5** | **21.3%** |
+| Ceiling: static sender key **and** a cached per-reader KEK (send 230.5 + 130.2, open 130.2) | **490.9** | **45.4%** |
+| What finding 12 claimed | 1 080.5 | 100% |
+
+So the finding overstates the prize by **4.7×** on its own terms, and even the most aggressive
+variant leaves more than half of D − C standing — because the rest is the ECDSA sign, the ECDSA
+verify and two key imports, none of which the ephemeral touches.
+
+### And it could not be removed anyway, for a reason beyond the documented claim
+
+`DeriveKek` takes the ephemeral public point as an input (`P2PeerSeal.cpp:428`), so a static sender
+key makes the KEK **constant for every message between a given sender and reader**. The wrap is
+AES-GCM with *"a fresh random nonce generated per call"* (`P2PCngCrypto.h:131`) — a 96-bit random
+nonce, which is safe on a key used **once** and puts a long-lived key on the birthday bound. The
+plaintext under that key is the content key itself. Today nonce reuse is impossible by construction
+because the KEK never survives the message; making the ephemeral static converts a use-once key into
+a use-forever one, and the v2 format has no counter field to manage it with. That is a format
+change, not an optimisation.
+
+### What the check found instead — finding 13
+
+The 76.8 µs import is paid **per message** on every verify path (`P2PeerSeal.cpp:543`, `:637`,
+`P2PAuthLogin.cpp:1305`), and caching it changes no wire format, no transcript and no security
+property. It is 36% of a `VerifyRelay`, it pays on posture **C** as well as **D**, and unlike the
+waiver it needs no deployment assumption at all. Recorded as finding 13 above and not acted on here.
+
+**Conclusion: finding 12 is closed as answered. Nothing about it changes §6.3's recommendation, and
+step 5's decision stands as written.**
 
 ---
 
@@ -1165,6 +1465,16 @@ Two things were tightened while moving it, both about silent failure:
 | `P2PeerConPipe.cpp` | **step 4:** `PIPE_REJECT_REMOTE_CLIENTS` + the explicit descriptor in `CreateListenPipe` and the derived `m_bPipeLocal`; SQOS on the client `CreateFile`; the setting copied by `AcceptSpawn` and the fact cleared by `Drop`/`OnClose`; `P2PeerConPipenameIsLocal`; the three new bodies |
 | `MscsUnitTests/p2p_linkcost.cpp` | **new, step 5:** §8.4's measurement. Three hubs in a Dmx chain, five postures, N messages of a fixed size; wall and whole-process CPU per message with an idle baseline subtracted and the instrument's resolution printed; plus `AttestRelay`/`VerifyRelay`/`SealFor`/`OpenFrom` timed directly, because a chain's common ancestor means the chain cannot see the verify at all. Same no-modal-dialog machinery as `p2p_linktrust` |
 | `MscsUnitTests/CMakeLists.txt` | **step 5:** registers `p2p_linkcost` — label **`measure`** and not `security`, TIMEOUT 900, no port and no `RESOURCE_LOCK` (every link is a pointer handoff). The `p2p_linktrust` block's closing note now points at it for §8.4 |
+| `P2Pwin32.h` / `.cpp` | **§6.3:** `IsP2PmsgHubInProcess` — the registry walk, the exact match, the lock note, and the reasons for all three |
+| `P2PAuthLogin.h` / `.cpp` | **§6.3:** `Set/IsEndToEndWaivedInProcess`, `m_bWaiveE2EInProcess`, `false` in the constructor |
+| `P2PeerHub.h` / `.cpp` | **§6.3:** `WaiveEndToEndInProcess` / `IsEndToEndWaivedInProcess` with the A-B-C block comment; `Posture::bWaiveE2E` **appended** to the struct and filled in both branches; the `WaiveE2E` snapshot field rendered beside `SealReq` |
+| `P2PeerCon.cpp` | **§6.3:** the three call sites — `SealAppMsgOutbound` (scope), `AttestAppMsgOutbound` (destination), `GateRelayInbound` (source). The two send-side ones also require `!HasScope()` |
+| `TargetCore_c.h` / `.cpp` | **§6.3:** `p2peerhub_waive_end_to_end_in_process` and its getter; the assumption restated for an FFI reader who cannot see the C++ header |
+| `.github/ci/abi-flat.manifest` | **§6.3:** 2 more, regenerated — 99 → **101** |
+| `SECURITY.md` | **§6.3:** a `WaiveEndToEndInProcess` bullet carrying the measurement, the assumption and the A-B-C failure |
+| `THREAT_MODEL.md` | **§6.3:** a §6.2 row — the only one in that document that removes a protection — and the paragraph that says why a table cannot carry it |
+| `MscsUnitTests/p2p_e2ewaive.cpp` | **new, §6.3:** the gate. 6 phases, 26 checks, no sockets. Phase 0 is the predicate's algebra on a live registry; 3 and 4 are the enforcement pair, one switch apart, with delivery as the observable |
+| `MscsUnitTests/CMakeLists.txt` | **§6.3:** registers `p2p_e2ewaive` — `security` label, TIMEOUT 180, no port and no `RESOURCE_LOCK` |
 
 ---
 
@@ -1290,3 +1600,78 @@ Two things were tightened while moving it, both about silent failure:
   every message (12). The second is worth settling before §6.3 is built, because it would move a
   larger number and needs no deployment assumption to do it.
 - **No library source changed.** The ABI manifest is still 99; `-L security` still selects 37.
+
+### 2026-09-04 — finding 12 checked, before §6.3
+
+- Read `Sealing.md` **before** measuring anything, which is what settled it: the per-message
+  ephemeral is stated at `:29`, its exact forward-secrecy claim at `:85-86` and `P2PeerSeal.h:101-105`,
+  and at `:273` a group-key alternative is **rejected in part for losing it**. Step 5 raised the
+  question without having read that document; the answer was already written down.
+- Then measured, because the finding's second half is an arithmetic claim and arithmetic is
+  checkable. Wrote a scratch harness timing the exported primitives individually — step 5 had timed
+  `SealFor` and `OpenFrom` whole, which is exactly how the whole of D − C came to be attributed to
+  one of the three operations inside them.
+- **The decomposition closes against step 5**: predicted `SealFor` 457.1 against measured 468.8
+  (2.5% residual), and `AttestRelay` to 5%. Two harnesses, two instruments, same numbers — which is
+  the only reason to trust either.
+- **The answer:** the ephemeral costs **230.5 µs**, 21.3% of D − C, not the 100% the finding
+  assumed — an overstatement of **4.7×**. Even a static sender key plus a cached KEK caps out at
+  45.4%; the remainder is ECDSA and key imports.
+- **And it is not removable regardless.** `DeriveKek` takes the ephemeral point (`P2PeerSeal.cpp:428`),
+  so a static key makes the KEK constant per (sender, reader), and the wrap is AES-GCM under a
+  **random 96-bit nonce** (`P2PCngCrypto.h:131`) wrapping the content key. Safe on a use-once key,
+  a birthday-bound problem on a use-forever one, and v2 has no counter field. Format change, not
+  optimisation.
+- **Finding 13 recorded**, and it is the one worth having: the peer's public key is re-imported from
+  the allow-list **per message** (`P2PeerSeal.cpp:543`, `:637`, `P2PAuthLogin.cpp:1305`) at 76.8 µs
+  a time — 36% of a `VerifyRelay`. Caching it is security-neutral and pays on posture C too, which
+  no waiver does. Left to the `P2PIdentityStore` owner because the revocation lifetime is theirs.
+- **Finding 12 closed as answered. §6.3 is not blocked; step 5's recommendation stands unchanged.**
+- **No library source changed, no test registered.** The harness is scratch
+  (`sealcost.cpp`, session scratchpad) and is *not* in `MscsUnitTests` — promoting it is a separate
+  call, and it would want the CMake registration and a `measure` label like `p2p_linkcost` has.
+
+### 2026-09-04 — §6.3, the end-to-end waiver
+
+- Read §6.3 in full first, then the three functions it names and the registry it points at, before
+  writing anything. That is what turned up the two things §6.3 does not say and the implementation
+  needs: `QueryP2PmsgExp_Hub` is an explorer notification and not an address lookup, so the
+  predicate had to be written; and `s_ThreadID_P2PmsgHub` is keyed by THREAD, so it is a walk.
+- **The exact-match decision came before the code, not after a bug.** §6.3 says "the scope address
+  resolves to a hub in this process" and does not say how. At-or-below is the reading that looks
+  more useful and is the one that waives the seal on traffic to a child hub on another host.
+  Equality is also what `OpenAppMsgInbound` already uses to decide "is it for us", so the waiver and
+  the router agree by construction rather than by coincidence.
+- **Added `!HasScope()` to both send-side sites, which §6.3 does not ask for.** A scope names a
+  subtree and a subtree cannot be shown to be in this process even when its root is. Without it a
+  fan-out copy whose scope equalled an in-process hub address would be waived.
+- Placed the receive-side exemption **after** the IFaddr refusal and the send-side attestation one
+  **after** the entitlement test, both deliberately, both with the reason written at the site: a
+  waiver must not make an unsupported configuration look supported, and must not be what stopped a
+  hub signing when it was never entitled to sign.
+- **`OpenAppMsgInbound` needed nothing**, and that is recorded rather than left as an absence.
+- Wrote `p2p_e2ewaive` with **delivery** as the observable, not timing and not interception: Alice's
+  allow-list entry for Carol carries an identity and no agreement key, so the seal must refuse.
+  Waiver off, nothing arrives; waiver on, the same message does. **26 checks, 0 failed on the first
+  run**, and the run's own log shows the refusal happening for the stated reason.
+- **One defect of mine, caught by reading rather than running**: the first draft asserted the flat-C
+  getter against a C++ hub cast to `P2PeerHubHandle`. Handles are validated through `P2PhandleIs`,
+  which only knows objects `p2peerhub_create` made — so that check would have read 0 because there
+  was no hub, not because the bit was off, and it could not have failed. Phase 1b uses a handle the
+  ABI owns.
+- **Falsified three times**, each red only on the rows written for it: the at-or-below match (phase
+  0), the send-side branch removed (phase 4), the default flipped to true (phases 1 and 1b). A is
+  the one that matters — it compiles, it passes everything else, and it is the silent version.
+- §6.7's flat-C setter added as named, plus the getter, because there is no flat-C posture reader
+  and without it an FFI consumer could set the waiver and never read it back. Manifest **99 → 101**;
+  `check_repo_invariants.py` green on all seven sections.
+- §8.5 documentation done for this piece: `SECURITY.md` gets the bullet with the measurement and the
+  A-B-C failure, `THREAT_MODEL.md` §6.2 gets the one row in that document that **removes** a
+  protection, plus the paragraph explaining why the table cannot carry it alone.
+- **Two things caught on a last read of the diff, before committing, and both were real.** The
+  posture field had been *inserted* into `Posture` rather than appended, which moves every offset
+  after it — a consumer compiled against the previous header would have read it where
+  `bSealCanOpen` used to be. And it had no **snapshot** field at all, so the one place an operator
+  actually looks would not have shown the waiver: steps 2 and 3 both added theirs and this one had
+  been missed. The two fixes point opposite ways — append in the struct, group by topic in the
+  snapshot — and the reason is written at both sites.

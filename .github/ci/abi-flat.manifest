@@ -66,6 +66,7 @@ p2peerhub_get_hub_id
 p2peerhub_get_link_policy
 p2peerhub_get_required_trust
 p2peerhub_is_auth_required
+p2peerhub_is_end_to_end_waived_in_process
 p2peerhub_is_revocation_required
 p2peerhub_is_seal_required
 p2peerhub_pause_hub
@@ -85,6 +86,7 @@ p2peerhub_set_revocation_list
 p2peerhub_set_sink
 p2peerhub_set_sink_u8
 p2peerhub_spawn_hub
+p2peerhub_waive_end_to_end_in_process
 p2peerhub_wakeup_hub
 p2peermsg_c_name
 p2peermsg_c_name_u8

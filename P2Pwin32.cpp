@@ -2428,6 +2428,45 @@ GetP2PmsgHubAddr ( P2PmsgHubID nHubID )
     return pP2PmsgHub->m_oP2Paddr;
 }
 
+//
+//  Is this address a hub held by THIS process?
+//  NOTES: The whole mechanism behind P2PeerHub::WaiveEndToEndInProcess.  Refer
+//         the block on the declaration in P2Pwin32.h for why the match is
+//         EXACT and why this one does not throw
+//       : A walk rather than a lookup because the map is keyed by THREAD ID,
+//         not by address.  There is one hub per thread and the counts here are
+//         single digits, so a walk under the lock is cheaper than the second
+//         index it would take to avoid one - and a second index is a second
+//         thing that can disagree with the registry, which is exactly what
+//         this must not be
+//
+BOOL
+IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr )
+{
+    if ( !strP2Paddr || !*strP2Paddr )
+      return FALSE;
+
+    P2PsafeCS oSafeCS = s_oCSectionP2PmsgHub;
+
+    POSITION pos = s_ThreadID_P2PmsgHub.GetStartPosition ( );
+    while ( pos )
+    {
+      P2PmsgHubMgr *pHubMgr = 0;
+      DWORD         nMapID  = 0;
+      s_ThreadID_P2PmsgHub.GetNextAssoc ( pos, nMapID, pHubMgr );
+      if ( !pHubMgr )
+        continue;
+      //  An unnamed hub matches nothing.  A hub that has been created but not
+      //  yet given its address reads L"" (the P2PmsgHubMgr constructor), and
+      //  an empty address must not become a wildcard on the way through
+      if ( pHubMgr->m_oP2Paddr.IsNull ( ) )
+        continue;
+      if ( pHubMgr->m_oP2Paddr == strP2Paddr )
+        return TRUE;
+    }
+    return FALSE;
+}
+
 P2PaddrSTR
 GetP2PmsgHubName ( P2PmsgHubID nHubID )
 {
