@@ -2522,6 +2522,47 @@ P2PeerCon::KeyXBegin ( )
 void
 P2PeerCon::KeyXOnRequest ( P2PeerMsg *pMsg )
 {
+    // Does this link run an agreement at all?
+    // NOTES: THE OTHER HALF of "both ends of a link need the same answer", and
+    //        until this test existed only one half was enforced.  A client
+    //        whose hub holds this class at Full, against a server whose hub has
+    //        opened it, was SERVICED here: the agreement ran, a cypher was
+    //        installed, and the disagreement only surfaced further on, at
+    //        AuthGateInbound, as a login block handed to the application for
+    //        the stock handler to refuse with a message about login data.  The
+    //        opposite mismatch - a client that skipped the agreement against a
+    //        server that wanted one - has always been refused where it happens,
+    //        with a diagnostic that names the cause
+    //      : AuthLinkRelaxed() and NOT !KeyXWanted(), deliberately.  There are
+    //        two ways to reach "this link runs no agreement" and only ONE of
+    //        them is new.  A hub with RequireAuth(false) has always serviced a
+    //        peer's exchange and must go on doing so, or this branch would
+    //        change the behaviour of every deployment that predates the trust
+    //        class - which is the one thing this feature promised not to do.
+    //        AuthLinkRelaxed() is false for such a hub by construction
+    //      : REFUSED rather than ignored.  Answering nothing would leave the
+    //        peer waiting on an ack until its own login deadline, and dropping
+    //        the message silently would put the connection into the state
+    //        F-S6-1 was about: two ends that disagree about whether there is a
+    //        channel, discovering it later and somewhere else
+    //      : KeyXOnAck needs no such test.  A relaxed end never sends a
+    //        request, so m_pKeyX is null there and its first line already
+    //        refuses an acknowledgement that answers nothing
+    if ( AuthLinkRelaxed ( ) )
+    {
+      EVERR->Module (__FUNCTION__)->AFPcon(this)
+           ->Message(_T("Peer opened a key agreement on a link this hub has "
+                        "relaxed (trust class %d)")
+                    , (int)EffectiveTrust ( ) )
+           ->Advice_T ("The peer's hub requires the handshake on this class "
+                       "and this one does not, so the two ends would disagree "
+                       "about whether there is a channel")
+           ->Advice_T ("SetLinkPolicy(class, P2PeerLinkPolicy_Open) on the "
+                       "peer as well, or P2PeerLinkPolicy_Full here")
+           ->Advice_T ("Connection dropped out")
+           ->Throw();
+    }
+
     if ( m_bKeyXDone || m_pKeyX )
     {
       EVERR->Module (__FUNCTION__)->AFPcon(this)
@@ -5422,6 +5463,62 @@ P2PeerCon::EffectiveTrust ( ) const
 {
     const P2PeerConTrust_e eClass = TrustClass ( );
     return eClass < m_eTrustCeiling ? eClass : m_eTrustCeiling;
+}
+
+//
+//  The lowest class the governing hub will hold a link of
+//  NOTES: THE ONE PLACE the hub is read for this, so the refusal below and
+//         every diagnostic that names a floor cannot come to disagree about
+//         what the floor is
+//       : P2PeerConTrust_Wire - no fence - for a connection with no governing
+//         hub.  A connection that has not been posted is governed by nothing,
+//         and a fence that cannot be read must refuse nothing: the same
+//         direction P2PeerHub::GetRequiredTrust() takes for a hub with no
+//         policy object, and for the reason written there
+//
+P2PeerConTrust_e
+P2PeerCon::TrustFenceFloor ( )
+{
+    P2PeerHub *pHub = GetAuthHub ( );
+    return pHub ? pHub -> GetRequiredTrust ( ) : P2PeerConTrust_Wire;
+}
+
+//
+//  Would this hub's fence refuse a link of the given class?
+//  NOTES: Takes the class rather than reading TrustClass(), so a SERVICE can
+//         ask on behalf of a child that does not exist yet.  That is the case
+//         the fence was missing: PostP2PeerCon() sees a service whose class is
+//         still an intention, and the child that carries the traffic never
+//         passes through PostP2PeerCon() at all
+//       : Applies THIS object's ceiling to the class it was handed, because a
+//         child inherits m_eTrustCeiling from its service - so the answer here
+//         is the answer the child's own EffectiveTrust() will give, and the
+//         two cannot differ
+//       : The floor is compared with > Wire first, so a hub nobody has fenced
+//         does no work and reaches the same answer it reached before this
+//         existed
+//
+bool
+P2PeerCon::TrustFenceRefusesClass ( P2PeerConTrust_e eClass )
+{
+    const P2PeerConTrust_e eFloor = TrustFenceFloor ( );
+    if ( eFloor <= P2PeerConTrust_Wire )
+      return false;
+    if ( m_eTrustCeiling < eClass )
+      eClass = m_eTrustCeiling;
+    return eClass < eFloor;
+}
+
+//
+//  ...and would it refuse THIS connection, as it now is?
+//  NOTES: EffectiveTrust() by construction - TrustClass() through the function
+//         above, which applies the ceiling.  Asked where a listener has just
+//         created its handle and the class has stopped being an intention
+//
+bool
+P2PeerCon::TrustFenceRefuses ( )
+{
+    return TrustFenceRefusesClass ( TrustClass ( ) );
 }
 
 P3PmsgItem

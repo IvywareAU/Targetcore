@@ -1395,12 +1395,40 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
     SOCKADDR_STORAGE   oSource;
     const int          nSource = AcceptSourceAddress ( oSource );
     const P2PsourceKey xSource = KeyP2PeerConSource   ( oSource, nSource );
+    //      : THE FENCE is the fourth test and it is asked LAST, because it is
+    //        the only one of the four that is about the link rather than about
+    //        the peer: a source refused by the allow-list is refused whatever
+    //        class it would have had, and reporting a class to an operator who
+    //        wrote an allow-list rule is the wrong-number failure again.
+    //        RequireTrustAtLeast() is enforced at PostP2PeerCon(), which an
+    //        accepted child never passes through - it is spawned here - and
+    //        the SERVICE that did pass through was measured on its listen
+    //        scope, which describes where it BOUND and not who dialled in.  So
+    //        a hub fenced at Local behind a service bound to
+    //        P2PeerConScope_Any admitted every off-host child the fence exists
+    //        to refuse.  Branch review, finding 3
+    //      : Asked of the class the CHILD will have, derived from the origin
+    //        already read above - the same getpeername() reading its own
+    //        TrustClass() will make - and capped by this service's ceiling,
+    //        which is the ceiling AcceptSpawn is about to hand it.  So the
+    //        answer here is the answer the child would give, computed before
+    //        there is a child to ask
+    //      : PER CHILD and not at listen, deliberately.  A service bound to
+    //        Any on a hub fenced at Local legitimately carries loopback peers,
+    //        and refusing the LISTENER would refuse those too.  The fence says
+    //        which links a hub may hold; it is links that are tested
     const bool bNotAllowed     = !IsAcceptSourceAllowed ( (const sockaddr *)
                                                           &oSource, nSource );
     const bool bServiceFull    = !bNotAllowed && AcceptAtCapacity ( );
     const bool bSourceFull     = !bNotAllowed && !bServiceFull &&
                                  SourceAtCapacity ( xSource );
-    if ( bNotAllowed || bServiceFull || bSourceFull )
+    const bool bFenced         = !bNotAllowed && !bServiceFull && !bSourceFull &&
+                                 TrustFenceRefusesClass (
+                                   IsP2PeerConSockaddrLoopback (
+                                     (const sockaddr *)&oSource, nSource )
+                                     ? P2PeerConTrust_Local
+                                     : P2PeerConTrust_Wire );
+    if ( bNotAllowed || bServiceFull || bSourceFull || bFenced )
     {
       if ( IsEVTRC )
       {
@@ -1434,7 +1462,7 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
                ->Message(_T("Accept refused, at capacity %i"), m_xMaxAccepted )
                ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
                ->Cancel ( );
-        else
+        else if ( bSourceFull )
           EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
                ->Message(_N("Accept refused, source %hs at its share %i of %i")
@@ -1446,6 +1474,30 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
                ->Advice_T("An IPv6 source is accounted by its /64, which is "
                           "the block one host is delegated - two addresses in "
                           "one /64 share this share deliberately")
+               ->Cancel ( );
+        else
+          //  Traced rather than raised, and for the reason its three
+          //  neighbours are: this is refused at ACCEPT, so it is repeatable by
+          //  whoever is dialling, and a refusal an off-host peer can make this
+          //  service write to a log at will is a way to fill one.  The hub's
+          //  own fence refusal in PostP2PeerCon() is loud because it happens
+          //  once, to code the operator wrote
+          EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
+                        , GetP2PaddrHub().c_wstr() )
+               ->Message(_N("Accept refused, source %hs would be trust class "
+                            "%i and this hub holds no link below class %i")
+                        , szSource
+                        , (int)( IsP2PeerConSockaddrLoopback (
+                                   (const sockaddr *)&oSource, nSource )
+                                   ? P2PeerConTrust_Local
+                                   : P2PeerConTrust_Wire )
+                        , (int)TrustFenceFloor ( ) )
+               ->Advice_T("0 wire, 1 kernel-local, 2 in-process.  A peer the "
+                          "kernel does not report on loopback is a wire, "
+                          "whatever this service bound to")
+               ->Advice_T("SetListenScope(P2PeerConScope_Loopback) to stop "
+                          "offering the endpoint off-host, or widen the fence "
+                          "with P2PeerHub::RequireTrustAtLeast()")
                ->Cancel ( );
       }
 

@@ -59,18 +59,71 @@ static LPCTSTR kPipeSddlOwner = _T("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)");
 //         cannot see whether the server passed PIPE_REJECT_REMOTE_CLIENTS -
 //         but it does not need to, because the reject is what stops a REMOTE
 //         client, and the only claim being made here is about this end
-//       : GetNamedPipeServerProcessId() would be a stronger reading (it fails
-//         for a remote server) but needs the handle and one more syscall on
-//         every posture read, and the device path is already a kernel fact
+//       : THE PREFIX IS NOT THE WHOLE TEST, and treating it as one was a
+//         defect - found by a security review of this branch, finding 2.
+//         \\.\ is the DOS device namespace and, unlike \\?\, a path under it
+//         is still normalised: \\.\pipe\..\UNC\host\pipe\Name has the prefix
+//         this function matched, resolves through the redirector, and was
+//         answered Local.  So the remainder is required to be a PIPE NAME and
+//         nothing else - one component, no separator - which is exactly what
+//         the platform allows a pipe name to be (every character except a
+//         backslash), so nothing legitimate is refused and nothing that can
+//         traverse is admitted
+//       : This is the CLIENT's half of the locality question.  A client
+//         cannot see whether the server passed PIPE_REJECT_REMOTE_CLIENTS -
+//         but it does not need to, because the reject is what stops a REMOTE
+//         client, and the only claim being made here is about this end
+//       : It is what a client with NO HANDLE answers - a posture reading.  A
+//         client that HAS one is answered by P2PeerConPipeHandleIsLocal()
+//         below as well, and both must be true.  The name is what this end
+//         asked for; the handle is what it got
 //
 static bool
 P2PeerConPipenameIsLocal ( LPCTSTR pszName )
 {
     if ( pszName == 0 || *pszName == 0 )
       return false;
-    return _tcsnicmp ( pszName, _T("\\\\.\\pipe\\"), 9 ) == 0 ||
-           _tcsnicmp ( pszName, _T("//./pipe/"),    9 ) == 0;
+    if ( _tcsnicmp ( pszName, _T("\\\\.\\pipe\\"), 9 ) != 0 &&
+         _tcsnicmp ( pszName, _T("//./pipe/"),    9 ) != 0    )
+      return false;
+
+    //  The remainder is the pipe name.  Empty is not a name, and a separator
+    //  in it means the path leaves \\.\pipe\ for somewhere this function
+    //  cannot vouch for - refer the note above
+    const TCHAR *pszLeaf = pszName + 9;
+    if ( *pszLeaf == 0 )
+      return false;
+    for ( const TCHAR *p = pszLeaf; *p != 0; ++p )
+      if ( *p == _T('\\') || *p == _T('/') )
+        return false;
+    return true;
 }
+
+#ifdef _WIN32
+//
+//  Whether an OPEN pipe handle is served from this machine.
+//  NOTES: The kernel's own answer, and the half the name cannot give.  A
+//         server process id is meaningless across a machine boundary, so the
+//         redirector cannot answer for one and the call fails on a pipe
+//         reached over SMB; it succeeds on a local pipe from the handle alone,
+//         with no rights beyond having opened it
+//       : ANY failure reads as not-local.  This is the fail-closed direction
+//         for a class - a link that cannot be shown to be local is a wire -
+//         and it is the direction every other reading in this feature takes
+//       : Asked ONCE, in Connect(), and recorded.  The note this replaces said
+//         a handle reading would cost a syscall "on every posture read", which
+//         was true of asking it from TrustClass(); it is not true of asking it
+//         where the handle is opened
+//
+static bool
+P2PeerConPipeHandleIsLocal ( HANDLE hPipe )
+{
+    if ( hPipe == 0 || hPipe == INVALID_HANDLE_VALUE )
+      return false;
+    ULONG ulServerPid = 0;
+    return GetNamedPipeServerProcessId ( hPipe, &ulServerPid ) ? true : false;
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////
 //  Constructors and destructor
@@ -643,6 +696,45 @@ P2PeerConPipe::CreateListenPipe ( )
     m_bPipeLocal = true;
 #endif
 
+    // THE FENCE, asked again now that the class is a FACT
+    // NOTES: P2PeerHub::PostP2PeerCon already asked it, and at that moment
+    //        this object had no handle: TrustClass() answered from
+    //        m_ePipeAccess, which is an INTENTION and which SetPipeAccess()
+    //        can still change afterwards.  A service posted to a hub fenced at
+    //        Local while it meant to make an Owner pipe, then told
+    //        P2PeerConPipeAccess_Legacy before it listened, passed the fence
+    //        and then created a wire - which is finding 3 of the branch review
+    //      : Here the pipe EXISTS and m_bPipeLocal was read back out of the
+    //        arguments the kernel was actually given, so this is the last
+    //        moment before the endpoint can carry anything and the first at
+    //        which the answer cannot change underneath it
+    //      : THE HANDLE IS CLOSED BEFORE THE THROW.  A listener that the hub
+    //        will not hold must not be left with a created pipe: the name
+    //        would be taken, and a later re-arm - or another service - would
+    //        find it occupied by an endpoint nothing is listening on
+    //      : Covers the re-arm too, which is the path an accepted child's
+    //        sibling takes, so a fence raised or a mode changed between
+    //        accepts is caught at the next one rather than at none
+    if ( TrustFenceRefuses ( ) )
+    {
+      const P2PeerConTrust_e eFloor = TrustFenceFloor ( );
+      const P2PeerConTrust_e eClass = EffectiveTrust ( );
+      CloseHandle ( m_hFile );
+      m_hFile      = 0;
+      m_bPipeLocal = false;
+      EVERR->MODULE
+           ->Message(_N("Pipe %s is trust class %i and its hub holds no link "
+                        "below class %i\n")
+                     "ADVICE\t: 0 wire, 1 kernel-local, 2 in-process\n"
+                     "ADVICE\t: SetPipeAccess() asked for a pipe of a class "
+                     "this hub was fenced to refuse - drop the "
+                     "P2PeerConPipeAccess_Legacy, or widen the fence with "
+                     "RequireTrustAtLeast()\n"
+                     "ADVICE\t: Listener not created"
+                    , (LPCTSTR)m_sPipename, (int)eClass, (int)eFloor )
+           ->Throw();
+    }
+
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued
     //        IO Completion Packets
@@ -908,7 +1000,19 @@ P2PeerConPipe::Connect ( )
     // The FACT for the client end: which DEVICE this handle was opened on.
     // \\.\pipe\Name is NPFS here; anything reached through the redirector is
     // a network path.  Refer P2PeerConPipenameIsLocal()
+    // NOTES: TWO readings and both must hold, which is the shape the SERVER
+    //        end already had.  The name is what this end ASKED for and is
+    //        checked for traversal as well as for its prefix; the handle is
+    //        what it GOT, and only the kernel can answer that.  Neither alone:
+    //        a name that survives normalisation still says nothing about a
+    //        pipe the redirector went out and found, and a handle reading
+    //        alone would let a name this transport should never have opened
+    //        decide the class by whether one API call happened to succeed
     m_bPipeLocal = P2PeerConPipenameIsLocal ( (LPCTSTR)m_sPipename );
+#ifdef _WIN32
+    if ( m_bPipeLocal )
+      m_bPipeLocal = P2PeerConPipeHandleIsLocal ( m_hFile );
+#endif
 
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued

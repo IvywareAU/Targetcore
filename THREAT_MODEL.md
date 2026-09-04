@@ -116,7 +116,7 @@ policy reads:
 |---|---|---|---|
 | `InProcess` | `P2PeerConDmx` | the handoff is a pointer | construction |
 | `Local` | `P2PeerConWsa` whose peer the kernel reports on loopback | the bind, and the stack's refusal of an off-host packet claiming `127.0.0.0/8` | the kernel |
-| `Local` | `P2PeerConPipe` created with `PIPE_REJECT_REMOTE_CLIENTS` and this transport's DACL, or a client opened on `\\.\pipe\` | the redirector is refused; the device is local | the kernel |
+| `Local` | `P2PeerConPipe` created with `PIPE_REJECT_REMOTE_CLIENTS` and this transport's DACL, or a client whose name is `\\.\pipe\<one component>` **and** whose open handle answers `GetNamedPipeServerProcessId` | the redirector is refused; the device is local, and the server is a process on this machine | the kernel |
 | `Wire` | `P2PeerConWsa` otherwise, `P2PeerConPipe` under `P2PeerConPipeAccess_Legacy`, `P2PeerCon232` | nothing | nobody |
 
 Serial is deliberately a wire: "directly attached hardware bus" describes where it is usually
@@ -136,9 +136,20 @@ pipe mode and the security attributes `CreateNamedPipe` was actually given, so a
 arriving after the pipe exists cannot re-label a link that is already carrying traffic, and
 deleting either argument changes the class rather than leaving a flag that still says `Local`. The
 two ends answer from different evidence — the service from what it created, the client from the
-device its name resolves to — and they are allowed to disagree: a legacy service is `Wire` while a
-client on `\\.\pipe\` is truthfully `Local`, and the server refuses the login, which is the
-conservative direction and the same shape as F-S6-1.
+device its name resolves to *and* from the handle it got — and they are allowed to disagree: a
+legacy service is `Wire` while a client on `\\.\pipe\` is truthfully `Local`, and the server
+refuses the login, which is the conservative direction and the same shape as F-S6-1.
+
+**The client's half was a prefix match until 2026-09-04, and a prefix is not a device.** `\\.\` is
+the DOS device namespace and, unlike `\\?\`, a path under it is still normalised, so
+`\\.\pipe\..\UNC\host\pipe\Name` carried the prefix the test matched, resolved through the
+redirector — measured: it normalises to `\\.\UNC\host\pipe\x` — and was answered `Local`. Branch
+review, finding 2. The name test now requires the remainder to be a **pipe name and nothing else**,
+one component with no separator, which is exactly what the platform permits a pipe name to be, so
+nothing legitimate is refused and nothing that can traverse is admitted. And the name is no longer
+asked alone: `Connect()` confirms the open handle with `GetNamedPipeServerProcessId`, which the SMB
+redirector cannot answer for because a server process id is meaningless across a machine boundary.
+Both must hold. Any failure reads as `Wire`.
 
 `Local` is **not** `Trusted`. It says no *network* adversary can reach the link. A7 — another
 principal on the same host — reaches a loopback port exactly as easily as this process does, and is
@@ -153,6 +164,20 @@ socket would have authenticated in full — `Wire` is `Full` and cannot be set o
 not a confidentiality control; it is the control that keeps a hub's *shape* the shape its operator
 described. The floor defaults to `Wire`, which is what every unexamined transport answers, so an
 unconfigured hub refuses nothing.
+
+**The fence is asked at three moments, not one, and `PostP2PeerCon` is the weakest of them.** At
+post a *service* has no handle: a pipe answers from its access mode and a socket from its listen
+scope, and both are intentions a later `SetPipeAccess()` or `SetListenScope()` can still change. An
+*accepted child* never passes through `PostP2PeerCon` at all — it is spawned by its service. Both
+gaps were found by the branch review of 2026-09-04 (finding 3) and both are closed where the class
+stops being an intention: `P2PeerConPipe::CreateListenPipe` asks again once the pipe exists and the
+class has been read back out of the arguments the kernel was given, closing the handle and refusing
+to listen; and `P2PeerConWsa::AcceptSpawn` asks per child, from the `getpeername()` reading it
+already takes, as a fourth admission test beside the allow-list and the two capacity bounds. It is
+asked **per child rather than at listen** deliberately: a service bound to `P2PeerConScope_Any` on
+a hub fenced at `Local` legitimately carries loopback peers, and refusing the listener would refuse
+those too. Raising a floor on a hub that is already running still evicts nothing — the fence is a
+configure-before-arm setting, like every other one here.
 
 ---
 
@@ -225,6 +250,9 @@ of this suite's reach rather than out of mind.
 | **Pipe locality: the named pipe refuses the SMB redirector and takes a DACL this transport wrote** | A1/A2/A3 arriving over SMB at an endpoint the tree describes as single-machine (F-SR-1); A7 reading it as Everyone | **on** (`P2PeerConPipeAccess_Owner`; the old call is `_Legacy` and reads `Wire`) | `P2PeerConPipe::CreateListenPipe`, `PIPE_REJECT_REMOTE_CLIENTS` + `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)`, **kernel-enforced**; the class is derived back out of both | `p2p_linktrust` |
 | **The server does not join a pipe somebody else created** | A7 creating the name first with a DACL of their choosing, so the transport's instance inherits *that* descriptor while its class reads `Local` | **on** (every mode but `_Legacy`) | `P2PeerConPipe::CreateListenPipe`, `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance, **kernel-enforced**: an existing name fails `ERROR_ACCESS_DENIED` and is refused with a diagnostic; the re-arm after an accept is a further instance of the transport's own pipe and omits the flag. The class derivation now reads this back as a third half. **Residual:** if the accepted sibling drops before the spawn re-arms, the name is free for one dispatch and a re-arm in that window joins whatever was made in it | — *claim* |
 | **The pipe client cannot be impersonated by the server it dialled** | A7 squatting a pipe name to acquire the caller's token | **on** | `P2PeerConPipe::Connect`, `SECURITY_SQOS_PRESENT \| SECURITY_IDENTIFICATION` on `CreateFile`, **kernel-enforced** | — *claim* |
+| **A pipe client's `Local` is a device and a handle, not a prefix** | A configured name that carries the `\\.\pipe\` prefix and still resolves through the redirector — `\\.\pipe\..\UNC\host\pipe\x`, which normalises to `\\.\UNC\host\pipe\x` (measured) | **on** | `P2PeerConPipenameIsLocal` requires one component with no separator, **and** `Connect()` confirms the handle with `GetNamedPipeServerProcessId`, which no remote server can answer; either failing reads `Wire` | probe, 12/12 name cases; `p2p_linktrust` 9 |
+| **The fence is asked where the class is a fact, not only where a connection is posted** | An operator changing `SetPipeAccess`/`SetListenScope` after `PostP2PeerCon`, and every accepted child, which is spawned by its service and never posted | **on** | `P2PeerConPipe::CreateListenPipe` re-asks once the pipe exists and refuses to listen, closing the handle; `P2PeerConWsa::AcceptSpawn` asks per child from the `getpeername()` it already reads, and closes the accepted socket | `p2p_linktrust` 7 covers the post-time half only |
+| **A relaxed link refuses a key agreement instead of running one** | Two ends disagreeing about whether there is a channel, discovered later and elsewhere — F-S6-1's shape | **on** (relaxed links only; `RequireAuth(false)` is unchanged) | `P2PeerCon::KeyXOnRequest`, gated on `AuthLinkRelaxed()` | — *claim* |
 | Nonce cache and a ±300 s freshness window | A2 replay | **on** | `AuthPolicy::NoteNonce` / `SeenNonce` | `p2p_replayguard` |
 | Login deadline on an accepted connection | A3 holding a slot in silence | **on** | `P2PeerCon::ArmLoginDeadline` | `p2p_logindeadline` |
 | Pre-login application traffic discarded, connection dropped | A3 | **on** | `P2PeerCon`, `ConState_Login` | `p2p_authgate` |

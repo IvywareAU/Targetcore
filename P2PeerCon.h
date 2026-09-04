@@ -572,6 +572,34 @@ class TargetCore_EXT P2PeerCon : public P2PeerConPlc
       P2PeerConTrust_e
         EffectiveTrust  ( ) const;
 
+      //  THE FENCE, asked from the CONNECTION side.
+      //  NOTES: P2PeerHub::PostP2PeerCon enforces RequireTrustAtLeast() when a
+      //         connection JOINS a hub, and at that moment a service has no
+      //         handle: a pipe answers from its access mode and a socket from
+      //         its listen scope, both of which are INTENTIONS that can still
+      //         change, and an accepted child never passes through that
+      //         function at all.  These are how the same fence is asked again
+      //         at the moments the class becomes a FACT - when a listener
+      //         creates its handle, and when a service is about to spawn a
+      //         child - so the property the fence states holds for the links
+      //         that carry traffic and not only for the objects that were
+      //         posted
+      //       : TrustFenceRefusesClass() takes the class a connection is ABOUT
+      //         to have, so a service can ask on behalf of a child that does
+      //         not exist yet.  It applies this object's ceiling itself, which
+      //         is the ceiling the child will inherit, so the two readings
+      //         cannot differ
+      //       : Both answer FALSE for a connection with no governing hub, and
+      //         for a hub with no fence.  A fence that cannot be read refuses
+      //         nothing - the same direction P2PeerHub::GetRequiredTrust()
+      //         takes, and for the reason written there
+      P2PeerConTrust_e
+        TrustFenceFloor ( );
+      bool
+        TrustFenceRefusesClass ( P2PeerConTrust_e eClass );
+      bool
+        TrustFenceRefuses      ( );
+
     // Attributes
     public:
       HANDLE           m_hP2PmsgCon;

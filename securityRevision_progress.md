@@ -1706,3 +1706,79 @@ Two things were tightened while moving it, both about silent failure:
 - Built Debug x64 clean. `p2p_linktrust` phases 9 and 10 are unchanged in shape; a phase that
   creates the name first and requires the service's create to be refused is the gate this wants
   and has not been written.
+
+### 2026-09-04 — branch review, findings 2, 3 and 4
+
+The three remaining findings of the same review. None is a downgrade on its own; each is a place
+where a fact the feature rests on was asserted rather than established.
+
+**Finding 2 — the client's `Local` was a prefix match.** `\.\` is the DOS device namespace and,
+unlike `\?\`, a path under it is still normalised, so `\.\pipe\..\UNC\host\pipe\x` carried the
+prefix the test matched and went out through the redirector. **Measured rather than reasoned**: a
+scratch probe put that string through `GetFullPathNameW`, which returned `\.\UNC\host\pipe\x`. So
+the finding was real and not merely plausible.
+- The name test now requires the remainder after the prefix to be **one component with no
+  separator**, which is exactly what the platform permits a pipe name to be (any character except a
+  backslash) — so nothing legitimate is refused. 12 cases in a scratch probe, 0 failed, including
+  both traversal spellings and both legitimate names the suite actually uses.
+- And the name is no longer asked alone. `Connect()` confirms the OPEN HANDLE with
+  `GetNamedPipeServerProcessId`, which a remote server cannot answer. The note that had been left in
+  the source said a handle reading would cost a syscall "on every posture read" — true of asking it
+  from `TrustClass()`, and not true of asking it once where the handle is opened, which is what
+  moved.
+- **The one assumption in this fix was measured before it was relied on**: that the call SUCCEEDS on
+  a local pipe. It does — probe, pid returned on both the client and the server handle. Had it not,
+  the client would have read `Wire` against a `Local` server and every relaxed pipe link would have
+  broken; that is a functional break rather than a security one, but it is the kind that is found in
+  somebody else's deployment.
+
+**Finding 3 — the fence measured a service against its INTENTION, and children never met it.** At
+`PostP2PeerCon` a service holds no handle: a pipe answers from `m_ePipeAccess` and a socket from
+`m_eListenScope`, both of which a later setter can change, and an accepted child is spawned by its
+service and never passes through that function at all. So a hub fenced at `Local` behind a service
+bound to `P2PeerConScope_Any` admitted every off-host child the fence exists to refuse.
+- One helper, `P2PeerCon::TrustFenceRefusesClass()`, asked at the two moments the class stops being
+  an intention. It takes the class rather than reading `TrustClass()`, so a SERVICE can ask on
+  behalf of a child that does not exist yet, and it applies the ceiling the child will inherit.
+- `CreateListenPipe` re-asks once the pipe exists and `m_bPipeLocal` has been read back out of the
+  arguments the kernel was given. **It closes the handle before it throws** — a listener the hub
+  will not hold must not leave the name taken by an endpoint nothing is listening on.
+- `P2PeerConWsa::AcceptSpawn` asks per child, from the `getpeername()` reading it already takes, as
+  a fourth admission test beside the allow-list and the two capacity bounds. **Asked last** of the
+  four, because it is the only one about the LINK rather than about the peer, and reporting a class
+  to an operator who wrote an allow-list rule is the wrong-number failure that block is already
+  careful about. **Traced, not raised**, for the reason its three neighbours are: it is refused at
+  accept, so whoever is dialling can repeat it at will.
+- **Per child and not at listen**, deliberately: a service bound to `Any` on a hub fenced at `Local`
+  legitimately carries loopback peers, and refusing the LISTENER would refuse those too.
+- Not changed: raising a floor on a running hub still evicts nothing. The fence is documented
+  configure-before-arm like every other setting here, and that is left standing rather than quietly
+  given a second meaning.
+
+**Finding 4 — a relaxed server serviced a key agreement it did not want.** "Both ends need the same
+answer" was enforced in one direction only: a client that SKIPPED the agreement was refused where it
+happened, and a client that OPENED one against a relaxed hub was serviced, with the disagreement
+surfacing later at `AuthGateInbound` as a login block handed to the application.
+- Refused at `KeyXOnRequest`, before the exchange runs, naming the class and both ways out.
+- **Gated on `AuthLinkRelaxed()` and NOT on `!KeyXWanted()`**, which is the whole care in this one.
+  There are two ways to reach "this link runs no agreement" and only one is new; a hub with
+  `RequireAuth(false)` has always serviced a peer's exchange, and gating on the wider predicate
+  would have changed the behaviour of every deployment that predates the trust class.
+- `KeyXOnAck` needs nothing: a relaxed end never sends a request, so `m_pKeyX` is null and its first
+  line already refuses an acknowledgement that answers nothing.
+
+**Verification.** Debug x64 clean, 0 errors and no warning in any of the four files touched (the
+24 the solution emits are all in files this change does not open). `ctest -C Debug -L security` was
+run twice: **38/38** on the second, and 37/38 on the first with `p2p_linktrust` the one failure —
+finding 7 again, and **attributed rather than assumed** rather than waved at, because the phase it
+died in was pipe code this change had just edited. 8 runs on this tree failed 5, in phases 5, 6 and
+9; the SAME 8 runs with this work stashed and targetcore rebuilt from `0376c45` failed 5, in phases
+6 and 10. Same rate, different phases, both trees, and the phase it lands in is not the phase that
+was edited. `p2p_linktrust` phases 9 and 10 exercise the real pipe end to end, so the
+handle confirmation and the `CreateListenPipe` fence are covered by an existing gate even though
+neither has a phase of its own.
+
+**NOT DONE.** No phase pins any of these three. What each wants: a name with a traversal in it
+refused as `Wire`; a service whose access mode or listen scope changes after it is posted refused
+at listen or per child; and a Full client against an Open server refused at the exchange rather than
+at the login. `MscsUnitTests` is a sibling repository and the additions belong with it.

@@ -264,10 +264,14 @@ One line per hub, and it must be an explicit one:
 
   `Local` is **not** *trusted*: it says no network adversary can reach the link, and nothing about
   another principal on the same host, who reaches a loopback port exactly as easily as this process
-  does. **Both ends need the same setting**, as with `RequireAuth`: a peer that skipped the
-  agreement against a hub that wanted one is refused. And it is a per-**link** setting only —
-  relay attestation and end-to-end sealing are properties of an origin and a destination rather
-  than of one hop, so an opened link still signs and still seals.
+  does. **Both ends need the same setting**, as with `RequireAuth`, and since 2026-09-04 that is
+  enforced in **both** directions: a peer that skipped the agreement against a hub that wanted one
+  is refused at the login gate, and a peer that *opens* an agreement against a hub that has relaxed
+  the class is refused at `KeyXOnRequest` — before it runs, rather than after, when the disagreement
+  used to surface as a login block handed to the application. A hub with `RequireAuth(false)` is
+  untouched by the second half and still services an exchange, as it always has. And it is a
+  per-**link** setting only — relay attestation and end-to-end sealing are properties of an origin
+  and a destination rather than of one hop, so an opened link still signs and still seals.
 
   Every class defaults to `Full`, so a hub that never calls this behaves exactly as it did.
 - **`RequireTrustAtLeast(class)` is the other half of that call, and it is what makes the opt-out
