@@ -133,8 +133,11 @@ P2PeerConPipe::RenderThisSafe()
     //        call is P2PeerConPipeAccess_Legacy and has to be asked for
     //      : m_bPipeLocal is false because there is no handle yet, and it is
     //        never true of anything but a handle
+    //      : m_bPipeRearm is false because a fresh object is the FIRST
+    //        instance of whatever it creates; only AcceptSpawn says otherwise
     m_ePipeAccess = P2PeerConPipeAccess_Owner;
     m_bPipeLocal  = false;
+    m_bPipeRearm  = false;
 }
 
 P2PeerConPipe*
@@ -213,8 +216,13 @@ P2PeerConPipe::AcceptSpawn ( P2PeerCon *pConSpawn )
     //        false on the spawn until its own CreateNamedPipe succeeds, and
     //        stays whatever it was on this, which is what this handle was
     //        actually made with
+    //      : ...and the spawn is told it is a RE-ARM.  Its CreateNamedPipe
+    //        will be a further instance of the pipe THIS still holds, so it
+    //        must not ask for FILE_FLAG_FIRST_PIPE_INSTANCE - that would
+    //        refuse this transport's own pipe.  Refer CreateListenPipe()
     pConSpawnPipe -> m_ePipeAccess = m_ePipeAccess;
     pConSpawnPipe -> m_sPipeSddl   = m_sPipeSddl;
+    pConSpawnPipe -> m_bPipeRearm  = true;
 
     // Done
     // NOTES: Spawned object is free floating
@@ -482,13 +490,49 @@ P2PeerConPipe::CreateListenPipe ( )
     //        directory plus the process umask.  Hence Local for all three
     //        modes on that platform, and a comment rather than a pretence
     //        that the descriptor was applied
+    // Squatting
+    // NOTES: A named pipe carries the descriptor its FIRST instance was made
+    //        with.  A later CreateNamedPipe on the same name is a further
+    //        instance of THAT pipe: it passes an access check against the
+    //        existing descriptor, and the descriptor it brings is not the one
+    //        the endpoint gets.  So a local principal that creates the name
+    //        first, with a DACL of their choosing, would have this transport
+    //        join their pipe - traffic behind their DACL, the client's opens
+    //        admitted on their terms - while the derivation below still read
+    //        back the reject and the descriptor THIS end passed, and the
+    //        class said Local
+    //      : FILE_FLAG_FIRST_PIPE_INSTANCE is the kernel's answer: with it
+    //        the create FAILS, ERROR_ACCESS_DENIED, if any instance of the
+    //        name already exists.  Passed on the FIRST instance this
+    //        transport makes and NOT on the re-arm, because the re-arm is by
+    //        definition a second instance of a pipe this transport already
+    //        holds - the accepted connection is still open on it, under this
+    //        transport's own descriptor - and the flag there would refuse the
+    //        transport's own pipe.  AcceptSpawn is what tells the spawn it is
+    //        a re-arm
+    //      : NOT passed under Legacy, which is the pre-revision call byte for
+    //        byte and is documented as such.  A legacy pipe reads Wire, so
+    //        its policy is Full and a squatter gains nothing past the login
+    //        gate; the flag is a property of the class this transport claims,
+    //        and Legacy claims none
+    //      : What this leaves open is stated rather than hidden: if the
+    //        accepted sibling drops before the spawn re-arms, the name is
+    //        briefly free, and a re-arm in that window joins whatever was
+    //        created into it.  The window is one pump dispatch wide and the
+    //        spawn cannot see across it; closing it means reading the
+    //        descriptor back off the created handle, which is a separate
+    //        change
 #ifdef _WIN32
+    DWORD                dwOpenMode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED;
     DWORD                dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
     SECURITY_ATTRIBUTES  oSA;
     PSECURITY_DESCRIPTOR pSD  = NULL;
     LPSECURITY_ATTRIBUTES pSA = NULL;
     if ( m_ePipeAccess != P2PeerConPipeAccess_Legacy )
     {
+      if ( !m_bPipeRearm )
+        dwOpenMode |= FILE_FLAG_FIRST_PIPE_INSTANCE;
+
       LPCTSTR pszSddl = ( m_ePipeAccess == P2PeerConPipeAccess_Descriptor )
                         ? (LPCTSTR)m_sPipeSddl
                         : kPipeSddlOwner;
@@ -512,12 +556,17 @@ P2PeerConPipe::CreateListenPipe ( )
       dwPipeMode              |= PIPE_REJECT_REMOTE_CLIENTS;
     }
 #else
+    // The Linux mapping ignores the open mode outright - refer the note
+    // above - and has no FILE_FLAG_FIRST_PIPE_INSTANCE to pass.  Squatting
+    // has no counterpart there either: bind() on an AF_UNIX path that exists
+    // fails, it does not join
+    DWORD                dwOpenMode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED;
     DWORD                dwPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
     void                *pSA = NULL;
 #endif
 
     m_hFile = CreateNamedPipe ( m_sPipename
-                              , PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
+                              , dwOpenMode
                               , dwPipeMode
                               , 2                    // maximum number of instances
                               , 64000              // output buffer size
@@ -532,6 +581,27 @@ P2PeerConPipe::CreateListenPipe ( )
     if ( m_hFile == INVALID_HANDLE_VALUE )
     {
       m_hFile = 0;
+
+      // The name was already taken, and this was meant to be its first
+      // instance.  Named separately because the advice is different: the
+      // assignment is fine, it is the NAME that is held by somebody else -
+      // a previous server still running, or a squatter - and the refusal is
+      // the protection working rather than a configuration to check
+#ifdef _WIN32
+      if ( dwCreateErr == ERROR_ACCESS_DENIED &&
+           ( dwOpenMode & FILE_FLAG_FIRST_PIPE_INSTANCE ) != 0 )
+        EVERR->MODULE
+             ->Message(_N("CreateNamedPipe(%s) refused: the name already has "
+                          "an instance and this service creates the first\n")
+                       "ADVICE\t: Another process holds %s - a server still "
+                       "running, or a squatter.  Refused rather than joined, "
+                       "because a joined pipe keeps the FIRST creator's "
+                       "descriptor, not this one's\n"
+                       "ADVICE\t: Stop the other holder, or choose a name"
+                      , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
+             ->HResult( dwCreateErr )->Throw();
+#endif
+
       EVERR->MODULE
            ->Message(_N("CreateNamePipe(%s) failed\n")
                      "ADVICE\t: Check assignment for %s"
@@ -552,6 +622,13 @@ P2PeerConPipe::CreateListenPipe ( )
     //        one alone: a reject with the platform's descriptor still lets
     //        Everyone read the endpoint, and a descriptor without the reject
     //        still lets the redirector carry it off the machine
+    //      : THREE halves since the squatting note above, and the third is
+    //        what makes the first two MEAN anything: a reject and a
+    //        descriptor were only APPLIED if this create was the pipe's first
+    //        instance - which the flag makes the kernel guarantee - or a
+    //        re-arm of a pipe whose first instance this transport made.
+    //        Read back from the open mode that was passed, as the other two
+    //        are, so deleting the |= above turns the class to Wire
     //      : On the Linux mapping neither argument reached the kernel - the
     //        call was socket/bind/listen on an AF_UNIX path - so neither can
     //        be read back.  What makes the class true there is the address
@@ -559,7 +636,9 @@ P2PeerConPipe::CreateListenPipe ( )
     //        the note above
 #ifdef _WIN32
     m_bPipeLocal = ( dwPipeMode & PIPE_REJECT_REMOTE_CLIENTS ) != 0 &&
-                     pSA != NULL;
+                     pSA != NULL &&
+                   ( ( dwOpenMode & FILE_FLAG_FIRST_PIPE_INSTANCE ) != 0 ||
+                     m_bPipeRearm );
 #else
     m_bPipeLocal = true;
 #endif

@@ -83,7 +83,13 @@ Appropriate use today:
   `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)`, the same three ACEs the identity file gets — in place
   of the platform default that granted Everyone and Anonymous read access. The client opens with
   `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, so a server squatting the pipe name is handed
-  the client's bytes and not its token. Such a pipe answers `TrustClass() == Local` and its hub may
+  the client's bytes and not its token. **The server side of squatting is refused too**: a named
+  pipe keeps the descriptor its *first* instance was created with, so a local principal who
+  created the name first would have had this transport join *their* pipe while the class still
+  read `Local`. The first instance `CreateListenPipe` makes therefore passes
+  `FILE_FLAG_FIRST_PIPE_INSTANCE` and a name that already exists fails, `ERROR_ACCESS_DENIED`,
+  with a diagnostic naming the holder; the re-arm after an accept is a second instance of the
+  transport's own pipe and does not pass it. Such a pipe answers `TrustClass() == Local` and its hub may
   relax it with `SetLinkPolicy(P2PeerConTrust_Local, P2PeerLinkPolicy_Open)`
   (`THREAT_MODEL.md` F-SR-1, now closed)
 - **The old pipe is still reachable, by name.** `SetPipeAccess(P2PeerConPipeAccess_Legacy)` on the

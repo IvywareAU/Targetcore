@@ -198,5 +198,22 @@ class TargetCore_EXT P2PeerConPipe : public P2PeerCon
       //        INTENTION and a class has to be a FACT.  TrustClass() reads
       //        this one wherever there is a handle to read it from
       bool                  m_bPipeLocal;
+
+      // Is the next pipe this object creates a RE-ARM - a further instance
+      // of a pipe this transport already holds - rather than the first?
+      // NOTES: Set by AcceptSpawn on the spawn and nowhere else.  The
+      //        service that came out of ServiceFactory creates the FIRST
+      //        instance, and that one is made with
+      //        FILE_FLAG_FIRST_PIPE_INSTANCE so that a name another process
+      //        has already created is refused rather than joined: the
+      //        descriptor a pipe carries is the one its first instance was
+      //        made with, so joining a squatted name would put this
+      //        transport's traffic behind somebody else's DACL while
+      //        m_bPipeLocal still read back the arguments this end passed.
+      //        The spawn re-arms while the accepted instance is still open
+      //        under this transport's own descriptor, and there the flag
+      //        would refuse the transport's own pipe - so it is not passed,
+      //        and the fact rests on the sibling instead
+      bool                  m_bPipeRearm;
 };
 

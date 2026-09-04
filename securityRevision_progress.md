@@ -1675,3 +1675,34 @@ Two things were tightened while moving it, both about silent failure:
   actually looks would not have shown the waiver: steps 2 and 3 both added theirs and this one had
   been missed. The two fixes point opposite ways — append in the struct, group by topic in the
   snapshot — and the reason is written at both sites.
+
+### 2026-09-04 — branch review, finding 1: pipe-name squatting
+
+- A security review of the branch against master found that `CreateListenPipe` asked for the
+  reject and the descriptor but could not know they were **applied**: a named pipe carries the
+  descriptor of its *first* instance, and a later `CreateNamedPipe` on the same name is a further
+  instance of that pipe under an access check against the existing DACL. So an A7 principal who
+  created the name first, permissively, would have had this transport join their pipe — clients
+  admitted on their terms — while `m_bPipeLocal` read back the arguments this end passed and the
+  class said `Local`. With `SetLinkPolicy(Local, Open)` that is an unauthenticated login for any
+  local account.
+- **Fixed with `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance only.** A new
+  `m_bPipeRearm`, set by `AcceptSpawn` on the spawn and nowhere else, is what tells
+  `CreateListenPipe` it is re-arming a pipe the accepted sibling still holds under this transport's
+  own descriptor — the flag there would refuse the transport's own pipe. `ERROR_ACCESS_DENIED` on a
+  first-instance create is refused with its own diagnostic naming the holder, rather than the
+  generic "check assignment".
+- **The fact gained a third half.** `m_bPipeLocal` now also requires that the open mode carried the
+  flag, or that this was a re-arm — read back from the argument like the other two, so deleting the
+  `|=` turns the class to `Wire`.
+- `Legacy` does not pass the flag: it is documented as the pre-revision call byte for byte, it reads
+  `Wire`, and a squatter gains nothing past a `Full` login gate.
+- **Residual, stated at the site and in `THREAT_MODEL.md`:** if the accepted sibling drops before
+  the spawn re-arms, the name is free for one dispatch and a re-arm in that window joins whatever
+  was made in it. Closing that means reading the descriptor back off the created handle, which is a
+  separate change.
+- Linux: the mapping ignores the open mode and `bind()` on an existing `AF_UNIX` path fails rather
+  than joins, so the flag has no counterpart and needs none. Guarded under `_WIN32`.
+- Built Debug x64 clean. `p2p_linktrust` phases 9 and 10 are unchanged in shape; a phase that
+  creates the name first and requires the service's create to be refused is the gate this wants
+  and has not been written.

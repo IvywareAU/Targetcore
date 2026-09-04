@@ -223,6 +223,7 @@ of this suite's reach rather than out of mind.
 | **The fence: a hub refuses to hold a link below a class it names** | a hub relaxed for its own process being handed a socket and becoming a network endpoint nobody asked for | off (floor `Wire`, which refuses nothing) | `P2PeerHub::RequireTrustAtLeast` ← `PostP2PeerCon`, against `EffectiveTrust()` | `p2p_linktrust` |
 | **A hub that can never demand a signature arms without the files it would demand one with** | operator error in the other direction — an in-process-only hub refusing to start for want of a key it will never use, and being opened with `RequireAuth(false)` instead | n/a (reachable only with a fence set **and** every class above it `Open`) | `p2pauth::AuthPolicy::Arm` → `ArmNotRequiredByPolicy`, admitted in `P2PeerHub::AuthArmOrRefuse` | `p2p_linktrust` |
 | **Pipe locality: the named pipe refuses the SMB redirector and takes a DACL this transport wrote** | A1/A2/A3 arriving over SMB at an endpoint the tree describes as single-machine (F-SR-1); A7 reading it as Everyone | **on** (`P2PeerConPipeAccess_Owner`; the old call is `_Legacy` and reads `Wire`) | `P2PeerConPipe::CreateListenPipe`, `PIPE_REJECT_REMOTE_CLIENTS` + `D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;OW)`, **kernel-enforced**; the class is derived back out of both | `p2p_linktrust` |
+| **The server does not join a pipe somebody else created** | A7 creating the name first with a DACL of their choosing, so the transport's instance inherits *that* descriptor while its class reads `Local` | **on** (every mode but `_Legacy`) | `P2PeerConPipe::CreateListenPipe`, `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance, **kernel-enforced**: an existing name fails `ERROR_ACCESS_DENIED` and is refused with a diagnostic; the re-arm after an accept is a further instance of the transport's own pipe and omits the flag. The class derivation now reads this back as a third half. **Residual:** if the accepted sibling drops before the spawn re-arms, the name is free for one dispatch and a re-arm in that window joins whatever was made in it | — *claim* |
 | **The pipe client cannot be impersonated by the server it dialled** | A7 squatting a pipe name to acquire the caller's token | **on** | `P2PeerConPipe::Connect`, `SECURITY_SQOS_PRESENT \| SECURITY_IDENTIFICATION` on `CreateFile`, **kernel-enforced** | — *claim* |
 | Nonce cache and a ±300 s freshness window | A2 replay | **on** | `AuthPolicy::NoteNonce` / `SeenNonce` | `p2p_replayguard` |
 | Login deadline on an accepted connection | A3 holding a slot in silence | **on** | `P2PeerCon::ArmLoginDeadline` | `p2p_logindeadline` |
@@ -427,6 +428,13 @@ the kernel's promise, and only a kernel's promise is worth letting a policy read
   question about the same account and two answers that drift apart are worse than one.
 - `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` on the client's `CreateFile`, which closes the
   impersonation half quoted above. It was §9's incidental finding 3 and is fixed with the rest.
+- `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance the server creates, added after the branch
+  review of 2026-09-04. Without it the two items above were only *requested*: a pipe carries the
+  descriptor of its first instance, so a name a local principal had already created would have
+  been joined, under their DACL, with `m_bPipeLocal` still reading back the arguments this end
+  passed. Now the create fails and says why. The re-arm after an accept omits the flag, because it
+  is by definition a second instance of a pipe this transport still holds; `Legacy` omits it too,
+  being the old call byte for byte.
 - The old call kept reachable **by name**: `SetPipeAccess(P2PeerConPipeAccess_Legacy)` is the
   pre-revision `CreateNamedPipe`, unchanged, so a deployment that shares a pipe between two
   accounts upgrades by naming that rather than by finding out. It reads `Wire`.
