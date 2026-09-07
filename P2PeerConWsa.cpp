@@ -1740,8 +1740,24 @@ P2PeerConWsa::Drop ( P2Pevent *pEVENT )
 {
     // Firstly drop socket
     // NOTES: Cancels all outstanding overlapped IO
+    //      : Half-close the sending direction FIRST. closesocket() on a socket
+    //        that still holds unread received data is answered with an RST, and
+    //        an RST discards whatever is still queued in the send buffer -- so a
+    //        reply whose overlapped send has already completed, but which the
+    //        peer has not read yet, is thrown away. shutdown() queues the FIN
+    //        BEHIND that data instead, which is what lets the last write survive
+    //        the close.
+    //      : This is the fix for AKAserva's "TRACE-then-405 race": the 405 was
+    //        built and handed to Send() on every single request, and the client
+    //        still read zero bytes whenever the drop won. Any handler that
+    //        answers and closes in one breath has the same exposure -- an HTTP
+    //        error page, anything honouring "Connection: close".
+    //      : The result is deliberately ignored. On a connection that is already
+    //        broken there is nothing left to flush and closesocket() below is
+    //        still exactly the right thing to do.
     if ( m_oSocket != INVALID_SOCKET )
     {
+      shutdown ( m_oSocket, SD_SEND );
       if (   closesocket(m_oSocket) &&
            !pEVENT                     )
         pEVENT =
@@ -2255,6 +2271,20 @@ P2PeerConWsa::OnClose ( )
     //        up before delegation to the base class
     if ( m_oSocket != INVALID_SOCKET )
     {
+      // Half-close the sending direction BEFORE closesocket(). Winsock answers a
+      // close on a socket that still has unread received data with an RST, and an
+      // RST discards whatever is still sitting in the send buffer -- including a
+      // response whose overlapped send has already completed but which the peer
+      // has not read yet. shutdown() queues the FIN BEHIND that data instead, so
+      // the last write survives the close. Without this, a handler that answers
+      // and closes in one breath (an HTTP error page, any "Connection: close"
+      // reply) loses its answer whenever the close wins the race -- measured as
+      // AKAserva's TRACE-then-405 defect, where the 405 was built and sent every
+      // time and the client still read zero bytes.
+      // The return value is deliberately ignored: on a connection that is already
+      // broken there is nothing left to flush, and closesocket() below is still
+      // the right thing to do.
+      shutdown ( m_oSocket, SD_SEND );
       closesocket ( m_oSocket );
       m_oSocket    = INVALID_SOCKET;
       m_hFile      = 0;                // P2PeerCon attribute
