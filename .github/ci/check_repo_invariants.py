@@ -23,7 +23,7 @@
 #      exists -- a README that points at a deleted document is the exact defect
 #      class Ahtung_Disaster.md Part 1 is about, only cheaper to catch.
 #   3. THE TWO BUILD SYSTEMS DESCRIBE THE SAME LIBRARY. TargetCore is built by
-#      TargetCore(2022).vcxproj (authoritative on Windows) AND by CMakeLists.txt
+#      TargetCore(2026).vcxproj (authoritative on Windows) AND by CMakeLists.txt
 #      (authoritative on Linux, parity path on Windows). Nothing else in the
 #      tree compares them, so a .cpp added to one and not the other silently
 #      ships in one shape and not the other. MscsUnitTests/CMakeLists.txt:23-25
@@ -60,7 +60,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-VCXPROJ = ROOT / "TargetCore(2022).vcxproj"
+VCXPROJ = ROOT / "TargetCore(2026).vcxproj"
 CMAKE = ROOT / "CMakeLists.txt"
 
 # stdafx.cpp is the classic /Yc precompiled-header TU. The vcxproj compiles it;
@@ -94,8 +94,8 @@ REQUIRED_FILES = [
 # passing this check). What must never happen is one of them becoming a BUILD
 # INPUT again, so comments are stripped before the search.
 LEGACY_TOKENS = ["DHKeyXChanger", "DHPKeyXChanger", "CRijndael", "Rijndael"]
-BUILD_INPUT_FILES = ["TargetCore(2022).vcxproj",
-                     "TargetCore(2022).vcxproj.filters",
+BUILD_INPUT_FILES = ["TargetCore(2026).vcxproj",
+                     "TargetCore(2026).vcxproj.filters",
                      "CMakeLists.txt"]
 
 failures: list[str] = []
@@ -236,11 +236,11 @@ def check_source_parity() -> None:
     only_vcx = vcx_sources - win_s - DOCUMENTED_VCXPROJ_ONLY
     only_cmake = win_s - vcx_sources
     for name in sorted(only_vcx):
-        fail("parity", f"'{name}' is compiled by TargetCore(2022).vcxproj but NOT by the "
+        fail("parity", f"'{name}' is compiled by TargetCore(2026).vcxproj but NOT by the "
                        f"Windows CMake build -- the two builds produce different libraries")
     for name in sorted(only_cmake):
         fail("parity", f"'{name}' is compiled by the Windows CMake build but NOT by "
-                       f"TargetCore(2022).vcxproj -- the two builds produce different libraries")
+                       f"TargetCore(2026).vcxproj -- the two builds produce different libraries")
     missing_documented = DOCUMENTED_VCXPROJ_ONLY - vcx_sources
     for name in sorted(missing_documented):
         fail("parity", f"'{name}' is recorded here as a documented vcxproj-only source, "

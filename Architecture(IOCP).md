@@ -448,7 +448,7 @@ Two runtime harnesses probe how a single `P2PeerHub` supervises **more than one*
 how it behaves when those connections use **different transports**. Both are standalone MFC console
 projects that link the shared `TargetCore`/`Msgcore` libs and self-connect over loopback in one
 process, mirroring `AlexTest` (WSA) and `PipeMeshTest` (pipe). Both are **verified passing** (built
-`Debug|x64`, VS2022 v143; run headless; verdict via exit code).
+`Debug|x64`, VS2026 v145; run headless; verdict via exit code).
 
 | Test | Project | Question | Result |
 |------|---------|----------|--------|

@@ -44,8 +44,8 @@ recommendation — build §6.3 — is in *Step 5* below with the numbers it rest
 
 | | Result |
 |---|---|
-| `TargetCore(2022).sln`, Debug \| x64, MSBuild 17 | **clean**, exit 0, DLL produced |
-| `TargetCore(2022).sln`, Release \| x64 | **clean**, exit 0, DLL produced |
+| `TargetCore(2026).sln`, Debug \| x64, MSBuild 17 | **clean**, exit 0, DLL produced |
+| `TargetCore(2026).sln`, Release \| x64 | **clean**, exit 0, DLL produced |
 | `.github/ci/check_repo_invariants.py` | **all seven sections green**; **99** flat C symbols, header and manifest agree (step 4 adds none — the flat surface has no pipe handle) |
 | `dumpbin /EXPORTS` on the Release DLL | all six new flat-C symbols exported; `RequireTrustAtLeast` and `GetRequiredTrust` present as C++ exports |
 | CMake tree, `windows-msvc` preset, Debug, full build | **clean**, exit 0 |

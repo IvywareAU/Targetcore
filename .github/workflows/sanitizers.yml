@@ -123,7 +123,7 @@ env:
 jobs:
   windows-asan:
     name: Windows / MSVC + ASan
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     steps:
       - name: Preflight - can the cross-repository token actually reach the siblings?
         shell: bash
@@ -240,16 +240,17 @@ jobs:
       # which lives in the MSVC toolchain and is NOT on PATH in a bare runner
       # shell. Without this the tests do not fail a sanitizer check -- they fail
       # to START, with a "cannot open shared object file" that reads like a build
-      # error. Located rather than hardcoded: the 14.xx.xxxxx directory changes
-      # with every toolchain bump.
+      # error. Located rather than hardcoded: both the edition
+      # (Community/Enterprise differ between this runner and a dev box) and the
+      # 14.xx.xxxxx directory change with every toolchain bump.
       - name: Put the ASan runtime on PATH
         shell: bash
         run: |
-          dll=$(find "/c/Program Files/Microsoft Visual Studio/2022" \
+          dll=$(find "/c/Program Files/Microsoft Visual Studio/18" \
                      -name 'clang_rt.asan_dynamic-x86_64.dll' -path '*Hostx64/x64*' \
                 | head -1)
           if [ -z "$dll" ]; then
-            echo "clang_rt.asan_dynamic-x86_64.dll not found in the VS 2022 toolchain."
+            echo "clang_rt.asan_dynamic-x86_64.dll not found in the VS 2026 toolchain."
             echo "Every ASan-instrumented test would fail to start. Refusing to"
             echo "continue and report that as a test result."
             exit 1

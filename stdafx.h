@@ -40,7 +40,7 @@
 // arrangement, and TargetCore already depends on Msgcore for everything else.
 //
 // A quoted include resolves relative to THIS file first, so "../Msgcore/Platform/..."
-// needs no -I of its own -- though TargetCore(2022).vcxproj does carry ..\Msgcore in
+// needs no -I of its own -- though TargetCore(2026).vcxproj does carry ..\Msgcore in
 // AdditionalIncludeDirectories, in all eight configurations, for the Msgcore headers.
 //
 // p2psvc.h is the one shim header Msgcore never pulls: platform.h does not include it,

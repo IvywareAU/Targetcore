@@ -58,7 +58,7 @@
 #     that is a deliberate regression guard, not an oversight.
 #
 # WHAT A GREEN RUN DOES NOT PROVE
-#   * Nothing about TargetCore(2022).sln / .vcxproj, which Readme.md calls the
+#   * Nothing about TargetCore(2026).sln / .vcxproj, which Readme.md calls the
 #     AUTHORITATIVE Windows build. This workflow never invokes MSBuild. A defect
 #     that exists only in the vcxproj -- a source file missing from one of its
 #     four configurations -- is invisible here, which is why the `invariants`
@@ -123,9 +123,9 @@ jobs:
   windows:
     name: Windows / MSVC
     # Pinned for the same reason as the cmake-parse job in repo-invariants.yml:
-    # the windows-msvc preset names the "Visual Studio 17 2022" generator, and
+    # the windows-msvc preset names the "Visual Studio 18 2026" generator, and
     # the windows-latest label no longer resolves to an image that has it.
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     steps:
       # PRESENCE IS NOT REACH. This step used to test `[ -z "$TOKEN" ]` and
       # nothing else, and on 2026-08-19 it printed "ok  MSCS_SOLUTION_TOKEN

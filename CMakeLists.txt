@@ -14,7 +14,7 @@
 # permissions and limitations under the License.
 #
 # TargetCore -> libtargetcore.so (Linux) / TargetCore.dll (Windows/MSVC via CMake).
-# Enabled when MSCS_BUILD_LIBS=ON. On Windows the CMake build mirrors the (2022).vcxproj
+# Enabled when MSCS_BUILD_LIBS=ON. On Windows the CMake build mirrors the (2026).vcxproj
 # (CMake-on-Windows parity): dynamic MFC, native IOCP (no io_uring
 # shim), the CNG/BCrypt crypto backend. The vcxproj stays authoritative until this path
 # is signed off.
@@ -182,7 +182,7 @@ endif()
 # ---------------------------------------------------------------------------
 # The DebugLib/ReleaseLib shape (MSCS_BUILD_STATIC_LIBS, off by default).
 #
-# Taken from TargetCore(2022).vcxproj rather than assumed. Those configurations are
+# Taken from TargetCore(2026).vcxproj rather than assumed. Those configurations are
 # ConfigurationType=StaticLibrary, UseOfMfc=Dynamic (so CMAKE_MFC_FLAG 2 still applies),
 # preprocessor WIN32;_WINDOWS;_DEBUG;Msgcore_STATIC;TargetCore_STATIC -- no TargetCore_EXPORTS
 # and no _AFXEXT -- and, the one difference in the TU list, they set ExcludedFromBuild on

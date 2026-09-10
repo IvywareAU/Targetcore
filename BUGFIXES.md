@@ -2,7 +2,7 @@
 
 Fixes for the acknowledged memory leaks and crashes flagged in the repo-root
 `TODO.md`. Each change was verified with a clean MSBuild
-(`TargetCore(2022).sln`, `Debug|x64`, exit 0).
+(`TargetCore(2026).sln`, `Debug|x64`, exit 0).
 
 | # | Symptom | File / site | Commit |
 |---|---------|-------------|--------|

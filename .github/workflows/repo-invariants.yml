@@ -60,7 +60,7 @@
 #   * The routing kernel, the hubs, the pumps, all four transports, the C API --
 #     26 of the 30 translation units are never even parsed.
 #   * The CNG crypto backend, and therefore Windows/Linux wire compatibility.
-#   * The TargetCore(2022).vcxproj/.sln build, which Readme.md calls
+#   * The TargetCore(2026).vcxproj/.sln build, which Readme.md calls
 #     authoritative on Windows. CI never invokes MSBuild.
 #   * The MscsUnitTests suite -- unit_suite, the transport meshes, alex_test,
 #     and the five security gate tests all live in a sibling repository.
@@ -86,7 +86,7 @@ jobs:
   # Bookkeeping the repository can check about itself. See the header of
   # .github/ci/check_repo_invariants.py for the full proves/does-not-prove list.
   # The check with teeth is build-system parity: a .cpp added to
-  # TargetCore(2022).vcxproj but not to CMakeLists.txt (or the reverse) means
+  # TargetCore(2026).vcxproj but not to CMakeLists.txt (or the reverse) means
   # the Windows and Linux builds ship different libraries, and nothing else in
   # the tree compares the two lists. MscsUnitTests/CMakeLists.txt:23-25 records
   # the same failure mode going unnoticed for 14 days on a test suite.
@@ -163,22 +163,22 @@ jobs:
   # ---------------------------------------------------------------------------
   cmake-parse:
     name: CMakeLists.txt generates (stub siblings, configure only)
-    # windows-2022, NOT windows-latest. The label moved off the VS 2022 image and
-    # the step below asks for the "Visual Studio 17 2022" generator by name, so on
+    # windows-2025-vs2026, NOT windows-latest. The label moved off the VS 2026 image and
+    # the step below asks for the "Visual Studio 18 2026" generator by name, so on
     # windows-latest cmake answers "could not find any instance of Visual Studio"
     # -- a red job that says nothing about CMakeLists.txt. Pinning is what the
     # sibling Msgcore ci.yml does for the same reason. Changing the generator to
     # track the label instead would be the wrong repair: the parent solution's
-    # windows-msvc preset also names "Visual Studio 17 2022", so this job would
+    # windows-msvc preset also names "Visual Studio 18 2026", so this job would
     # stop parse-checking the toolchain the real build actually uses.
-    runs-on: windows-2022
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v5
 
       - name: Configure against stub sibling targets
         run: >
           cmake -S .github/ci/parse-check -B ${{ runner.temp }}/parse-check
-          -G "Visual Studio 17 2022" -A x64
+          -G "Visual Studio 18 2026" -A x64
 
       # There is no build step and there must never be one: the stub sibling
       # targets are empty INTERFACE libraries, so the generated project cannot
