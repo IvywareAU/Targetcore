@@ -2627,6 +2627,31 @@ DropP2PmsgCon ( P2PeerCon *pCon )
       else
         pP2PmsgHub -> DropP2PmsgCon ( pCon );
     }
+    else
+    {
+      // The hub is gone, and the key is not the hub's to own.
+      // NOTES: ~P2PmsgHubMgr does s_ThreadID_P2PmsgHub.RemoveKey, so a connection
+      //        released after its hub was destroyed finds no hub here. The whole
+      //        block above was then skipped -- including the RemoveKey that the
+      //        hub's own DropP2PmsgCon/DropP2PexpCon performs -- and the ONLY
+      //        caller of this function is P2PeerConPlc::Release() immediately
+      //        before `delete this`. So the object was deleted with its address
+      //        still keyed in one of the two registries.
+      //      : Both registries are keyed on the raw ADDRESS. Once the allocator
+      //        hands that address to the next P2PeerCon, PostP2PmsgCon's guard
+      //        looks it up, finds the dead connection's entry and refuses the
+      //        live one with "P2PmsgCon object already posted" -- an abort on a
+      //        thread, in whichever phase happened to draw the reused address.
+      //        This is F-S5-5's hazard in the path that was meant to close it:
+      //        that fix repaired the wrong-registry half and left this one.
+      //      : Nothing else here applies without a hub. Drop(0) and Destroy()
+      //        need one, and there is no list left to unlink from; the key is
+      //        the one thing that outlives the hub and must not.
+      if ( bExpCon )
+        s_P2PexpCon_HubID.RemoveKey ( (DWORD_PTR)pCon );
+      else
+        s_P2PmsgCon_HubID.RemoveKey ( (DWORD_PTR)pCon );
+    }
 }
 
 int
