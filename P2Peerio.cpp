@@ -1182,13 +1182,13 @@ P2Peerio::SetP2PeventFParams ( LPCTNAM lpszVar )
     // Create a placeholder for receipt of P2PeerCon details
     // NOTES: This will be passed by value back up the stack
     if ( lpszVar == nullptr )
-      lpszVar = _N("P2Peerio");
+      lpszVar = L"P2Peerio";
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData()) );
 
     // Summarise P2PeerCon parent state
     if ( m_pCon )
     {
-      P3PmsgItem oNodeCon = oNodeVar.r_Desc().PushBack ( P3PmsgItem(_N("m_pCon")) );
+      P3PmsgItem oNodeCon = oNodeVar.r_Desc().PushBack ( P3PmsgItem(L"m_pCon") );
       oNodeCon += P3PmsgField ( L"m_oThisP2Paddr", DataWSTR16(m_pCon->GetP2PaddrHub().c_wstr()) );
       oNodeCon += P3PmsgField ( L"m_oThatP2Paddr", DataWSTR16(m_pCon->GetP2PaddrHub().c_wstr()) );
       oNodeCon += P3PmsgField ( L"m_nP2PconID", P3PmsgData(m_pCon->m_nP2PconID) );

@@ -663,7 +663,7 @@ P2PeerService::Install (  )
     if ( shSrv == NULL )
     {
       EVERR->MODULE
-           ->Message(_N("CreateService(%s) failed"), m_szServiceName )
+           ->Message(L"CreateService(%s) failed", m_szServiceName )
            ->HResult( GetLastError() )
            ->SetLast( );
       return FALSE;
@@ -718,7 +718,7 @@ P2PeerService::PostInstall ( )
     if ( lResult != ERROR_SUCCESS )
     {
       EVERR->MODULE
-           ->Message(_N("RegCreateKeyEx(HKLM\\%s) failed"), (LPCWSTR)strKey )
+           ->Message(L"RegCreateKeyEx(HKLM\\%s) failed", (LPCWSTR)strKey )
            ->HResult( lResult )
            ->Advice_(_T("Run the install elevated to register the event log source.") )
            ->Cancel();

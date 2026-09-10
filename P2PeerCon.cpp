@@ -2177,7 +2177,7 @@ m_oThatP2Paddr=oThatP2Paddr;//TODO:LJM Hack to make progress
          !m_oThatP2Paddr.IsNull()        &&
           m_oThatP2Paddr != oThatP2Paddr    )
       EVERR->Module (__FUNCTION__)->AFPcon(this)
-           ->Message(_N("Attempt to swap P2Paddr's from [%s] to [%s]")
+           ->Message(L"Attempt to swap P2Paddr's from [%s] to [%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr
                     , (P2PaddrSTR)  oThatP2Paddr )
            ->Throw();
@@ -3803,7 +3803,7 @@ P2PeerCon::Login ( P2PaddrSTR strThatP2Paddr
     /*if (       oP2Paddr.IsNull() &&
          m_oThatP2Paddr.IsNull()    )
       EVERR->MODULE
-           ->Message(_N("Remote P2PeerHub has null P2Paddr[%s]")
+           ->Message(L"Remote P2PeerHub has null P2Paddr[%s]"
                     , (P2PaddrSTR)oP2Paddr )
            ->Throw();*/
 
@@ -3812,7 +3812,7 @@ P2PeerCon::Login ( P2PaddrSTR strThatP2Paddr
           !m_oThatP2Paddr.IsNull()    &&
            m_oThatP2Paddr != oP2Paddr    )
       EVERR->MODULE
-           ->Message(_N("Attempt to swap remote P2Paddr from [%s] to [%s]")
+           ->Message(L"Attempt to swap remote P2Paddr from [%s] to [%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr
                     , (P2PaddrSTR)oP2Paddr )
            ->Throw();*/
@@ -3952,7 +3952,7 @@ P2PeerCon::Login_Fractal ( P2PaddrSTR strThisP2Paddr1, P2PaddrSTR strThatP2Paddr
     /*if (       oP2Paddr.IsNull() &&
          m_oThatP2Paddr.IsNull()    )
       EVERR->MODULE
-           ->Message(_N("Remote P2PeerHub has null P2Paddr[%s]")
+           ->Message(L"Remote P2PeerHub has null P2Paddr[%s]"
                     , (P2PaddrSTR)oP2Paddr )
            ->Throw();*/
 
@@ -3961,7 +3961,7 @@ P2PeerCon::Login_Fractal ( P2PaddrSTR strThisP2Paddr1, P2PaddrSTR strThatP2Paddr
           !m_oThatP2Paddr.IsNull()    &&
            m_oThatP2Paddr != oP2Paddr    )
       EVERR->MODULE
-           ->Message(_N("Attempt to swap remote P2Paddr from [%s] to [%s]")
+           ->Message(L"Attempt to swap remote P2Paddr from [%s] to [%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr
                     , (P2PaddrSTR)oP2Paddr )
            ->Throw();*/
@@ -4027,7 +4027,7 @@ P2PeerCon::OnLogin ( const P2Paddr& oThatP2Paddr )
          m_oThatP2Paddr.IsNull()    )
       EVERR->Module (__FUNCTION__)
            ->AFP(oThatP2Paddr)->AFPcon(this)
-           ->Message(_N("Null remote P2Paddr[%s]")
+           ->Message(L"Null remote P2Paddr[%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Throw();
 
@@ -4131,12 +4131,12 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
          !m_oThatP2Paddr.IsNull()                 )
     {
       /*TODO:Activate debugging if ( !m_oP2Padomain.IsMapped(oThatP2Paddr) )
-        EVERR->Module (_N("%hs(%s,%i,%i)"), __FUNCTION__
+        EVERR->Module (L"%hs(%s,%i,%i)", __FUNCTION__
                       , m_oThatP2Paddr.c_wstr(), (int)pvLoginAck, iSize )
-             ->Message(_N("LoginAck P2Paddr[%s] is not within domain [%s]")
+             ->Message(L"LoginAck P2Paddr[%s] is not within domain [%s]"
                       ,   oThatP2Paddr.c_wstr()
                       , m_oP2Padomain.c_wstr() )
-             ->Advice (_N("P2PeerCon=[%s->%s]")
+             ->Advice (L"P2PeerCon=[%s->%s]"
                       , GetP2PaddrHub().c_wstr(),m_oThatP2Paddr.c_wstr() )
              ->Advice ("Connection mis-match" )
              ->Advice ("Attempted security breach" )
@@ -4151,7 +4151,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
           m_oThatP2Paddr != GetP2PaddrHub()   )
       EVERR->Module (__FUNCTION__)
            ->AFP(oThatP2Paddr)->AFP(iSize)->AFPcon(this)
-           ->Message(_N("Attempt to swap P2PeerID's from [%s] to [%s]")
+           ->Message(L"Attempt to swap P2PeerID's from [%s] to [%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr
                     , (P2PaddrSTR)  oThatP2Paddr )
            ->Group("P2P")->Throw();
@@ -4274,7 +4274,7 @@ P2PeerCon::OnLoginAck ( const P2Paddr& oThisP2Paddr
     if (     oThisP2Paddr.IsNull() &&
           GetP2PaddrHub().IsNull()    )
       EVERR->MODULE->AFP(oThisP2Paddr)->AFP(oThatP2Paddr)->AFPcon(this)
-           ->Message(_N("Local P2PeerHub has null P2Paddr[%s]")
+           ->Message(L"Local P2PeerHub has null P2Paddr[%s]"
                     , GetP2PaddrHub().c_wstr() )
            ->Throw();
 
@@ -4283,7 +4283,7 @@ P2PeerCon::OnLoginAck ( const P2Paddr& oThisP2Paddr
          !GetP2PaddrHub().IsNull()        &&
           GetP2PaddrHub() != oThisP2Paddr    )
       EVERR->MODULE->AFP(oThisP2Paddr)->AFP(oThatP2Paddr)->AFPcon(this)
-           ->Message(_N("Attempt to swap P2Paddr's from [%s] to [%s]")
+           ->Message(L"Attempt to swap P2Paddr's from [%s] to [%s]"
                     , GetP2PaddrHub().c_wstr()
                     , oThisP2Paddr.c_wstr() )
            ->Throw();
@@ -4350,7 +4350,7 @@ P2PeerCon::OnLoginAck_Static ( const P2Paddr& oThisP2Paddr1
     if (   oThisP2Paddr1.IsNull() &&
          m_oThisP2Paddr1.IsNull()    )
       EVERR->MODULE->AFP(oThisP2Paddr1)->AFP(oThatP2Paddr1)->AFPcon(this)
-           ->Message(_N("Remotely assigned this P2Paddr[%s] is null")
+           ->Message(L"Remotely assigned this P2Paddr[%s] is null"
                     , (P2PaddrSTR)m_oThisP2Paddr1 )
            ->Throw();
 
@@ -4360,7 +4360,7 @@ P2PeerCon::OnLoginAck_Static ( const P2Paddr& oThisP2Paddr1
     if (    oThatP2Paddr1.IsNull() &&
           m_oThatP2Paddr1.IsNull()     )
       EVERR->MODULE->AFP(oThisP2Paddr1)->AFP(oThatP2Paddr1)->AFPcon(this)
-           ->Message(_N("Remotely assigned that P2Paddr[%s] is null")
+           ->Message(L"Remotely assigned that P2Paddr[%s] is null"
                     , (P2PaddrSTR)m_oThatP2Paddr1 )
            ->Throw();
 
@@ -4431,7 +4431,7 @@ P2PeerCon::OnLoginAck_Fractal ( const P2Paddr& oThisP2Paddr1
     if (   oThisP2Paddr1.IsNull() &&
          m_oThisP2Paddr1.IsNull()     )
       EVERR->MODULE->AFP(oThisP2Paddr1)->AFP(oThatP2Paddr1)->AFPcon(this)
-           ->Message(_N("Remotely assigned this P2Paddr[%s] is null")
+           ->Message(L"Remotely assigned this P2Paddr[%s] is null"
                     , (P2PaddrSTR)m_oThisP2Paddr1 )
            ->Throw();
 
@@ -4441,7 +4441,7 @@ P2PeerCon::OnLoginAck_Fractal ( const P2Paddr& oThisP2Paddr1
     if (    oThatP2Paddr1.IsNull() &&
           m_oThatP2Paddr1.IsNull()     )
       EVERR->MODULE->AFP(oThisP2Paddr1)->AFP(oThatP2Paddr1)->AFPcon(this)
-           ->Message(_N("Remotely assigned that P2Paddr[%s] is null")
+           ->Message(L"Remotely assigned that P2Paddr[%s] is null"
                     , (P2PaddrSTR)m_oThatP2Paddr1 )
            ->Throw();
 
@@ -4935,7 +4935,7 @@ LPCTSTR lpszCompleted=m_pClpEnv->m_pCompleted;//DELETE-ME
         if ( *pFormat != '-' )
           EVERR->MODULE
                ->Message("M4Caddr '#n-n' missing '-' delimiter" )
-               ->Advice (_N("L4Caddr=[%s]"), m_oThatP2Paddr.c_wstr() )
+               ->Advice (L"L4Caddr=[%s]", m_oThatP2Paddr.c_wstr() )
                ->Throw();
         pFormat++;                     // Consume '-' character
         int iEnd   = strtol ( pFormat, &pFormat, 10 );
@@ -4987,7 +4987,7 @@ LPCTSTR lpszCompleted=m_pClpEnv->m_pCompleted;//DELETE-ME
         if ( m_pClpEnv -> m_eFCF != '<' )
           EVERR->MODULE
                ->Message("Mismatching { , , } delimiters")
-               ->Advice (_N("L4Caddr=[%s]"), m_oThatP2Paddr.c_wstr() )
+               ->Advice (L"L4Caddr=[%s]", m_oThatP2Paddr.c_wstr() )
                ->Throw();
 
         // Matching field flagged by skip mode not set
@@ -5003,7 +5003,7 @@ lpszCompleted=m_pClpEnv->m_pCompleted;//DELETE-ME
 
           if ( m_pClpEnv -> m_nEnumItem >= 0 )
             EVERR->MODULE
-                 ->Message(_N("Command sequence (%s) is not unique")
+                 ->Message(L"Command sequence (%s) is not unique"
                           , m_pClpEnv -> m_pCommand )
                  ->Group("CLP")->Throw();
 
@@ -5056,7 +5056,7 @@ lpszCompleted=m_pClpEnv->m_pCompleted;//DELETE-ME
           EVERR->MODULE
                ->Message("Invalid L4Caddr character[%c]"
                         , *pFormat )
-               ->Advice (_N("L4Caddr=[%s]"), m_oThatP2Paddr.c_wstr() )
+               ->Advice (L"L4Caddr=[%s]", m_oThatP2Paddr.c_wstr() )
                ->Throw();
 
         if ( toupper( (int)*pFormat )
@@ -5374,7 +5374,7 @@ P2PeerCon::SetP2PeventFParams ( LPCTNAM lpszVar )
     // Create a placeholder for receipt of P2PeerCon details
     // NOTES: This will be passed by value back up the stack
     if ( lpszVar == nullptr )
-      lpszVar = _N("P2PeerCon");
+      lpszVar = L"P2PeerCon";
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData(m_nP2PconID)) );
 
     // Convention is to delegate to base class first
@@ -5529,18 +5529,18 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     // Create a placeholder for receipt of P2PeerCon details
     // NOTES: This will be passed by value back up the stack
     if ( lpszVar == 0 )
-      lpszVar = _N("{P2PeerCon}");
+      lpszVar = L"{P2PeerCon}";
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData(m_nP2PconID)) );
 
     // Append our state to node
-    P3PmsgField_SERIALISE ( oNodeVar, _N("P2Paddress"), GetP2Paddress().c_wstr(), bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"P2Paddress", GetP2Paddress().c_wstr(), bDsc
                           , _T("Allocated connection address") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("P2Padomain"), GetP2Padomain().c_wstr(), bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"P2Padomain", GetP2Padomain().c_wstr(), bDsc
                           , _T("Assigned connection address domain") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("ConMode"), (int)m_eP2PeerConMode, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"ConMode", (int)m_eP2PeerConMode, bDsc
                           , _T("Connection mode") );
     if ( m_eP2PeerConMode != P2PeerCon_Accept )
-      P3PmsgField_SERIALISE ( oNodeVar, _N("LoginTimerID"), m_uLoginTimerID, bDsc
+      P3PmsgField_SERIALISE ( oNodeVar, L"LoginTimerID", m_uLoginTimerID, bDsc
                             , _T("Restart connection timer identification") );
 
     // Security posture of THIS connection
@@ -5573,19 +5573,19 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     //        already hold. A snapshot of a connection that is being torn down
     //        must report the teardown rather than raise a second fault from
     //        inside the report of the first
-    P3PmsgField_SERIALISE ( oNodeVar, _N("AuthDone")
+    P3PmsgField_SERIALISE ( oNodeVar, L"AuthDone"
                           , (UINT32)( IsAuthenticated ( ) ? 1 : 0 ), bDsc
                           , _T("Peer login signature verified on this connection") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("AuthPeer")
+    P3PmsgField_SERIALISE ( oNodeVar, L"AuthPeer"
                           , GetAuthPeer ( ).c_wstr ( ), bDsc
                           , _T("Identity the signature verified as (empty if none)") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("KeyXDone")
+    P3PmsgField_SERIALISE ( oNodeVar, L"KeyXDone"
                           , (UINT32)( IsKeyXDone ( ) ? 1 : 0 ), bDsc
                           , _T("Session key agreement completed, cypher posted") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("Cypher")
+    P3PmsgField_SERIALISE ( oNodeVar, L"Cypher"
                           , (UINT32)( IsCypherActive ( ) ? 1 : 0 ), bDsc
                           , _T("Cypher installed and consulted by this transport") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("OffProcess")
+    P3PmsgField_SERIALISE ( oNodeVar, L"OffProcess"
                           , (UINT32)( LeavesProcess ( ) ? 1 : 0 ), bDsc
                           , _T("Frames on this transport leave this process") );
 
@@ -5607,10 +5607,10 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     //       : Neither takes a lock or can throw.  TrustClass() reads a socket
     //         or nothing at all, and answers Wire for a connection being torn
     //         down - refer the note on the other four
-    P3PmsgField_SERIALISE ( oNodeVar, _N("TrustClass")
+    P3PmsgField_SERIALISE ( oNodeVar, L"TrustClass"
                           , (UINT32)TrustClass ( ), bDsc
                           , _T("What this transport vouches for: 0 wire, 1 local, 2 in-process") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("Trust")
+    P3PmsgField_SERIALISE ( oNodeVar, L"Trust"
                           , (UINT32)EffectiveTrust ( ), bDsc
                           , _T("...after the operator's demotion - what the policy reads") );
 

@@ -602,7 +602,7 @@ P2PeerExpump::PostP2PeerCon ( P2PeerCon *pCon )
     if ( m_nExpumpID == NULL )
     {
       EVERR->MODULE->AFPcon(pCon)
-           ->Message(_N("P2PeerExpump(%s) is not operational, ")
+           ->Message(L"P2PeerExpump(%s) is not operational, "
                      "P2PeerCon(%s) not posted"
                     , oP2PaddrCon.c_wstr()
                     , GetP2PaddrHub().c_wstr() )
@@ -621,7 +621,7 @@ P2PeerExpump::PostP2PeerCon ( P2PeerCon *pCon )
       if ( pConEnum->GetP2Paddress() != oP2PaddrCon )
         continue;
       EVERR->MODULE->AFPcon(pCon)
-           ->Message(_N("P2PeerCon[%s] instance already exists ")
+           ->Message(L"P2PeerCon[%s] instance already exists "
                      "within P2PmsgHub[%s]"
                     ,   oP2PaddrCon.c_wstr()
                     , GetP2PaddrHub().c_wstr() )
@@ -914,11 +914,11 @@ P2PeerExplorer::RouteP2PeerMsgPeek ( P2PeerMsg *pMsg )
     //LPCTSTR lpszName=pMsg->c_name();
     if ( GetCurrentThreadId() == m_nExpumpID )
     {
-      P2Paddr oP2Paddr( GetP2PaddrHub(), _N("XC*") ); //TODO:LJM This should persist
+      P2Paddr oP2Paddr( GetP2PaddrHub(), L"XC*" ); //TODO:LJM This should persist
 P2Paddr oP2PaddrSource = pMsg->GetSource();
 P2Paddr oP2PaddrDestin = pMsg->GetDestin();
 P2Paddr oP2PaddrThis   = GetP2PaddrHub();
-if ( pMsg->Map_MatchName(_N("P2Pexpump*")) )
+if ( pMsg->Map_MatchName(L"P2Pexpump*") )
   oP2Paddr.c_hopname(0);
       if ( oP2Paddr.IsMapped(pMsg->GetSource())       &&
            GetP2PaddrHub().IsChild(pMsg->GetDestin())    )
@@ -953,10 +953,10 @@ P2PeerExplorer::P2PexpumpContextSwap ( P2PeerMsg *pMsg )
     //EVTRC->Module ("%s(pMsg=%s)", __FUNCTION__  TODO Activate-me
     EVERR->MODULE->AFPmsg(pMsg)
          // WIDE arguments need the WIDE overload - see P2PeerTarget.cpp:1476.
-         ->Message(_N("Message[%s] from [%s] not deliverable to [%s]")
+         ->Message(L"Message[%s] from [%s] not deliverable to [%s]"
                   , pMsg->c_name(), pMsg->GetSource(), pMsg->GetDestin() )
-         ->Advice (_N("P2PeerExpump has shutdown") )
-         ->Advice (_N("Bad destination address [%s]"), pMsg->GetDestin() )
+         ->Advice (L"P2PeerExpump has shutdown" )
+         ->Advice (L"Bad destination address [%s]", pMsg->GetDestin() )
          ->Group("P2P");
     PostP2PeerMsg ( pMsg->ExceptionFactory(pEVT) );
     pEVT ->Cancel();
@@ -981,8 +981,8 @@ P2PeerExplorer::P2PexpumpContextSwap ( P2PeerMsg *pMsg )
 msgRESULT
 P2PeerExplorer::PeekP2PeerMsg ( P2PeerMsg *pMsg )
 {
-    P2Paddr oP2Paddr( GetP2PaddrHub(), _N("XC*") ); //TODO:LJM This should persist
-if ( pMsg->Map_MatchName(_N("P2PexpumpHub")) && GetP2PaddrHub()==_N("CEX"))
+    P2Paddr oP2Paddr( GetP2PaddrHub(), L"XC*" ); //TODO:LJM This should persist
+if ( pMsg->Map_MatchName(L"P2PexpumpHub") && GetP2PaddrHub()==L"CEX")
   oP2Paddr.c_hopname(0);
 
     // Interception routing
@@ -992,19 +992,19 @@ if ( pMsg->Map_MatchName(_N("P2PexpumpHub")) && GetP2PaddrHub()==_N("CEX"))
     {
 P2Paddr oP2PaddrSource = pMsg->GetSource();
 P2Paddr oP2PaddrDestin = pMsg->GetDestin();
-P2Paddr oP2Paddr_CEX_XCn(_N("CEX.XC*"));
-P2Paddr oP2Paddr_CEX_XC0(_N("CEX.XC0"));
+P2Paddr oP2Paddr_CEX_XCn(L"CEX.XC*");
+P2Paddr oP2Paddr_CEX_XC0(L"CEX.XC0");
 ASSERT(oP2Paddr_CEX_XCn.IsMapped(oP2Paddr_CEX_XC0));
-if ( pMsg->Map_MatchName(_N("P2Pexpump*")) )
+if ( pMsg->Map_MatchName(L"P2Pexpump*") )
   oP2Paddr_CEX_XC0.c_hopname(0);
-if ( pMsg->Map_MatchName(_N("P2PexpumpHub")) )
+if ( pMsg->Map_MatchName(L"P2PexpumpHub") )
   oP2Paddr_CEX_XC0.c_hopname(0);
 
 
       if ( oP2Paddr.IsMapped(pMsg->GetDestin()) )
         return P2PexpumpContextSwap ( pMsg );
       if ( GetP2PaddrHub() == pMsg->GetDestin() &&
-           pMsg->Map_MatchName(_N("P2Pexp*"))       )
+           pMsg->Map_MatchName(L"P2Pexp*")       )
         return P2PexpumpContextSwap ( pMsg );
       return msgCONTINUE;
     }
@@ -1134,7 +1134,7 @@ P2PeerExplorer::On_XCidSvrStartup ( P2PeerCon *pCon )
     // To be sure, to be sure
     if ( pCon->GetMode() != P2PeerCon_SERVICE )
       EVERR->MODULE->AFPcon(pCon)
-           ->Message(_N("Cannot startup connection[%s] for mode (%i)\n")
+           ->Message(L"Cannot startup connection[%s] for mode (%i)\n"
                     , pCon->GetP2Paddress().c_wstr()
                     , pCon->GetMode() )
            ->Advice ("Bug (SNHappen)")
@@ -1350,14 +1350,14 @@ P2PeerExplorer::On_XCidConLogin ( P2PeerCon *pCon, P2PaddrSTR strThatP2Paddr
       // NOTES: Connection identification is assigned as part of
       //        the login sequence
       if ( !oP2PaddrThat.IsNull() )
-        EVERR->Message(_N("Null P2Paddr expected, not [%s]")
+        EVERR->Message(L"Null P2Paddr expected, not [%s]"
                       , strThatP2Paddr )
              ->Throw();
 
       // Identify spare ECid slot
       for ( UINT e = 0; e < m_nMaxECid; e++ )
       {
-        oP2PaddrThat = P2Paddr ( GetP2PaddrHub(), _N("XC%i"), e );
+        oP2PaddrThat = P2Paddr ( GetP2PaddrHub(), L"XC%i", e );
         Ack          = e;
 
         if ( !ConExists(oP2PaddrThat) )
@@ -1437,7 +1437,7 @@ P2PeerExplorer::On_XCidConClose ( P2PeerCon *pCon )
     // Handle unknown connection
     if ( !bMatched )
       EVERR->MODULE->AFPcon(pCon)
-           ->Message(_N("Unknown connection closure(%s-%s)\n")
+           ->Message(L"Unknown connection closure(%s-%s)\n"
                     , (P2PaddrSTR)GetP2PaddrHub()
                     , (P2PaddrSTR)oP2PaddrCon )
            ->Cancel();
@@ -1503,13 +1503,13 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
         // Register P2PeerHub
         // Format: RHub     - Base register hub command
         //         RHub@Dsc - Descriptions qualifier
-        if ( pMsg->r_datn().Exists(_N("RHub")) )
+        if ( pMsg->r_datn().Exists(L"RHub") )
         {
           //ASSERT(m_nExpumpID==oCurs.r_field().c_uint());
           CListRegHubs_Remove ( m_oCListRegHubs, strSource );
           CListRegHubs_Insert ( m_oCListRegHubs, strSource );
           bool bDsc = false;
-          if ( pMsg->r_datn().SelectItem(_N("RHub")).r_Attr().Exists(_N("Dsc")) )
+          if ( pMsg->r_datn().SelectItem(L"RHub").r_Attr().Exists(L"Dsc") )
             bDsc = true;
           QueryP2PmsgExp_Hub ( strSource, bDsc );
           continue;
@@ -1518,10 +1518,10 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
         // Query P2PeerHub
         // Format: QHub     - Base query hub command
         //         QHub@Dsc - Descriptions qualifier
-        if ( pMsg->r_datn().Exists(_N("QHub")) )
+        if ( pMsg->r_datn().Exists(L"QHub") )
         {
           bool bDsc = false;
-          if ( pMsg->r_datn().SelectItem(_N("QHub")).r_Attr().Exists(_N("Dsc")) )
+          if ( pMsg->r_datn().SelectItem(L"QHub").r_Attr().Exists(L"Dsc") )
             bDsc = true;
           QueryP2PmsgExp_Hub ( strSource, bDsc );
           continue;
@@ -1529,7 +1529,7 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
 
         // De-register P2PeerHub
         // Format: DHub     - Base de-register hub command
-        if ( pMsg->r_datn().Exists(_N("DHub")) )
+        if ( pMsg->r_datn().Exists(L"DHub") )
         {
           CListRegHubs_Remove ( m_oCListRegHubs, strSource );
           if ( m_oCListRegHubs.GetCount() <= 0 )
@@ -1564,10 +1564,10 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
         //         QPmp@Dsc - Descriptions qualifier
         //         QPmp@Sum - Brief summary qualifier
         //         QPmp@ID  - P2PumpID qualifier
-        if ( pMsg->r_datn().Exists(_N("QPmp")) )
+        if ( pMsg->r_datn().Exists(L"QPmp") )
         {
           bool bDsc = false;
-          if ( pMsg->r_datn().SelectItem(_N("QPmp")).r_Attr().Exists(_N("Dsc")) )
+          if ( pMsg->r_datn().SelectItem(L"QPmp").r_Attr().Exists(L"Dsc") )
             bDsc = true;
           P2PumpID nPumpID = 0;
           if ( pMsg->r_datn().SelectItem(L"QPmp").r_Attr().Exists(L"ID") )
@@ -1620,14 +1620,14 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
         //         QCon@Dsc - Descriptions qualifier
         //         QCon@Sum - Brief summary qualifier
         //         QCon@ID  - P2PconID qualifier
-        if ( pMsg->r_datn().Exists(_N("QCon")) )
+        if ( pMsg->r_datn().Exists(L"QCon") )
         {
           bool bDsc = false;
-          if ( pMsg->r_datn().SelectItem(_N("QCon")).r_Attr().Exists(_N("Dsc")) )
+          if ( pMsg->r_datn().SelectItem(L"QCon").r_Attr().Exists(L"Dsc") )
             bDsc = true;
           P2PconID nP2PconID = 0;
-          if ( pMsg->r_datn().SelectItem(_N("QCon")).r_Attr().Exists(_N("ID")) )
-            nP2PconID = pMsg->r_datn().SelectItem(_N("QCon")).r_Attr().SelectItem(_N("ID")).c_int();
+          if ( pMsg->r_datn().SelectItem(L"QCon").r_Attr().Exists(L"ID") )
+            nP2PconID = pMsg->r_datn().SelectItem(L"QCon").r_Attr().SelectItem(L"ID").c_int();
 
           QueryP2PmsgExp_Con ( nP2PconID, strSource, bDsc );
           continue;
@@ -1636,11 +1636,11 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
         // De-register P2PeerCon's
         // Format: DCon     - Base de-register hub command
         //         DCon@ID  - nP2PconID qualifier
-        if ( pMsg->r_datn().Exists(_N("DCon")) )
+        if ( pMsg->r_datn().Exists(L"DCon") )
         {
           P2PconID nP2PconID = 0;
-          if ( pMsg->r_datn().SelectItem(_N("DCon")).r_Attr().Exists(_N("ID")) )
-            nP2PconID = pMsg->r_datn().SelectItem(_N("DCon")).r_Attr().SelectItem(_N("ID")).c_int();
+          if ( pMsg->r_datn().SelectItem(L"DCon").r_Attr().Exists(L"ID") )
+            nP2PconID = pMsg->r_datn().SelectItem(L"DCon").r_Attr().SelectItem(L"ID").c_int();
 
           CListRegCons_Remove ( m_oCListRegCons, strSource, nP2PconID );
           

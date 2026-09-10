@@ -819,7 +819,7 @@ P2PeerMsg::AttachP2Pevent ( const P2Pevent *pEVT
     // Field confirmation
     if ( lpszFieldname    == 0 ||
          lpszFieldname[0] == 0    )
-      lpszFieldname = _N("P2Pevent");
+      lpszFieldname = L"P2Pevent";
 
     // Events node may not exist
     if ( !Exists(VBLockBSTR_EVT) )
@@ -850,7 +850,7 @@ P2PeerMsg::ExtractP2Pevent( LPCTNAM lpszFieldname )
     // Node confirmation
     if ( lpszFieldname    == 0 ||
          lpszFieldname[0] == 0    )
-      lpszFieldname = _N("P2Pevent");
+      lpszFieldname = L"P2Pevent";
 
     // Node extraction
     if ( !Exists(VBLockBSTR_EVT)                       ||

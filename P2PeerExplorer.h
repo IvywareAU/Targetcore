@@ -195,17 +195,17 @@ typedef P2PSafePtr<P2PeerExplorer> P2PeerExpSP;
 //         3rd Party interfaces.
 //
 static
-const P2PmsgID P2PmsgExp        = _N("P2PmsgExp");  //TODO: LJM deprecated by P2PexpumpCtrl below
+const P2PmsgID P2PmsgExp        = L"P2PmsgExp";  //TODO: LJM deprecated by P2PexpumpCtrl below
 static
-const P2PmsgID MSG_P2PexpCtrl   = _N("P2PexpumpCtrl");
+const P2PmsgID MSG_P2PexpCtrl   = L"P2PexpumpCtrl";
 static
-const P2PmsgID MSG_P2PexpHub    = _N("P2PexpumpHub");
+const P2PmsgID MSG_P2PexpHub    = L"P2PexpumpHub";
 static
-const P2PmsgID MSG_P2PexpCon    = _N("P2PexpumpCon");
+const P2PmsgID MSG_P2PexpCon    = L"P2PexpumpCon";
 static
-const P2PmsgID MSG_P2PexpPmp    = _N("P2PexpumpPmp");
+const P2PmsgID MSG_P2PexpPmp    = L"P2PexpumpPmp";
 static
-const P2PmsgID MSG_P2PexpWCard  = _N("P2Pexpump*");
+const P2PmsgID MSG_P2PexpWCard  = L"P2Pexpump*";
 
 //
 //  P2PmsgExp sink registration masks

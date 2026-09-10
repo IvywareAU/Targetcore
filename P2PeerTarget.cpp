@@ -676,7 +676,7 @@ P2PeerTarget::NotHandled ( P2PeerCon *pCon, P2Pmsg_t nMsg )
     // Explaination
     P2Pevent *pEVT =
       EVERR->MODULE->AFPcon(pCon)->AFP(nMsg)
-           ->Message(_N("ON_P2PeerCon_%s(%s,...) not handled")
+           ->Message(L"ON_P2PeerCon_%s(%s,...) not handled"
                     ,  EncodeP2Pmsg_t(nMsg)
                     , (P2PaddrSTR)pCon->GetP2Paddress() )
            ->Advice ("Version problem, bug, connection dropped" )
@@ -1018,8 +1018,8 @@ P2PeerTarget::RegisterTarget( P2PeerTarget *pTargetChild, P2Pri_t nPriority )
     // To be sure, to be sure
     ASSERT(pTargetChild!=this);
     if ( pTargetChild->m_pTargetParent )
-      EVERR->Module (_N("%hs(%s)"), __FUNCTION__, (LPCTSTR)m_csTargetName )
-           ->Message(_N("P2PeerTarget(%s) is already registered with (%s)")
+      EVERR->Module (L"%hs(%s)", __FUNCTION__, (LPCTSTR)m_csTargetName )
+           ->Message(L"P2PeerTarget(%s) is already registered with (%s)"
                     , (LPCTSTR)pTargetChild->m_csTargetName
                     , (LPCTSTR)pTargetChild->m_pTargetParent->m_csTargetName )
            ->Advice ("Duplicate registration" )
@@ -1099,9 +1099,9 @@ P2PeerTarget::RemoveTarget ( P2PeerTarget *pTargetChild )
     // To be sure, to be sure
     if ( pTargetChild->m_pTargetParent         &&
          pTargetChild->m_pTargetParent != this    )
-      EVERR->Module (_N("%hs(%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s)", __FUNCTION__
                     , (LPCTSTR)m_csTargetName )
-           ->Message(_N("P2PeerTarget(%s) is registered with (%s)\n")
+           ->Message(L"P2PeerTarget(%s) is registered with (%s)\n"
                     , (LPCTSTR)pTargetChild->m_csTargetName
                     , (LPCTSTR)pTargetChild->m_pTargetParent->m_csTargetName )
            ->Advice ("Not registered with this object" )
@@ -1216,7 +1216,7 @@ P2PeerTarget::CloseTargetSink ( P2PmsgSinkID nTargetSinkId )
 {
     if ( m_pP2PmsgSinkIDmap )
     {
-      m_pP2PmsgSinkIDmap->erase(_N(""));
+      m_pP2PmsgSinkIDmap->erase(L"");
       P2PmsgSinkIDmap::iterator it;
       for ( it = m_pP2PmsgSinkIDmap->begin(); it != m_pP2PmsgSinkIDmap->end(); )
       {
@@ -1633,10 +1633,10 @@ P2PeerTarget::RouteP2PeerMsg ( P2PeerMsg *pMsg )
          // GetDestin() are all LPCWSTR, and a bare "..." literal is NARROW in
          // this tree, so this diagnostic used to render every address as its
          // first character and leak a literal %s.
-         ->Message(_N("Message[%s] from [%s] not deliverable to [%s]")
+         ->Message(L"Message[%s] from [%s] not deliverable to [%s]"
                   , pMsg->c_name(), pMsg->GetSource(), pMsg->GetDestin() )
-         ->Advice (_N("Connection lost") )
-         ->Advice (_N("Bad destination address [%s]"), pMsg->GetDestin() )
+         ->Advice (L"Connection lost" )
+         ->Advice (L"Bad destination address [%s]", pMsg->GetDestin() )
          ->HResult(P2Pevent_UNDELIVERABLE)
          ->Group("P2P");
 
@@ -1904,12 +1904,12 @@ P2PeerTarget::Serialise ( LPCTNAM lpszVar, bool bDsc )
     // NOTES: This will be passed by value back up the stack
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData()) );
     if ( lpszVar == 0 || wcslen(lpszVar) <= 0 )
-      (P3PmsgField&)oNodeVar = P3PmsgName ( _N("{P2PeerTarget}") );
+      (P3PmsgField&)oNodeVar = P3PmsgName ( L"{P2PeerTarget}" );
     else
-      oNodeVar.r_data() = P3PmsgData ( _N("{P2PeerTarget}") );
+      oNodeVar.r_data() = P3PmsgData ( L"{P2PeerTarget}" );
 
     // Append P2PeerHub state to node
-    P3PmsgField_SERIALISE ( oNodeVar, _N("Name"), (LPCTNAM)m_csTargetName, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"Name", (LPCTNAM)m_csTargetName, bDsc
                           , _T("Target name") );
 
     // Tidy up and
@@ -2388,7 +2388,7 @@ P2PeerTarget::On_ConStartup ( P2PeerCon *pCon )
       pCon -> Connect( );
     else
       EVERR->MODULE->AFPcon(pCon)
-           ->Message(_N("Cannot startup connection[%s] for mode (%i)\n")
+           ->Message(L"Cannot startup connection[%s] for mode (%i)\n"
                     , pCon->GetP2Paddress().c_wstr()
                     , pCon->GetMode() )
            ->Advice ("Bug (SNHappen)")
@@ -2459,7 +2459,7 @@ P2PeerTarget::On_ConAccept ( P2PeerCon *pCon )
     //        that such activity only occur beyond this point.
     if ( pCon->GetMode() != P2PeerCon_SERVICE )
     {
-      pCon -> OnAccept ( _N("") );
+      pCon -> OnAccept ( L"" );
       return conHANDLED;
     }
 
@@ -2691,7 +2691,7 @@ P2PeerTarget::On_ConLogin ( P2PeerCon *pCon, P2PaddrSTR strThatP2Paddr
          GetP2PeerHub()->ConExists(strThatP2Paddr)    )
       EVERR->MODULE
            ->AFPcon(pCon)->AFP(strThatP2Paddr)
-           ->Message(_N("P2PeerCon with nominated strThatP2Paddr=%s already exists")
+           ->Message(L"P2PeerCon with nominated strThatP2Paddr=%s already exists"
                     , strThatP2Paddr )
            ->Advice ("Duplicate P2PeerCon's for P2PeerHub attempted" )
            ->Throw ( );
@@ -3006,7 +3006,7 @@ P2PeerTarget::On_MsgCatch ( P2PeerMsg *pMsg )
     // Confirm exception type message
     if ( !pMsg->Map_MatchName(P2Pmsg_Exception) )
       EVERR->MODULE->AFPmsg(pMsg)
-           ->Message(_N("Expected P2Pmsg_Exception type message, got [%s]")
+           ->Message(L"Expected P2Pmsg_Exception type message, got [%s]"
                     , pMsg->c_name() )
            ->Advice ("P2Peer network implementation BUG" )
            ->Advice ("Use alternative P2PeerMsg_MAP handler" )

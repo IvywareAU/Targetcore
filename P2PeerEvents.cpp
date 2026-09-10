@@ -180,7 +180,7 @@ P2PeerEvents::RunEventsHub (  )
     // Exceptions
     catch ( P2Pevent *pEVT )
     {
-      pEVT->Advice(_N("P2PeerEvents(%s) P2PmsgHub terminated")
+      pEVT->Advice(L"P2PeerEvents(%s) P2PmsgHub terminated"
                    , m_oP2PaddrHub.c_wstr() )
           ->Cancel();
     }
@@ -188,7 +188,7 @@ P2PeerEvents::RunEventsHub (  )
     {
       EVERR->MODULE
            ->Message("Last resort exception of unknown type" )
-           ->Advice (_N("P2PeerEvents(%s) P2PmsgHub terminated")
+           ->Advice (L"P2PeerEvents(%s) P2PmsgHub terminated"
                     , m_oP2PaddrHub.c_wstr() )
            ->Cancel();
     }
@@ -518,7 +518,7 @@ P2PeerEvents::On_SinkLoginAck ( P2PeerCon *pCon
     {
       // Tracing
       if ( IsEVTRC )
-        EVTRC->Module (_N("%hs(%s)"), __FUNCTION__
+        EVTRC->Module (L"%hs(%s)", __FUNCTION__
                       , GetP2PaddrHub().c_wstr() )
              ->Message(_T("Connection [%s] acknowledged")
                       , (P2PaddrSTR)pCon->GetP2Paddress() )

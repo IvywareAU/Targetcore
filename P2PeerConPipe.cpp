@@ -437,10 +437,10 @@ P2PeerConPipe::Drop ( P2Pevent *pEVENT )
       if (     CloseHandle(m_hFile) &&
              !pEVENT                   )
         pEVENT =
-         EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+         EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
-              ->Message (_N("closehandle(%s) failed\n")
+              ->Message (L"closehandle(%s) failed\n"
                          "ADVICE\t: Bug (SNHappen)"
                         , (LPCTSTR)m_sPipename )
               ->HResult ( GetLastError() );
@@ -596,7 +596,7 @@ P2PeerConPipe::CreateListenPipe ( )
       if ( !ConvertStringSecurityDescriptorToSecurityDescriptor (
                pszSddl, SDDL_REVISION_1, &pSD, NULL ) )
         EVERR->MODULE
-             ->Message(_N("SDDL(%s) for pipe %s does not parse\n")
+             ->Message(L"SDDL(%s) for pipe %s does not parse\n"
                        "ADVICE\t: Check the string given to SetPipeAccess"
                        ", or ask for P2PeerConPipeAccess_Owner"
                       , pszSddl, (LPCTSTR)m_sPipename )
@@ -644,8 +644,8 @@ P2PeerConPipe::CreateListenPipe ( )
       if ( dwCreateErr == ERROR_ACCESS_DENIED &&
            ( dwOpenMode & FILE_FLAG_FIRST_PIPE_INSTANCE ) != 0 )
         EVERR->MODULE
-             ->Message(_N("CreateNamedPipe(%s) refused: the name already has "
-                          "an instance and this service creates the first\n")
+             ->Message(L"CreateNamedPipe(%s) refused: the name already has "
+                        "an instance and this service creates the first\n"
                        "ADVICE\t: Another process holds %s - a server still "
                        "running, or a squatter.  Refused rather than joined, "
                        "because a joined pipe keeps the FIRST creator's "
@@ -656,7 +656,7 @@ P2PeerConPipe::CreateListenPipe ( )
 #endif
 
       EVERR->MODULE
-           ->Message(_N("CreateNamePipe(%s) failed\n")
+           ->Message(L"CreateNamePipe(%s) failed\n"
                      "ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
            ->HResult( dwCreateErr )->Throw();
@@ -723,8 +723,8 @@ P2PeerConPipe::CreateListenPipe ( )
       m_hFile      = 0;
       m_bPipeLocal = false;
       EVERR->MODULE
-           ->Message(_N("Pipe %s is trust class %i and its hub holds no link "
-                        "below class %i\n")
+           ->Message(L"Pipe %s is trust class %i and its hub holds no link "
+                      "below class %i\n"
                      "ADVICE\t: 0 wire, 1 kernel-local, 2 in-process\n"
                      "ADVICE\t: SetPipeAccess() asked for a pipe of a class "
                      "this hub was fenced to refuse - drop the "
@@ -771,7 +771,7 @@ P2PeerConPipe::Accept ( )
       releaseOVERLAPPED ( m_pOVERLAPPEDaccept );
       HRESULT hr = GetLastError ( );
       if ( hr != ERROR_PIPE_CONNECTED )
-        EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
              ->Message ("ConnectNamePipe() failed")
@@ -813,7 +813,7 @@ P2PeerConPipe::OnAccept ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Accept) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message("Requires ON_P2PeerOLD_ACCEPT handler state")
@@ -825,7 +825,7 @@ P2PeerConPipe::OnAccept ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( m_eP2PeerConMode != P2PeerCon_SERVICE )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message("Requires P2PeerCon_SERVICE mode not %i"
@@ -884,7 +884,7 @@ P2PeerConPipe::OnAccept ( const P2Paddr oThatP2Paddr )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Accept) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message("Requires ON_P2PeerOLD_ACCEPT handler state\n"
@@ -896,7 +896,7 @@ P2PeerConPipe::OnAccept ( const P2Paddr oThatP2Paddr )
          !m_oThatP2Paddr.IsNull()       &&
          m_oThatP2Paddr != oThatP2Paddr    )
       EVERR->MODULE
-           ->Message(_N("Attempt to swap P2PeerID's from [%s] to [%s]")
+           ->Message(L"Attempt to swap P2PeerID's from [%s] to [%s]"
                     , (P2PaddrSTR)m_oThatP2Paddr
                     , (P2PaddrSTR)  oThatP2Paddr )
            ->Throw();
@@ -953,7 +953,7 @@ P2PeerConPipe::Connect ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Startup) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
@@ -991,7 +991,7 @@ P2PeerConPipe::Connect ( )
     {
       m_hFile = 0;
       EVERR->MODULE
-           ->Message(_N("CreateFile(%s) failed\n")
+           ->Message(L"CreateFile(%s) failed\n"
                      "ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
            ->HResult( GetLastError() )->Throw();

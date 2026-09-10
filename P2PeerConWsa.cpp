@@ -880,9 +880,9 @@ P2PeerConWsa::AllowAcceptFrom ( LPCTSTR lpszPrefix )
     UCHAR ucAddr[16];
     if ( !ParseP2PeerConPrefix ( lpszPrefix, nFamily, ucAddr, nBits ) )
     {
-      EVERR->Module (_N("%hs[%s]"), __FUNCTION__
+      EVERR->Module (L"%hs[%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
-           ->Message(_N("Unparsable accept prefix '%s'")
+           ->Message(L"Unparsable accept prefix '%s'"
                     , lpszPrefix ? lpszPrefix : _T("(null)") )
            ->Advice_T("Dotted IPv4 with an optional /bits - \"192.168.1.0/24\", "
                       "\"10.0.0.0/8\", or \"10.1.2.3\" for one host")
@@ -1093,9 +1093,9 @@ P2PeerConWsa::ListenBindSockaddr ( SOCKADDR_STORAGE &rAddr )
 
     if ( m_eListenScope == P2PeerConScope_Loopback &&
          m_eFamily      == P2PeerConFamily_Dual       )
-      EVERR->Module (_N("%hs[%s]"), __FUNCTION__
+      EVERR->Module (L"%hs[%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
-           ->Message(_N("P2PeerConFamily_Dual cannot bind a loopback scope") )
+           ->Message(L"P2PeerConFamily_Dual cannot bind a loopback scope" )
            ->Advice_T("::1 is not the v4-mapped form of 127.0.0.1, so one "
                       "socket cannot serve both loopbacks and either choice "
                       "here would silently narrow the other")
@@ -1118,10 +1118,10 @@ P2PeerConWsa::ListenBindSockaddr ( SOCKADDR_STORAGE &rAddr )
                                  , ucAddr, nBits )   ||
             nBits       != nFull                     ||
             nAddrFamily != nFamily                      )
-        EVERR->Module (_N("%hs[%s]"), __FUNCTION__
+        EVERR->Module (L"%hs[%s]", __FUNCTION__
                       , GetP2PaddrHub().c_wstr() )
-             ->Message(_N("Listen scope address '%s' is not a host address of "
-                          "the configured family")
+             ->Message(L"Listen scope address '%s' is not a host address of "
+                        "the configured family"
                       , (LPCTSTR)m_sListenAddress )
              ->Advice_T("SetListenScope(P2PeerConScope_Address,\"a.b.c.d\") "
                         "for P2PeerConFamily_IPv4, naming one interface THIS "
@@ -1446,10 +1446,10 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
         RenderP2PeerConAddr ( (const sockaddr *)&oSource, nSource
                             , szSource, sizeof(szSource) );
         if ( bNotAllowed )
-          EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
+          EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
-               ->Message(_N("Accept refused, source %hs is not on the "
-                            "allow-list"), szSource )
+               ->Message(L"Accept refused, source %hs is not on the "
+                          "allow-list", szSource )
                ->Advice_T("P2PeerConWsa::AllowAcceptFrom() to admit it, or "
                           "ClearAcceptSourceFilter() to admit anyone")
                ->Advice_T("An unnameable origin is refused by design, and so "
@@ -1457,15 +1457,15 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
                           "list of v4 prefixes refuses every v6 source")
                ->Cancel ( );
         else if ( bServiceFull )
-          EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
+          EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
                ->Message(_T("Accept refused, at capacity %i"), m_xMaxAccepted )
                ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
                ->Cancel ( );
         else if ( bSourceFull )
-          EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
+          EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
-               ->Message(_N("Accept refused, source %hs at its share %i of %i")
+               ->Message(L"Accept refused, source %hs at its share %i of %i"
                         , szSource
                         , m_xMaxAcceptedPerSource, m_xMaxAccepted )
                ->Advice_T("Raise P2PeerCon::SetMaxAcceptedPerSource(), or 0 "
@@ -1482,10 +1482,10 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
           //  service write to a log at will is a way to fill one.  The hub's
           //  own fence refusal in PostP2PeerCon() is loud because it happens
           //  once, to code the operator wrote
-          EVTRC->Module (_N("%hs[%s]"), __FUNCTION__
+          EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
-               ->Message(_N("Accept refused, source %hs would be trust class "
-                            "%i and this hub holds no link below class %i")
+               ->Message(L"Accept refused, source %hs would be trust class "
+                          "%i and this hub holds no link below class %i"
                         , szSource
                         , (int)( IsP2PeerConSockaddrLoopback (
                                    (const sockaddr *)&oSource, nSource )
@@ -1579,7 +1579,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
         //        notification        releaseOVERLAPPED ( pOVERLAPPEDcon );
         releaseOVERLAPPED ( pOVERLAPPEDcon );
         if ( hr )
-          EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+          EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
                ->Message("Overlapped accept failed")
@@ -1623,7 +1623,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
                          , SO_UPDATE_ACCEPT_CONTEXT
                          , (char *)&m_oSocket, sizeof(m_oSocket) ) )
           {
-            EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+            EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                           , GetP2PaddrHub().c_wstr()
                           , m_oThatP2Paddr.c_wstr() )
                  ->Message("setsockopt() failed")
@@ -1633,7 +1633,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
           // Configure non-blocking mode
           DWORD dwArg = 1;
           if ( ioctlsocket ( m_oSocketAccept, FIONBIO, &dwArg ) )
-            EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+            EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                            , GetP2PaddrHub().c_wstr()
                            , m_oThatP2Paddr.c_wstr() )
                  ->Message ("ioctlsocket(FIONBIO) failed")
@@ -1657,7 +1657,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
 
         // Observe expectations
         /*else
-          EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+          EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , m_oThatP2Paddr.c_wstr() )
                ->Message("Overlapped accept without assigned socket")
@@ -1672,7 +1672,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
       {
         releaseOVERLAPPED ( pOVERLAPPEDcon );
         if ( hr )
-          EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+          EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                          , GetP2PaddrHub().c_wstr()
                          , m_oThatP2Paddr.c_wstr() )
                ->Message ("Overlapped ConnectEx failed")
@@ -1682,7 +1682,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
         if ( setsockopt( m_oSocket, SOL_SOCKET
                        , SO_UPDATE_CONNECT_CONTEXT
                        , NULL, 0 ) )
-          EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+          EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , m_oThatP2Paddr.c_wstr() )
                ->Message ("setsockopt() failed")
@@ -1761,7 +1761,7 @@ P2PeerConWsa::Drop ( P2Pevent *pEVENT )
       if (   closesocket(m_oSocket) &&
            !pEVENT                     )
         pEVENT =
-         EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+         EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , m_oThatP2Paddr.c_wstr() )
               ->Message ("closesocket(connect) failed" )
@@ -1779,7 +1779,7 @@ P2PeerConWsa::Drop ( P2Pevent *pEVENT )
       if (   closesocket(m_oSocketAccept) &&
            !pEVENT                           )
         pEVENT =
-         EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+         EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , m_oThatP2Paddr.c_wstr() )
               ->Message ("closesocket(accept) failed" )
@@ -1830,7 +1830,7 @@ P2PeerConWsa::Listen ( )
                             , 0
                             , WSA_FLAG_OVERLAPPED );
       if ( m_oSocket == INVALID_SOCKET )
-        EVERR->Module  (_N("%hs(%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr() )
              ->Message ("WSASocket() failed" )
              ->Advice  ("No free sockets?" )
@@ -1965,7 +1965,7 @@ P2PeerConWsa::Accept ( )
     {
       // To be sure, to be sure
       if ( GetMode() != P2PeerCon_SERVICE )
-        EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+        EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                       , GetP2PaddrHub().c_wstr()
                       , m_oThatP2Paddr.c_wstr() )
              ->Message("Operation only valid for listening type sockets" )
@@ -1974,7 +1974,7 @@ P2PeerConWsa::Accept ( )
 
       // To be sure, to be sure
       if ( m_oSocket == INVALID_SOCKET )
-        EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+        EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                       , GetP2PaddrHub().c_wstr()
                       , m_oThatP2Paddr.c_wstr() )
              ->Message("Listening socket has not been assigned" )
@@ -1985,7 +1985,7 @@ P2PeerConWsa::Accept ( )
       if (   m_oSocketAccept != INVALID_SOCKET ||
            ( m_pOVERLAPPEDaccept          &&
              m_pOVERLAPPEDaccept->bQueued    )     )
-        EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+        EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                       , GetP2PaddrHub().c_wstr()
                       , m_oThatP2Paddr.c_wstr() )
              ->Message("Duplicate accepts attempted on single socket" )
@@ -2005,7 +2005,7 @@ P2PeerConWsa::Accept ( )
                                   , 0
                                   , WSA_FLAG_OVERLAPPED );
       if ( m_oSocketAccept == INVALID_SOCKET )
-        EVERR->Module  (_N("%hs(%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr() )
              ->Message ("WSASocket() failed" )
              ->Advice  ("No free sockets?" )
@@ -2023,7 +2023,7 @@ P2PeerConWsa::Accept ( )
       // Configure non-blocking mode
       DWORD dwArg = 1;
       if ( ioctlsocket ( m_oSocketAccept, FIONBIO, &dwArg ) )
-        EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
              ->Message ("ioctlsocket(FIONBIO) failed")
@@ -2118,7 +2118,7 @@ P2PeerConWsa::Connect ( )
       {
         char szIpAddress[512];
         if ( gethostname( szIpAddress, sizeof(szIpAddress) ) )
-          EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+          EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                          , GetP2PaddrHub().c_wstr()
                          , m_oThatP2Paddr.c_wstr() )
                ->Message("gethostname() failed" )
@@ -2149,10 +2149,10 @@ P2PeerConWsa::Connect ( )
                                                      , m_nIPort, nAiFamily
                                                      , oSockaddr, nSockaddr );
       if ( nResolved != 0 )
-        EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
-             ->Message (_N("getaddrinfo(%s) failed"), (LPCTSTR)csResolved )
+             ->Message (L"getaddrinfo(%s) failed", (LPCTSTR)csResolved )
              ->Advice  ("Unable to resolve server" )
              ->Advice  ("A name with no record of the configured family?  "
                         "P2PeerConFamily_IPv4 asks for A records only and "
@@ -2175,7 +2175,7 @@ P2PeerConWsa::Connect ( )
                             , 0
                             , WSA_FLAG_OVERLAPPED );
       if ( m_oSocket == INVALID_SOCKET )
-        EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
              ->Message ("WSAsocket() failed")
@@ -2206,7 +2206,7 @@ P2PeerConWsa::Connect ( )
       // Configure non-blocking mode
       DWORD dwArg = 1;
       if ( ioctlsocket ( m_oSocket, FIONBIO, &dwArg ) )
-        EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
              ->Message ("ioctlsocket(FIONBIO) failed")
@@ -2228,7 +2228,7 @@ P2PeerConWsa::Connect ( )
       if ( WSAGetLastError() != ERROR_IO_PENDING )
       {
         releaseOVERLAPPED ( m_pOVERLAPPEDconnect );
-        EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+        EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                       , GetP2PaddrHub().c_wstr()
                       , m_oThatP2Paddr.c_wstr() )
              ->Message ("ConnectEx() failed\n" )
@@ -2420,10 +2420,10 @@ P2PeerConWsa::ConnectEx ( SOCKET oSocket
                   , &pfnConnectEx, sizeof(pfnConnectEx)
                   , &dwBytes, NULL, NULL ) )
     {
-      EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                      , GetP2PaddrHub().c_wstr()
                      , m_oThatP2Paddr.c_wstr() )
-           ->Message (_N("WSAIoctl(%s) failed"), (LPCTSTR)m_sIPaddress )
+           ->Message (L"WSAIoctl(%s) failed", (LPCTSTR)m_sIPaddress )
            ->Advice  ("ConnectEx requires XP or better" )
            ->Group("WSA")->HResult(WSAGetLastError())->Display();
       return FALSE;
@@ -2432,7 +2432,7 @@ P2PeerConWsa::ConnectEx ( SOCKET oSocket
     // Bind socket to address
     if ( bind(oSocket,name,namelen) == SOCKET_ERROR )
     {
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message ("bind() failed")
@@ -2707,7 +2707,7 @@ P2PeerConWsa::SetP2PeventFParams ( LPCTNAM lpszVar )
     // Create a placeholder for receipt of P2PeerConWsa details
     // NOTES: This will be passed by value back up the stack
     if ( lpszVar == nullptr )
-      lpszVar = _N("P2PeerConWsa");
+      lpszVar = L"P2PeerConWsa";
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData(m_nP2PconID)) );
 
     // Convention is to delegate to base class first
@@ -2748,26 +2748,26 @@ P2PeerConWsa::Serialise ( LPCTNAM lpszVar )
     // NOTES: This will be passed by value back up the stack
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData(m_nP2PconID)) );
     if ( lpszVar == 0 || _tcslen(lpszVar) <= 0 )
-      (P3PmsgField&)oNodeVar = P3PmsgName ( _N("{P2PeerConWsa}") );
+      (P3PmsgField&)oNodeVar = P3PmsgName ( L"{P2PeerConWsa}" );
     else
-      oNodeVar.r_data() = P3PmsgData ( _N("{P2PeerConWsa}") );
+      oNodeVar.r_data() = P3PmsgData ( L"{P2PeerConWsa}" );
 
     // Append our state to node
-    P3PmsgField_SERIALISE ( oNodeVar, _N("IPaddress"), (LPCTSTR)m_sIPaddress, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"IPaddress", (LPCTSTR)m_sIPaddress, bDsc
                           , _T("Allocated IP connection address") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("IPort"), m_nIPort, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"IPort", m_nIPort, bDsc
                           , _T("Allocated IP port") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("Family"), (int)m_eFamily, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"Family", (int)m_eFamily, bDsc
                           , _T("Address family opened - refer "
                                "P2PeerConFamily_e.  0 IPv4, 1 IPv6, 2 dual") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("ListenScope"), (int)m_eListenScope, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"ListenScope", (int)m_eListenScope, bDsc
                           , _T("Interfaces the SERVICE binds - refer "
                                "P2PeerConScope_e") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("ListenAddress")
+    P3PmsgField_SERIALISE ( oNodeVar, L"ListenAddress"
                           , (LPCTSTR)m_sListenAddress, bDsc
                           , _T("Nominated bind interface, P2PeerConScope_Address "
                                "only") );
-    P3PmsgField_SERIALISE ( oNodeVar, _N("AcceptPrefixes")
+    P3PmsgField_SERIALISE ( oNodeVar, L"AcceptPrefixes"
                           , m_pxSourceFilter
                           ? (int)m_pxSourceFilter->m_oPrefixes.size ( ) : 0, bDsc
                           , _T("Accept allow-list rules - 0 admits any source") );

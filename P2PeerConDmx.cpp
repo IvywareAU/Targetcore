@@ -503,7 +503,7 @@ P2PeerConDmx::Listen ( )
       while ( pos )
       {
         if ( g_oCListP2PeerConDmx.GetNext(pos) == this )
-          EVERR->Module (_N("%hs(%s)"), __FUNCTION__
+          EVERR->Module (L"%hs(%s)", __FUNCTION__
                         , GetP2Paddress().c_wstr() )
                ->Message("Duplicate listen attempted on single connection"
                          "ADVICE\t: Bug(SNHappen)" )
@@ -545,7 +545,7 @@ P2PeerConDmx::Accept ( )
     // To be sure, to be sure
     if ( m_pConThat          ||
          m_pOVERLAPPEDaccept    )
-      EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+      EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message("Duplicate accepts attempted on single connection"
@@ -681,7 +681,7 @@ P2PeerConDmx::Connect ( )
 
     // To be sure, to be sure
     if ( m_pConThat )
-      EVERR->Module (_N("%hs(%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s)", __FUNCTION__
                     , GetP2Paddress().c_wstr() )
            ->Message("Previously connected")
            ->Advice ("Bug(SNHappen)" )
@@ -741,9 +741,9 @@ TOP:if ( !m_pConThat )
 
     // To be sure, to be sure
     if ( !m_pConThat )
-      EVERR->Module (_N("%hs(%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
-           ->Message(_N("Connection %s to %s failed")
+           ->Message(L"Connection %s to %s failed"
                     , GetP2Paddress().c_wstr(), (LPCTSTR)m_sServiceName )
            ->Advice ("This P2PeerHub not yet running?" )
            ->Throw();
@@ -860,12 +860,12 @@ P2PeerConDmx::Serialise ( LPCTNAM lpszVar )
     // NOTES: This will be passed by value back up the stack
     P3PmsgItem oNodeVar ( P3PmsgField(lpszVar,P3PmsgData(m_nP2PconID)) );
     if ( lpszVar == 0 || _tcslen(lpszVar) <= 0 )
-      (P3PmsgField&)oNodeVar = P3PmsgName ( _N("{P2PeerConDmx}") );
+      (P3PmsgField&)oNodeVar = P3PmsgName ( L"{P2PeerConDmx}" );
     else
-      oNodeVar.r_data() = P3PmsgData ( _N("{P2PeerConDmx}") );
+      oNodeVar.r_data() = P3PmsgData ( L"{P2PeerConDmx}" );
 
     // Append our state to node
-    P3PmsgField_SERIALISE ( oNodeVar, _N("ServiceName"), (LPCTSTR)m_sServiceName, bDsc
+    P3PmsgField_SERIALISE ( oNodeVar, L"ServiceName", (LPCTSTR)m_sServiceName, bDsc
                           , _T("Allocated connection address") );
 
     // Tidy up and

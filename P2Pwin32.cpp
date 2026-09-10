@@ -348,7 +348,7 @@ class P2PmsgPump
           m_hP2PmsgHubListen = 0;
           m_nPitimeID        = 0;
           m_pP2Pmsg          = 0;
-          m_oP2Paddr         = _N("");
+          m_oP2Paddr         = L"";
           m_bListen          = 0;
           m_pTarget          = 0;
           m_pContext         = 0;
@@ -1203,7 +1203,7 @@ CreateP2Pexpump ( P2PmsgHubID nHubID, P2PeerTarget *pTarget )
     pP2Pexpump -> m_pTarget   = pTarget;
     pP2Pexpump -> m_hQueEvent = CreateEvent ( 0, FALSE, FALSE, 0 );
     pP2Pexpump -> m_bOwnQueEvent = true;          // F-S5-4: ours to close
-    pP2Pexpump -> m_oP2Paddr  = _N("Expump");
+    pP2Pexpump -> m_oP2Paddr  = L"Expump";
     pP2Pexpump -> m_csName    = _T("Expump");
     pP2Pexpump -> m_strFunc   = _T("Anon");
     pP2Pexpump -> m_hIOCP
@@ -1750,14 +1750,14 @@ NotifyP2PmsgExp_Hub ( P2PmsgHubMgr *pHubMgr, LPCTADDR lpszDestin )
       if ( !gethostname ( szHostname, sizeof(szHostname) ) )
       {
         USES_CONVERSION;
-        P3PmsgField_SERIALISE ( oItemHub, _N("Machine"), A2W(szHostname), bDsc
+        P3PmsgField_SERIALISE ( oItemHub, L"Machine", A2W(szHostname), bDsc
                               , _T("Name of machine on which Hub is running") );
       }
       // Firstly fetch name of executable
       TCHAR      szExePathname[_MAX_PATH];
       if ( GetModuleFileName(NULL,szExePathname,_MAX_PATH) > 0 )
       {
-        P3PmsgField_SERIALISE ( oItemHub, _N("Executable"), szExePathname, bDsc
+        P3PmsgField_SERIALISE ( oItemHub, L"Executable", szExePathname, bDsc
                               , _T("Name of Module in which the Hub running") );
       }
     }
@@ -1889,11 +1889,11 @@ NotifyP2PmsgExp_Pmp ( P2PmsgHubMgr *pHubMgr, P2PmsgPump *pP2PmsgPump
     // Serialise
     P3PmsgItem oNodePump ( P3PmsgField ( pP2PmsgPump->m_csName
                                        , P3PmsgData(pP2PmsgPump->m_nPumpID) ) );
-    P3PmsgField_SERIALISE ( oNodePump, _N("PumpID"), pP2PmsgPump->m_nPumpID
+    P3PmsgField_SERIALISE ( oNodePump, L"PumpID", pP2PmsgPump->m_nPumpID
                           , bVerbose, _T("Pump identification") );
-    P3PmsgField_SERIALISE ( oNodePump, _N("Function"), (LPCTNAM)pP2PmsgPump->m_strFunc
+    P3PmsgField_SERIALISE ( oNodePump, L"Function", (LPCTNAM)pP2PmsgPump->m_strFunc
                           , bVerbose, _T("Operational function") );
-    P3PmsgField_SERIALISE ( oNodePump, _N("Class"), _T("P2PeerCon"), bVerbose
+    P3PmsgField_SERIALISE ( oNodePump, L"Class", _T("P2PeerCon"), bVerbose
                             , _T("Encapsulating connection class name") );
 
     // Perform notification
@@ -1949,12 +1949,12 @@ NotifyP2PmsgExp_Con ( P2PmsgHubMgr *pHubMgr, P2PeerCon *pCon
                 oNode    += pCon -> Serialise ( strConame );
     P3PmsgItem& oNodeCon  = oNode.SelectItem ( strConame );
                 oNodeCon.r_Attr(P3PmsgField::AttrCMD_Create);
-    P3PmsgField oConID ( _N("ConID"), P3PmsgData(pCon->m_nP2PconID) );
+    P3PmsgField oConID ( L"ConID", P3PmsgData(pCon->m_nP2PconID) );
                 oConID.SetAccess ( AttrField_HIDDEN );
                 oNodeCon.r_Attr() += oConID;
-    P3PmsgField oConMode ( _N("ConMode"), P3PmsgData(pCon->GetMode()) );
+    P3PmsgField oConMode ( L"ConMode", P3PmsgData(pCon->GetMode()) );
                 oNodeCon.r_Attr() += oConMode;
-    P3PmsgField oP2Paddr ( _N("P2Paddr"),P3PmsgData(pCon->GetP2Paddress().c_wstr()) );
+    P3PmsgField oP2Paddr ( L"P2Paddr",P3PmsgData(pCon->GetP2Paddress().c_wstr()) );
                 oNodeCon.r_Attr() += oP2Paddr;
 
     // Perform notification
@@ -3812,7 +3812,7 @@ TOP:bHandled = true;
       // To be sure, to be sure
       else if ( pP2Pmsg->pCon )        // Should not happen
         EVERR->MODULE
-             ->Message  (_N("Illogical P2PeerCon notification")
+             ->Message  (L"Illogical P2PeerCon notification"
                          "nCode=%i, nMsg=%i, P2PeerID[%s]"
                         , pP2Pmsg->nCode
                         , pP2Pmsg->nMsg
@@ -4664,7 +4664,7 @@ if(eConMode==P2PeerCon_Accept)
                ->Throw();
         if ( !pMsg->Map_MatchName(P2Pmsg_Login) ) 
           EVERR->MODULE
-               ->Message(_N("Invalid P2P_Login sequence, pMsg!=%s")
+               ->Message(L"Invalid P2P_Login sequence, pMsg!=%s"
                         , P2Pmsg_Login )
                ->Throw();
         // Remote P2PeerHub nominates P2Paddr for P2PeerCon
@@ -4691,7 +4691,7 @@ if(eConMode==P2PeerCon_Accept)
                ->Throw();
         if ( !pMsg->Map_MatchName(P2Pmsg_LoginAck) ) 
           EVERR->MODULE
-               ->Message(_N("Invalid P2P_LoginAck sequence, pMsg!=%s")
+               ->Message(L"Invalid P2P_LoginAck sequence, pMsg!=%s"
                         , P2Pmsg_Login )
                ->Throw();
         // Remote P2PeerHub nominates P2Paddr for P2PeerCon
@@ -4710,7 +4710,7 @@ if(eConMode==P2PeerCon_Accept)
         if (  pMsg                                 &&
              !pMsg->Map_MatchName(P2Pmsg_CypherEx)    ) 
           EVERR->MODULE
-               ->Message(_N("Invalid P2P_CypherEx sequence, pMsg!=%s")
+               ->Message(L"Invalid P2P_CypherEx sequence, pMsg!=%s"
                         , P2Pmsg_CypherEx )
                ->Throw();
         // Remote P2PeerHub nominates P2Paddr for P2PeerCon

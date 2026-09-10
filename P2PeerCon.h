@@ -908,7 +908,9 @@ constexpr short P2P_CypherEx   = 15;
 //       : P2PmsgNode containing P2PeerCon details is appended beneath
 //         the P2Pevent module node.  It should be assumed that any
 //         appended parameters will have global exposure
-#define AFPcon(arg) SetFParam(_N(#arg),arg->SetP2PeventFParams(_N(#arg)))
+//       : L#arg IS NOT A WIDE LITERAL, so the name arrives through
+//         Msgexception.h's AFP__widen -- see the comment beside it there
+#define AFPcon(arg) SetFParam(AFP__widen(#arg),arg->SetP2PeventFParams(AFP__widen(#arg)))
 
 ///////////////////////////////////////////////////////////////////////
 //  Reserved connection management P2PmsgID's
@@ -917,19 +919,19 @@ constexpr short P2P_CypherEx   = 15;
 //       : Refer P2PeerMsg.h for alternative framework list
 //
 static
-P2PmsgID    P2Pmsg_ALL        = _N("P2Pmsg*");
+P2PmsgID    P2Pmsg_ALL        = L"P2Pmsg*";
 static
-P2PmsgID    P2Pmsg_Login      = _N("P2PmsgLogin");
+P2PmsgID    P2Pmsg_Login      = L"P2PmsgLogin";
 static
-P2PmsgID    P2Pmsg_LoginAck   = _N("P2PmsgLoginAck");
+P2PmsgID    P2Pmsg_LoginAck   = L"P2PmsgLoginAck";
 static
-P2PmsgID    P2Pmsg_CypherEx   = _N("P2PmsgCypherEx");
+P2PmsgID    P2Pmsg_CypherEx   = L"P2PmsgCypherEx";
 //  Session key agreement. Intercepted and consumed inside P2PeerCon - these
 //  never reach the pump, so they need no signal, no pump-map entry and no
 //  application handler. The exchange is library business.
 static
-P2PmsgID    P2Pmsg_KeyX       = _N("P2PmsgKeyX");
+P2PmsgID    P2Pmsg_KeyX       = L"P2PmsgKeyX";
 static
-P2PmsgID    P2Pmsg_KeyXAck    = _N("P2PmsgKeyXAck");
+P2PmsgID    P2Pmsg_KeyXAck    = L"P2PmsgKeyXAck";
 
 

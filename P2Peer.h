@@ -298,7 +298,7 @@ class TargetCore_EXT P2Paddr
 };
 typedef CList<P2Paddr*> CListP2Paddr;
 typedef const P2Paddr CP2Paddress;
-#define       strP2PaddrNULL _N("\0")
+#define       strP2PaddrNULL L"\0"
 
 //
 //  P2Padomain

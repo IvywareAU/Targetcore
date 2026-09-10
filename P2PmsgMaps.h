@@ -409,7 +409,7 @@ AFX_COMDAT const P2P_CONMAP_ENTRY theClass::_P2PeerConEntries[] \
    = { \
 
 #define END_P2PeerCon_MAP() \
-{ 0, 0, _N(""), 0, P2PSig_End, (P2P_PCON)0, 0 } }; \
+{ 0, 0, L"", 0, P2PSig_End, (P2P_PCON)0, 0 } }; \
   PTM_WARNING_RESTORE \
 
 /////////////////////////////////////////////////////////////////////////////

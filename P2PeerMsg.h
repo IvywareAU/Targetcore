@@ -490,7 +490,9 @@ typedef P2PeerMsgnn<VBLock_Addr64> P2PeerMsg64;
 //       : P2PmsgNode containing P2PeerMsg details is appended beneath
 //         the P2Pevent module node.  It should be assumed that any
 //         appended parameters will have global exposure
-#define AFPmsg(arg) SetFParam(_N(#arg),arg->SetP2PeventFParams(_N(#arg)))
+//       : L#arg IS NOT A WIDE LITERAL, so the name arrives through
+//         Msgexception.h's AFP__widen -- see the comment beside it there
+#define AFPmsg(arg) SetFParam(AFP__widen(#arg),arg->SetP2PeventFParams(AFP__widen(#arg)))
 
 ///////////////////////////////////////////////////////////////////////
 //  Reserved framework management P2PeerMsg's
@@ -506,27 +508,27 @@ typedef P2PeerMsgnn<VBLock_Addr64> P2PeerMsg64;
 //         3rd Party interfaces.
 //
 static
-const P2PmsgID P2Pmsg_3rdParty = _N("P2Pmsg_3rdParty");
+const P2PmsgID P2Pmsg_3rdParty = L"P2Pmsg_3rdParty";
 static
-const P2PmsgID P2Pmsg_3rdPartyi= _N("P2Pmsg_3rdPartyi");
+const P2PmsgID P2Pmsg_3rdPartyi= L"P2Pmsg_3rdPartyi";
 static
-const P2PmsgID P2Pmsg_3rdPartyo= _N("P2Pmsg_3rdPartyo");
+const P2PmsgID P2Pmsg_3rdPartyo= L"P2Pmsg_3rdPartyo";
 
 //
 //  P2Pmsg_Stop
 //  NOTES: Terminate P2PeerHub processing
 static
-const P2PmsgID P2Pmsg_Stop = _N("P2PmsgStop");
+const P2PmsgID P2Pmsg_Stop = L"P2PmsgStop";
 
 //
 //  P2Pmsg_Error
 static
-const P2PmsgID P2Pmsg_Error = _N("P2PmsgError");
+const P2PmsgID P2Pmsg_Error = L"P2PmsgError";
 
 //
 //  P2Pmsg_Undeliverable definition
 static
-P2PmsgID P2Pmsg_Undeliv = _N("P2PmsgUndeliv");
+P2PmsgID P2Pmsg_Undeliv = L"P2PmsgUndeliv";
 
 //
 //  P2Pmsg_Poll
@@ -539,7 +541,7 @@ typedef struct
 } Msg_P2PeerPoll;
 #pragma pack(pop)
 static
-P2PmsgID P2Pmsg_Poll = _N("P2PmsgPoll");
+P2PmsgID P2Pmsg_Poll = L"P2PmsgPoll";
 
 //
 //  P2Pmsg_Ping
@@ -554,7 +556,7 @@ typedef struct
 } Msg_P2PeerPing;
 #pragma pack(pop)
 static
-P2PmsgID P2Pmsg_Ping = _N("P2PmsgPing");
+P2PmsgID P2Pmsg_Ping = L"P2PmsgPing";
 
 //
 //  P2Pmsg_BCast
@@ -562,18 +564,18 @@ P2PmsgID P2Pmsg_Ping = _N("P2PmsgPing");
 //         of P2PeerHub's
 //       : P2PeerCon's must enable broadcast propagation
 static
-P2PmsgID P2Pmsg_BCast = _N("P2PmsgBCast");
+P2PmsgID P2Pmsg_BCast = L"P2PmsgBCast";
 
 //
 //  P2Pmsg_Sync
 //  NOTES: Exchange synchronisation request between P2PeerHub's
 static
-P2PmsgID P2Pmsg_Sync = _N("P2PmsgSync");
+P2PmsgID P2Pmsg_Sync = L"P2PmsgSync";
 
 //
 //  P2Pmsg_Eventails
 static
-P2PmsgID P2Pmsg_Eventails = _N("P2PmsgEventails");
+P2PmsgID P2Pmsg_Eventails = L"P2PmsgEventails";
 
 //
 //  P2Pmsg_Exception
@@ -590,7 +592,7 @@ typedef struct
 } Msg_Exception;
 #pragma pack(pop)
 static
-P2PmsgID P2Pmsg_Exception = _N("P2PmsgException");
+P2PmsgID P2Pmsg_Exception = L"P2PmsgException";
 
 //
 //  P2Pmsg_Timer
@@ -601,7 +603,7 @@ typedef struct
 } Msg_P2PeerTimer;
 #pragma pack(pop)
 static
-P2PmsgID P2Pmsg_Timer = _N("P2PmsgTimer");
+P2PmsgID P2Pmsg_Timer = L"P2PmsgTimer";
 
 ///////////////////////////////////////////////////////////////////////
 //  P2PeerID networking and addressing

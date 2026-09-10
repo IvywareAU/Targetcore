@@ -348,7 +348,9 @@ class TargetCore_EXT P2Peerio
 //       : P2PmsgNode containing P2Peerio details is appended beneath
 //         the P2Pevent module node.  It should be assumed that any
 //         appended parameters will have global exposure
-#define AFPeerio(arg) SetFParam(_N(#arg),arg->SetP2PeventFParams(_N(#arg)))
+//       : L#arg IS NOT A WIDE LITERAL, so the name arrives through
+//         Msgexception.h's AFP__widen -- see the comment beside it there
+#define AFPeerio(arg) SetFParam(AFP__widen(#arg),arg->SetP2PeventFParams(AFP__widen(#arg)))
 
 /////////////////////////////////////////////////
 //  Assistants and helpers

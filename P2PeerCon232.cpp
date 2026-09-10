@@ -297,10 +297,10 @@ P2PeerCon232::Drop ( P2Pevent *pEVENT )
       if (     CloseHandle(m_hFileCOM) &&
              !pEVENT                      )
         pEVENT =
-         EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+         EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
-              ->Message (_N("closehandle(%s) failed\n")
+              ->Message (L"closehandle(%s) failed\n"
                          "ADVICE\t: Bug (SNHappen)"
                         , (LPCTSTR)m_sFileCOM )
               ->HResult ( GetLastError() );
@@ -338,7 +338,7 @@ P2PeerCon232::ConfigureComPort ( )
     oDCB.DCBlength = sizeof(oDCB);
     if ( !GetCommState ( m_hFileCOM, &oDCB ) )
       EVERR->MODULE
-           ->Message(_N("GetCommState(%s) failed"), (LPCTSTR)m_sFileCOM )
+           ->Message(L"GetCommState(%s) failed", (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
     oDCB.BaudRate      = CBR_115200;
     oDCB.ByteSize      = 8;
@@ -356,7 +356,7 @@ P2PeerCon232::ConfigureComPort ( )
     oDCB.fAbortOnError = FALSE;
     if ( !SetCommState ( m_hFileCOM, &oDCB ) )
       EVERR->MODULE
-           ->Message(_N("SetCommState(%s) failed"), (LPCTSTR)m_sFileCOM )
+           ->Message(L"SetCommState(%s) failed", (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
 
     // Read completes on first buffered byte(s); writes never time out
@@ -367,7 +367,7 @@ P2PeerCon232::ConfigureComPort ( )
     oTimeouts.ReadTotalTimeoutConstant    = MAXDWORD - 1;
     if ( !SetCommTimeouts ( m_hFileCOM, &oTimeouts ) )
       EVERR->MODULE
-           ->Message(_N("SetCommTimeouts(%s) failed"), (LPCTSTR)m_sFileCOM )
+           ->Message(L"SetCommTimeouts(%s) failed", (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
 
     // Driver buffer sizing — advisory
@@ -391,7 +391,7 @@ P2PeerCon232::Listen ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Startup) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
@@ -412,7 +412,7 @@ P2PeerCon232::Listen ( )
     {
       m_hFileCOM = 0;
       EVERR->MODULE
-           ->Message(_N("CreateFile(%s) failed\n")
+           ->Message(L"CreateFile(%s) failed\n"
                      "ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sFileCOM, (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
@@ -480,7 +480,7 @@ P2PeerCon232::Accept ( )
     // To be sure, to be sure
     if ( m_pOVERLAPPEDaccept         &&
          m_pOVERLAPPEDaccept->bQueued    )
-      EVERR->Module (_N("%hs[%s-%s]"), __FUNCTION__
+      EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message("Duplicate accepts attempted on single connection"
@@ -495,7 +495,7 @@ P2PeerCon232::Accept ( )
       m_pOVERLAPPEDaccept = MakeOVERLAPPED ( );
     if ( !SetCommMask ( m_hFileCOM, EV_RXCHAR ) )
       EVERR->MODULE
-           ->Message(_N("SetCommMask(%s) failed"), (LPCTSTR)m_sFileCOM )
+           ->Message(L"SetCommMask(%s) failed", (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
     prepareOVERLAPPED ( m_pOVERLAPPEDaccept );
     if ( !WaitCommEvent ( m_hFileCOM, &m_dwCommEvent
@@ -503,10 +503,10 @@ P2PeerCon232::Accept ( )
           GetLastError() != ERROR_IO_PENDING                    )
     {
       releaseOVERLAPPED ( m_pOVERLAPPEDaccept );
-      EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                      , GetP2PaddrHub().c_wstr()
                      , m_oThatP2Paddr.c_wstr() )
-           ->Message (_N("WaitCommEvent(%s) failed"), (LPCTSTR)m_sFileCOM )
+           ->Message (L"WaitCommEvent(%s) failed", (LPCTSTR)m_sFileCOM )
            ->HResult ( GetLastError() )->Throw();
     }
 
@@ -533,7 +533,7 @@ P2PeerCon232::OnAccept ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Accept) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message("Requires ON_P2PeerOLD_ACCEPT handler state")
@@ -542,7 +542,7 @@ P2PeerCon232::OnAccept ( )
 
     // Mode confirmation
     if ( m_eP2PeerConMode != P2PeerCon_SERVICE )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message("Requires P2PeerCon_SERVICE mode not %i"
@@ -588,7 +588,7 @@ P2PeerCon232::Connect ( )
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Startup) )
-      EVERR->Module (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
            ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
@@ -609,7 +609,7 @@ P2PeerCon232::Connect ( )
     {
       m_hFileCOM = 0;
       EVERR->MODULE
-           ->Message(_N("CreateFile(%s) failed\n")
+           ->Message(L"CreateFile(%s) failed\n"
                      "ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sFileCOM, (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
@@ -647,7 +647,7 @@ P2PeerCon232::Connect ( )
                                      , (OVERLAPPED *)m_pOVERLAPPEDconnect )  )
     {
       releaseOVERLAPPED(m_pOVERLAPPEDconnect);
-      EVERR->Module  (_N("%hs(%s-%s)"), __FUNCTION__
+      EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                      , GetP2PaddrHub().c_wstr()
                      , m_oThatP2Paddr.c_wstr() )
            ->Message ("PostQueuedCompletionStatus() failed")
