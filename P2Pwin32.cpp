@@ -2555,9 +2555,17 @@ PostP2PmsgCon ( P2PmsgHubID nHubID, P2PeerCon *pCon )
            ->Throw  ( );
 
     // To be sure, to be sure
+    // NOTES: BOTH registries, which is what the second line here was for. It
+    //        read s_P2PmsgCon_HubID twice, so the hub registry was asked the
+    //        same question twice and the explorer registry was never asked at
+    //        all -- a connection already posted to an explorer passed this
+    //        guard and was posted a second time, to the hub. Every other site
+    //        that has to answer "is this connection registered anywhere"
+    //        consults the pair (2252, 2508, DropP2PmsgCon below); this one now
+    //        does too.
     P2PumpID nHubIDcon = 0;
     if ( s_P2PmsgCon_HubID.Lookup((DWORD_PTR)pCon,nHubIDcon) ||
-         s_P2PmsgCon_HubID.Lookup((DWORD_PTR)pCon,nHubIDcon) ||
+         s_P2PexpCon_HubID.Lookup((DWORD_PTR)pCon,nHubIDcon) ||
          nHubIDcon                                             )
       EVERR->Module  ("%s(nHubID=%i,pP2PmsgCon)", __FUNCTION__
                      , nHubID )
