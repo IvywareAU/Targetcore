@@ -656,9 +656,9 @@ There are no maintained release branches and no backports.
 | `master` | ✅ |
 | Anything else | ❌ |
 
-Including `v3.0.0` and `v3.1.0`. A tag is a point you can build from and trace a binary back to,
-not a branch anything is maintained on — if a fix lands after it, the fix is on `master` and the
-tag does not move.
+Including `v3.0.0`. A tag is a point you can build from and trace a binary back to, not a
+branch anything is maintained on — if a fix lands after it, the fix is on `master` and the tag
+does not move.
 
 **The pre-1.0 disclaimer has been retired, by a decision rather than by a number moving past
 it.** The versioning policy listed what had to be true before it could go, and three of the five
@@ -669,7 +669,7 @@ retired deliberately. **All three are now met** - the threat model is
 retired with the 3.0.0 release on 2026-09-02.
 
 **What the release number does not settle**, stated here because a major of 3 invites the
-assumption. 3.1.0, and 3.0.0 before it, covers the flat C ABI and nothing else. The message image is still unversioned -
+assumption. 3.0.0 covers the flat C ABI and nothing else. The message image is still unversioned -
 its header has no version field and no spare bit - so a peer meeting a re-laid-out message parses
 garbage rather than reporting a mismatch. `TargetCore_version.h` says so at the point the number
 is set, and that is the statement to read before assuming the major covers more than it does.

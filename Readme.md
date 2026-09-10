@@ -770,15 +770,16 @@ Full worked examples for both transports, sub-targets, and teardown ordering are
 
 ### Reporting the version
 
-The current release is **3.1.0** (tag `v3.1.0`), and what the number *promises* is written
+The current release is **3.0.0** (tag `v3.0.0`), and what the number *promises* is written
 down. The short form is that
 the flat C ABI — 101 symbols, enumerated and gated — is the covered surface, the C++ classes
 are not, and each wire format versions on its own byte. The major does **not** cover the packed
 message image, which carries no version field at all.
 
-The MINOR moved from 3.0.0 because the security revision **added** eight symbols to that surface —
-the per-class link policy, the trust fence and the end-to-end waiver, with their getters — and
-changed the meaning of none. A consumer built against 3.0.0 links against 3.1.0 unchanged.
+That surface has grown since the tag: the security revision **added** eight symbols to it — the
+per-class link policy, the trust fence and the end-to-end waiver, with their getters — and changed
+the meaning of none. That earns a MINOR when a release is next tagged. Until then the number stays
+where the last tag put it, and `master` carries the new symbols unreleased.
 
 `TargetCore_version.h` is the single place the version number is written; it feeds the
 DLL's `VERSIONINFO` resource and the macros below, so the two can never disagree. That is
@@ -804,7 +805,7 @@ P3PmsgItem oHub = hub.Serialise(0);      // the {P2PeerHub} node
 wprintf(L"hub is running TargetCore %s (0x%08X)\n",
         oHub.SelectItem(_N("Version")).r_data().c_wstr(),
         oHub.SelectItem(_N("VersionHex")).r_data().c_uint());
-// hub is running TargetCore 3.1.0.0 (0x03010000)
+// hub is running TargetCore 3.0.0.0 (0x03000000)
 ```
 
 `Version` is for display, `VersionHex` packs `MAJOR,MINOR,PATCH,BUILD` for comparison.
@@ -814,7 +815,7 @@ replies, anything that already carries hub state now carries its version too.
 The shipped binary also answers without being run — the resource is on the file itself:
 
 ```powershell
-(Get-Item TargetCore.dll).VersionInfo.FileVersion   # 3.1.0.0
+(Get-Item TargetCore.dll).VersionInfo.FileVersion   # 3.0.0.0
 ```
 
 > **This is a build identity, not a wire version.** Whether two hubs can talk is decided
