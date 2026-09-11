@@ -3839,7 +3839,7 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
                                       , P2Pmsg_Login
                                       , pvSendMsg, iSendSize );
-    PostP2PeerMsg ( spMsg );
+    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and
@@ -3904,7 +3904,7 @@ P2PeerCon::Login_Fractal ( P2PaddrSTR strThisP2Paddr1, P2PaddrSTR strThatP2Paddr
     P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
                                       , P2Pmsg_Login
                                       , pvLoginMsg, iSize );
-    PostP2PeerMsg ( spMsg );
+    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and
@@ -4144,7 +4144,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
                                       , m_oThatP2Paddr.c_wstr()
                                       , P2Pmsg_LoginAck
                                       , pvSendAck, iSendSize );
-    PostP2PeerMsg ( spMsg );
+    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and

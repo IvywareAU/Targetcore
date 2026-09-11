@@ -1492,7 +1492,7 @@ CloseP2Pexpump ( )
     }
 
     // Tidy up, P2PmsgPump table within P2PmsgPump
-    pP2PmsgHub   -> RemoveP2Pexplorer ( spP2PmsgPump );
+    pP2PmsgHub   -> RemoveP2Pexplorer ( spP2PmsgPump.p_SafePtr ( ) );
     spP2PmsgPump = 0;
     return TRUE;
 }
@@ -3532,7 +3532,7 @@ CloseP2PmsgPump ( )
     oSafeCS_Hub = pP2PmsgHub -> m_oCSection;
 
     // Tidy up, P2PmsgPump table within P2PmsgPump
-    pP2PmsgHub   -> RemoveP2PmsgPump ( spP2PmsgPump );
+    pP2PmsgHub   -> RemoveP2PmsgPump ( spP2PmsgPump.p_SafePtr ( ) );
     spP2PmsgPump = 0;
 }
 
@@ -5729,7 +5729,7 @@ PostP2PmsgBatch ( P2PeerMsg **apMsg, size_t nCount, P2PumpID nPumpID )
       // to the P2Pmsg, so a guard that throws below frees it (mirrors the 3-arg
       // PostP2Pmsg's P2PeerMsgSP).
       P2PeerMsgSP spMsg = apMsg[i];
-      P2PeerMsg  *pMsg  = spMsg;
+      P2PeerMsg  *pMsg  = spMsg.p_SafePtr ( );
 
       // Duplicate posting guard
       P2PeerMsgPrefix *pPrefix = (P2PeerMsgPrefix *)pMsg->r_data().c_vBlob();

@@ -367,13 +367,13 @@ P2PeerMsg::ResponseFactory ( P2PmsgID pszMsg
     // NOTES: Perform raw prefix copy
     P2PeerMsgSP spMsg = new P2PeerMsg ( r_Destin(), r_Source()
                                       , pszMsg, pvMsgData, iMsgDataSize );
-ASSERT(!P2PeerMsg_IsPosted(spMsg));
+ASSERT(!P2PeerMsg_IsPosted(spMsg.p_SafePtr()));
 
     // Data
     spMsg -> r_data() = r_data();
     P2PeerMsgPrefix *pPrefix = (P2PeerMsgPrefix *)spMsg->r_data().c_vBlob();
     pPrefix->uiState &= ~P2PeerMsgState_Posted;
-ASSERT(!P2PeerMsg_IsPosted(spMsg));
+ASSERT(!P2PeerMsg_IsPosted(spMsg.p_SafePtr()));
 
     // Tidy up, and
     return spMsg.Dereference();
