@@ -175,13 +175,26 @@
        CustomBuildStep reads $(TargetDir), and the import library goes to
        $(WDMSCS_LIB) (MSCS\lib\<Platform>\<Configuration>) via Directory.Build.props. -->
 
-  <!-- <AdditionalInputs>$(TargetPath) on every CustomBuildStep below, added
-       2026-08-22. Without an input naming the binary being copied, MSBuild
-       compares the staged DLL against this .vcxproj and skips the deploy, so the
-       shared bin\<Cfg><Arch> tree serves a stale DLL against a freshly written
-       import library. The full account, including why -t:Rebuild masked it here
-       and not in the sibling, is in the matching comment in
-       Msgcore\Msgcore(2026).vcxproj - the two projects had the same defect. -->
+  <!-- <Inputs>$(TargetPath) on every CustomBuildStep below. Without an input
+       naming the binary being copied, MSBuild compares the staged DLL against
+       this .vcxproj alone and skips the deploy, so the shared bin\<Cfg><Arch>
+       tree serves a stale DLL against a freshly written import library.
+
+       The metadata NAME is the whole fix. This was added 2026-08-22 as
+       <AdditionalInputs> and changed nothing, because Microsoft.CppCommon.targets
+       declares the step as
+
+         <Target Name="CustomBuildStep"
+                 Inputs="%(CustomBuildStep.Inputs);$(ProjectFileName)" ...>
+
+       and nothing folds AdditionalInputs into that - the name belongs to the
+       per-file CustomBuild item, not to the project-level build step, so the
+       value was simply inert metadata. Symptom: an up-to-date skip that no
+       relink ever clears. -v:diag -t:CustomBuildStep names the input set, and
+       prints "Input files: TargetCore(2026).vcxproj" alone when it is wrong.
+
+       The matching comment in Msgcore\Msgcore(2026).vcxproj carries the same
+       correction - the two projects had the same defect, and the same fix. -->
   <PropertyGroup>
     <OutDir>$(ProjectDir)out\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)out\$(Platform)\$(Configuration)\obj\</IntDir>
@@ -189,7 +202,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <CustomBuildStep>
       <Command>IF DEFINED WDMSCS_VSUTILS CALL "$(WDMSCS_VSUTILS)\IW_CustomBuildStep.bat" "$(TargetDir)" "$(TargetFileName)" "$(TargetExt)" "$(Configuration)$(PlatformArchitecture)"</Command>
-      <AdditionalInputs>$(TargetPath);%(AdditionalInputs)</AdditionalInputs>
+      <Inputs>$(TargetPath);%(Inputs)</Inputs>
       <Outputs>$(WDMSCS_DEBUG)\..\$(Configuration)$(PlatformArchitecture)\$(TargetName)$(TargetExt);%(Outputs)</Outputs>
     </CustomBuildStep>
     <ClCompile>
@@ -235,7 +248,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <CustomBuildStep>
       <Command>IF DEFINED WDMSCS_VSUTILS CALL "$(WDMSCS_VSUTILS)\IW_CustomBuildStep.bat" "$(TargetDir)" "$(TargetFileName)" "$(TargetExt)" "$(Configuration)$(PlatformArchitecture)"</Command>
-      <AdditionalInputs>$(TargetPath);%(AdditionalInputs)</AdditionalInputs>
+      <Inputs>$(TargetPath);%(Inputs)</Inputs>
       <Outputs>$(WDMSCS_DEBUG)\..\$(Configuration)$(PlatformArchitecture)\$(TargetName)$(TargetExt);%(Outputs)</Outputs>
     </CustomBuildStep>
     <ClCompile>
@@ -276,7 +289,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <CustomBuildStep>
       <Command>IF DEFINED WDMSCS_VSUTILS CALL "$(WDMSCS_VSUTILS)\IW_CustomBuildStep.bat" "$(TargetDir)" "$(TargetFileName)" "$(TargetExt)" "$(Configuration)$(PlatformArchitecture)"</Command>
-      <AdditionalInputs>$(TargetPath);%(AdditionalInputs)</AdditionalInputs>
+      <Inputs>$(TargetPath);%(Inputs)</Inputs>
       <Outputs>$(WDMSCS_DEBUG)\..\$(Configuration)$(PlatformArchitecture)\$(TargetName)$(TargetExt);%(Outputs)</Outputs>
     </CustomBuildStep>
     <ClCompile>
@@ -317,7 +330,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <CustomBuildStep>
       <Command>IF DEFINED WDMSCS_VSUTILS CALL "$(WDMSCS_VSUTILS)\IW_CustomBuildStep.bat" "$(TargetDir)" "$(TargetFileName)" "$(TargetExt)" "$(Configuration)$(PlatformArchitecture)"</Command>
-      <AdditionalInputs>$(TargetPath);%(AdditionalInputs)</AdditionalInputs>
+      <Inputs>$(TargetPath);%(Inputs)</Inputs>
       <Outputs>$(WDMSCS_DEBUG)\..\$(Configuration)$(PlatformArchitecture)\$(TargetName)$(TargetExt);%(Outputs)</Outputs>
     </CustomBuildStep>
     <ClCompile>
