@@ -212,7 +212,6 @@ P2PeerCon::~P2PeerCon ( )
     if ( m_pEvent )
       m_pEvent -> Cancel ( false );
     delete m_pstrVisualSummary;
-ASSERT(AfxCheckMemory()); //TODO: Delete-Debugging
 }
 
 void
@@ -1234,7 +1233,6 @@ P2PeerCon::PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon )
            ->Throw();
             
     // Implementation
-ASSERT(m_dwCompletionKey==(UINT_PTR)this); //TODO: Delete, debugging
     prepareOVERLAPPED ( pOVERLAPPEDcon );
 if(pOVERLAPPEDcon!=m_pOVERLAPPEDsend&&
    pOVERLAPPEDcon!=m_pOVERLAPPEDrecv&&
@@ -1459,7 +1457,6 @@ P2PeerCon::Signal ( P2PsigID nSigID, void *pvData, int iDataSize  )
     pOVERLAPPEDcon->dwBytes = iDataSize;
 
     // Implementation
-ASSERT(m_dwCompletionKey==(UINT_PTR)this); //TODO: Delete, debugging
     prepareOVERLAPPED ( pOVERLAPPEDcon );
     if ( !PostQueuedCompletionStatus( m_hCPort
                                     , 0

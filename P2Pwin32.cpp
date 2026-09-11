@@ -548,8 +548,6 @@ pTarget2->P2PeerTarget::AssertValid();
             VerifyP2Pmsg ( pP2Pmsg );
             if ( pP2Pmsg->pTarget == nullptr )
               pP2Pmsg -> pTarget = m_pTarget;
-            //TODO:LJM NLR if ( pP2Pmsg->pCon )
-            //TODO:LJM NLR   pP2Pmsg -> pCon -> SetAttributes ( WSATTRIB_P2Pmsg, 0 );
             if ( bPrepend )
               m_oCListP2Pmsg.AddHead ( pP2Pmsg );
             else
@@ -1571,7 +1569,6 @@ PostP2Pexp ( P2PeerMsg *pMsg, P2PumpID nPumpID, bool bPrepend )
          pP2PexpThis                                                    &&
          pP2PexpThis->m_nHubID != pP2PexpPump->m_nHubID                    )
     {
-      ASSERT(0);//TODO:DElete Debugging
       EVERR->MODULE
            ->AFPmsg(pMsg)->AFP(nPumpID)->AFP(bPrepend)
            ->Message("Attempt to swap PostP2Pmsg across P2PmsgHub contexts(%i to %i)"
@@ -3336,8 +3333,6 @@ ASSERT(nMsg!=2838);
     // P2PeerCon touch-up's
     // NOTES: Enumeration is suspended whilst object exists in the
     //        P2Pmsg domain
-    //TODO:LJM NLR if ( pCon )
-    //TODO:LJM NLR   pCon -> SetAttributes ( WSATTRIB_P2Pmsg, 0 );
     if (  pCon &&
          !pCon->m_hCPort )
       pCon -> m_hCPort = pP2PmsgPump -> m_hIOCP;
@@ -3649,13 +3644,9 @@ TranslateP2Pmsg ( P2Pmsg *pP2Pmsg )
 {
     UNREFERENCED_PARAMETER(pP2Pmsg);
     // On_P2PeerCON_Close() translation
-    // NOTES: Drop connection as default activity.  Notification
-    //        handler can override activity.  Default activity
-    //        should be to reclaim resources
-    //TODO:LJM NLR if ( pP2Pmsg->nCode == CN_P2PeerCon &&
-    //TODO:LJM NLR      pP2Pmsg->nMsg  == P2P_Close    &&
-    //TODO:LJM NLR      pP2Pmsg->pCon                     )
-    //TODO:LJM NLR   pP2Pmsg -> pCon -> SetAttributes ( WSAIOCTL_Drop, 0 );
+    // NOTES: No translation is currently required.  Dropping a closed
+    //        connection is performed by the pump's conDROP path in
+    //        PumpP2Pmsg(), not here
 
     // Tidy up, and
     return;
@@ -3671,7 +3662,6 @@ SwapContextP2Pmsg ( P2Pmsg **ppP2Pmsg, P2PmsgPump *pP2PmsgPump )
     mapRESULT       mapResult  =    TRUE;
     // FIX-ME this is not necessarily so
     //ASSERT(pContext->pTarget==pTarget);
-spContext->pTarget->P2PeerTarget::AssertValid(); //TODO: Delete-me debugging
 
     if ( spContext.IsEmpty() )
       EVERR->Message("SwapContextP2Pmsg() ")
@@ -3686,7 +3676,6 @@ spContext->pTarget->P2PeerTarget::AssertValid(); //TODO: Delete-me debugging
       pP2Pmsg -> pTarget = spContext -> pTarget;
       if ( pP2Pmsg->pCon )
         pP2Pmsg -> bNotify = true;
-ASSERT(VerifyP2Pmsg(pP2Pmsg));//TODO:LJM delete-me
       PostMessage ( spContext->hWnd, spContext->nWM_APP
                   ,(WPARAM)pP2Pmsg,(LPARAM)0 );
       *ppP2Pmsg = 0;
@@ -3729,7 +3718,6 @@ ASSERT(VerifyP2Pmsg(pP2Pmsg));//TODO:LJM delete-me
       pP2Pmsg -> strP2Paddr = spContext -> pMsg -> GetSource ( );
       pP2Pmsg -> pTarget    = spContext -> pTarget;
       mapResult = msgCONTINUE;
-ASSERT(VerifyP2Pmsg(pP2Pmsg));//TODO:LJM delete-me
       //P2PmsgPump::GetP2PmsgPump() -> m_pContext = 0;
       //delete pContext;
       //goto TOP;
@@ -3822,8 +3810,7 @@ TOP:bHandled = true;
         }
         //if ( !bHandled )
         //  pP2Pmsg -> pCon -> SetAttributes ( WSATTRIB_Drop, 0 );
-        if (  bHandled == conDROP  /*TODO:LJM delete     ||  Fails under multi-queued object
-              pP2Pmsg->pCon->GetAttributes(WSAIOCTL_Drop)*/    )
+        if ( bHandled == conDROP )
         {
           //DropP2PmsgCon ( pP2Pmsg->pCon );
           pP2Pmsg -> pCon -> Drop ( 0 );
@@ -3832,8 +3819,6 @@ TOP:bHandled = true;
         }
         else
         {
-          //TODO:LJM NLR pP2Pmsg -> pCon
-          //TODO:LJM NLR         -> SetAttributes ( 0, WSATTRIB_P2Pmsg );
           //pP2Pmsg -> pCon = 0;         // Rescue
         }
 
@@ -5567,8 +5552,6 @@ PostP2Pmsg ( P2PaddrSTR strP2Paddr, UINT nCode, P2Pmsg_t nMsg
     // P2PeerCon touch-up's
     // NOTES: Enumeration is suspended whilst object exists in the
     //        P2Pmsg domain
-    //TODO:LJM NLR if ( pCon )
-    //TODO:LJM NLR   pCon -> SetAttributes ( WSATTRIB_P2Pmsg, 0 );
     if (  pCon &&
          !pCon->m_hCPort )
       pCon -> m_hCPort = pP2PmsgQue -> m_hIOCP;
@@ -5640,7 +5623,6 @@ PostP2Pmsg ( P2PeerMsg *pMsg, P2PumpID nPumpID, bool bPrepend )
          pP2PmsgThis                                                    &&
          pP2PmsgThis->m_nHubID != pP2PmsgPump->m_nHubID                    )
     {
-      ASSERT(0);//TODO:DElete Debugging
       EVERR->Module ("%s(pMsg=%s, nPumpID=%i, bPrepend=%i)", __FUNCTION__
                     , pMsg->GetVisualRTSummary(), nPumpID, bPrepend )
            ->Message("Attempt to swap PostP2Pmsg across P2PmsgHub contexts(%i to %i)"
@@ -6549,7 +6531,6 @@ SwapP2PexpContext  ( P2PeerMsg *pMsg )
     // NOTES: It's important that the P2PeerCon notification or
     //        P2PeerMsg be routed back to nominated P2PeerTarget for
     //        implementation as per pContext->pTarget->On_P2PeerMsg()
-pTarget->P2PeerTarget::AssertValid(); //TODO: Delete-me debugging
 
     pContext -> pTarget   = pTarget;
     pContext -> nThreadID = nPumpID;
@@ -7201,7 +7182,8 @@ CleanupP2PmsgSink ( P2PmsgHubMgr *pP2PmsgHub )
     {
       P2PmsgSinkmap::iterator it = pP2PmsgSinkmap->begin();
       P2PmsgSinkClose ( it->first );
-      //pP2PmsgSinkmap -> erase(it); TODO: commented out since dropped via P2PmsgSinkClose()
+      // NOTES: P2PmsgSinkClose() erases the entry itself, so the loop must
+      //        not erase it here
       nSinks++;
     }
     delete pP2PmsgSinkmap;
@@ -7345,8 +7327,6 @@ PostP2PmsgSink ( P2PmsgSinkID nP2PmsgSinkID, P2PsysID nP2PsysID
     BOOL        nItems       = 0;
     P2PmsgHubID nHubID       = GetP2PmsgHubID ( );
     P2PsafeCS   oSafeCS_Hub  = s_oCSectionP2PmsgHub;
-if(pTarget)
-pTarget->P2PeerTarget::AssertValid();//TODO: LJM Delete-me
     // Isolate P2PmsgHub
     // NOTES: P2PmsgHub[] environment isolation, keep to completion
     P2PmsgHubMgr *pP2PmsgHub  = 0;
@@ -7403,8 +7383,6 @@ PostP2PmsgSink ( P2PmsgSinkID nP2PmsgSinkID, P2PsysID nP2PsysID
     BOOL        nItems       = 0;
     P2PmsgHubID nHubID       = GetP2PmsgHubID ( );
     P2PsafeCS   oSafeCS_Hub  = s_oCSectionP2PmsgHub;
-if(pTarget)
-pTarget->P2PeerTarget::AssertValid();//TODO: LJM Delete-me
     // Isolate P2PmsgHub
     // NOTES: P2PmsgHub[] environment isolation, keep to completion
     P2PmsgHubMgr *pP2PmsgHub  = 0;

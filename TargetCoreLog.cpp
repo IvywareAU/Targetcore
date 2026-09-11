@@ -66,7 +66,6 @@
 #define P2P_LOG_PATHSEP L"/"
 #endif
 
-int nErrors=0;//TODO:LJM delete me
 CString      g_csDebugLogFolder;
 BOOL         g_bVMSevents_TRACE  = TRUE;
 BOOL         g_bVMSevents_MEMORY = TRUE;

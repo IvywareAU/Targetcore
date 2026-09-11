@@ -1627,7 +1627,6 @@ P2PeerTarget::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     //        MAX_P2PmsgWrapEmbed - because these two copies are bounded by
     //        different things and fixing either alone leaves the other
     P2Pevent *pEVT =
-    //EVTRC->Module ("%s(pMsg=%s)", __FUNCTION__  TODO Activate-me
     EVERR->MODULE
          // WIDE arguments need the WIDE overload: c_name()/GetSource()/
          // GetDestin() are all LPCWSTR, and a bare "..." literal is NARROW in

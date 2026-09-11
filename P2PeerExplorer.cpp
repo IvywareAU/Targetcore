@@ -950,7 +950,6 @@ P2PeerExplorer::P2PexpumpContextSwap ( P2PeerMsg *pMsg )
     // Undeliverable
     // NOTES: Deliver P2PeerMsg exception back to source
     P2Pevent *pEVT =
-    //EVTRC->Module ("%s(pMsg=%s)", __FUNCTION__  TODO Activate-me
     EVERR->MODULE->AFPmsg(pMsg)
          // WIDE arguments need the WIDE overload - see P2PeerTarget.cpp:1476.
          ->Message(L"Message[%s] from [%s] not deliverable to [%s]"
