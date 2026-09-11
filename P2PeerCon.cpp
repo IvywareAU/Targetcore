@@ -3875,7 +3875,10 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     //        deliberately instead of by accident.  A hub with
     //        RequireAuth(false) is untouched by this test: refer
     //        AuthLinkRelaxed()
-    unsigned char *pAuthBuf   = 0;
+    //      : A std::vector and not a raw new[].  The P2PeerMsg below
+    //        copies this buffer and CAN throw doing it, and the delete
+    //        that followed the construction was not reached when it did
+    std::vector<unsigned char> vAuthBuf;
     const void    *pvSendMsg  = pvLoginMsg;
     P2Psize_t      iSendSize  = iSize;
     P2PeerHub     *pAuthHub   = GetAuthHub ( );
@@ -3895,11 +3898,12 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
              ->Throw();
 
       m_bAuthNonce = true;
-      pAuthBuf     = new unsigned char [ p2pauth::kAuthLoginLen + (size_t)iSize ];
-      memcpy ( pAuthBuf, aBlock, p2pauth::kAuthLoginLen );
+      vAuthBuf.resize ( p2pauth::kAuthLoginLen + (size_t)iSize );
+      memcpy ( &vAuthBuf[0], aBlock, p2pauth::kAuthLoginLen );
       if ( iSize > 0 && pvLoginMsg )
-        memcpy ( pAuthBuf + p2pauth::kAuthLoginLen, pvLoginMsg, (size_t)iSize );
-      pvSendMsg = pAuthBuf;
+        memcpy ( &vAuthBuf[0] + p2pauth::kAuthLoginLen
+               , pvLoginMsg, (size_t)iSize );
+      pvSendMsg = &vAuthBuf[0];
       iSendSize = (P2Psize_t)( p2pauth::kAuthLoginLen + (size_t)iSize );
     }
 
@@ -3914,7 +3918,6 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
                                       , P2Pmsg_Login
                                       , pvSendMsg, iSendSize );
-    delete [] pAuthBuf;                // copied into the message above
     PostP2PeerMsg ( spMsg );
     spMsg.Dereference ( );
 
@@ -4163,7 +4166,8 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
     //        produced when a login block was actually verified on this
     //        connection (m_bAuthNonce), because there is otherwise no
     //        nonce to bind and an unbound signature would prove nothing.
-    unsigned char *pAuthBuf  = 0;
+    //      : Owned by a std::vector for the reason given in LoginSend()
+    std::vector<unsigned char> vAuthBuf;
     const void    *pvSendAck = pvLoginAck;
     P2Psize_t      iSendSize = iSize;
     P2PeerHub     *pAuthHub  = GetAuthHub ( );
@@ -4182,22 +4186,27 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
              ->Advice_T ("Identity key loaded with SetIdentity()?")
              ->Throw();
 
-      pAuthBuf = new unsigned char [ p2pauth::kAuthAckLen + (size_t)iSize ];
-      memcpy ( pAuthBuf, aBlock, p2pauth::kAuthAckLen );
+      vAuthBuf.resize ( p2pauth::kAuthAckLen + (size_t)iSize );
+      memcpy ( &vAuthBuf[0], aBlock, p2pauth::kAuthAckLen );
       if ( iSize > 0 && pvLoginAck )
-        memcpy ( pAuthBuf + p2pauth::kAuthAckLen, pvLoginAck, (size_t)iSize );
-      pvSendAck = pAuthBuf;
+        memcpy ( &vAuthBuf[0] + p2pauth::kAuthAckLen
+               , pvLoginAck, (size_t)iSize );
+      pvSendAck = &vAuthBuf[0];
       iSendSize = (P2Psize_t)( p2pauth::kAuthAckLen + (size_t)iSize );
     }
 
     // Implementation
     // NOTES: Logon acknowledgement is posted directly to the
     //        output queue.
-    P2PeerMsg *pMsg = new P2PeerMsg ( GetP2PaddrHub().c_wstr(), m_oThatP2Paddr.c_wstr()
-                                    , P2Pmsg_LoginAck
-                                    , pvSendAck, iSendSize );
-    delete [] pAuthBuf;                // copied into the message above
-    PostP2PeerMsg ( pMsg );
+    //      : Held in a P2PeerMsgSP for the reason given in LoginSend() -
+    //        PostP2PeerMsg() can throw before the queue takes the
+    //        message, and the raw new leaked when it did
+    P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub().c_wstr()
+                                      , m_oThatP2Paddr.c_wstr()
+                                      , P2Pmsg_LoginAck
+                                      , pvSendAck, iSendSize );
+    PostP2PeerMsg ( spMsg );
+    spMsg.Dereference ( );
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
