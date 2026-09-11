@@ -3582,6 +3582,44 @@ ReleaseP2Pmsg ( P2Pmsg *pP2Pmsg )
 }
 
 //
+//  Stack based safe P2Pmsg container
+//  NOTES: Releases the referenced P2Pmsg as the enclosing scope
+//         unwinds, an escaping exception included.
+//       : Binds the caller's pointer variable rather than its value,
+//         because the context swaps reassign it - and zero it when
+//         they take over the life cycle - before the release happens
+class P2PsafeP2Pmsg
+{
+    public:
+        P2PsafeP2Pmsg ( P2Pmsg *&rpP2Pmsg ) : m_rpP2Pmsg(rpP2Pmsg) { }
+       ~P2PsafeP2Pmsg ( )
+        {
+          // To be sure, to be sure
+          // NOTES: A destructor is implicitly noexcept, so a P2Pevent
+          //        escaping here mid-unwind would terminate the
+          //        process.  Cancel it, as the handlers do
+          try
+          {
+            ReleaseP2Pmsg ( m_rpP2Pmsg );
+          }
+          catch ( P2Pevent *pEVT )
+          {
+            if ( pEVT )
+              pEVT -> Cancel ( );
+          }
+          catch ( ... )
+          {
+          }
+        }
+    public:
+        P2PsafeP2Pmsg ( const P2PsafeP2Pmsg& ) = delete;
+      P2PsafeP2Pmsg&
+        operator = ( const P2PsafeP2Pmsg& ) = delete;
+    private:
+        P2Pmsg *&m_rpP2Pmsg;
+};
+
+//
 //  Pre-translation of P2Pmsg's
 //  NOTES: The pre-translation processing assumes life
 //         cycle control over passed P2Pmsg object
@@ -3704,7 +3742,9 @@ SwapContextP2Pmsg ( P2Pmsg **ppP2Pmsg, P2PmsgPump *pP2PmsgPump )
     {
       spContext -> pCon -> PostP2PeerMsg ( pP2Pmsg->pMsg );
       pP2Pmsg   -> pMsg = 0;
-      //ReleaseP2Pmsg ( pP2Pmsg );
+      // NOTES: The P2Pmsg is deliberately not released here.  This branch
+      //        leaves *ppP2Pmsg live and DispatchP2Pmsg(), which owns it,
+      //        releases it at its tail
     }
 
     // Swap P2PeerMsg context
@@ -3767,6 +3807,11 @@ DispatchP2Pmsg ( P2Pmsg *pP2Pmsg, P2PmsgPump *pP2PmsgPump )
     // Introduce locals
     BOOL          bHandled;
     P2PeerTarget *pTarget;
+    // P2Pmsg life cycle
+    // NOTES: Declared ahead of TOP: so the context swap loop below
+    //        cannot destroy and re-arm it.  Sole owner of the P2Pmsg
+    //        from here on - see the NOTES at the tail
+    P2PsafeP2Pmsg oSafeP2Pmsg ( pP2Pmsg );
 
     // From the top
     // NOTES: Entry point may be required by certain context swaps
@@ -3971,8 +4016,6 @@ TOP:bHandled = true;
              ->Advice ("P2PeerMsg object dropped" )
              ->Cancel();
 
-      // Garbage collection
-      //ReleaseP2Pmsg ( pP2Pmsg );
     }
 
     // Exceptions
@@ -4045,17 +4088,20 @@ TOP:bHandled = true;
     {
 //ASSERT(::AfxCheckMemory());
 pEVT->Print();
-      if ( pP2Pmsg->nCode == CN_P2PeerCon ||
+      if ( pP2Pmsg->nCode == CN_P2PeerCon &&
            pP2Pmsg->pCon                     )
         pP2Pmsg -> pCon -> Drop ( pEVT->Isolate() );
       else
         pEVT -> Cancel ( );
       // pTarget -> PreDestroyP2PeerCon ( pP2Pmsg->pCon, conDROP );
-      //ReleaseP2Pmsg ( pP2Pmsg ); TODO:LJM activate this, omission picked up but not confirmed
     }
 
     // Tidy up, and
-    ReleaseP2Pmsg ( pP2Pmsg );
+    // NOTES: oSafeP2Pmsg releases the P2Pmsg as this scope unwinds -
+    //        on this path, and on any exception escaping the handler
+    //        above.  ReleaseP2Pmsg() deletes unconditionally and does
+    //        the balancing s_cP2Pmsg--, so no path above may release
+    //        it a second time
     return;
 }
 
