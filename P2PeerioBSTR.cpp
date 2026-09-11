@@ -184,7 +184,13 @@ P2PeerioBSTR::RecvP2PeerMsg ( HANDLE hFile
     // Stage 1 - Fetch message size
     if ( dwBytes < sizeof(P2Psize_t) )
     {
-      //TODO: FIXME m_iRecvTimeout = (_time64(0)+10) * 1000;
+      // NOTES: There is no receive timeout, and this line and its partner
+      //        at stage 3 could not have supplied one.  m_iRecvTimeout is
+      //        a P2PeerCon member, not this class's, and NOTHING in the
+      //        tree reads it - arming a deadline here would be observed by
+      //        nobody.  A timeout needs its reader built first: somewhere
+      //        that checks the deadline, and a policy for what to do when
+      //        it passes
       dwResult = Recv ( hFile
                       ,&pBuffer[dwBytes]
                       , S-dwBytes, pOVERLAPPEDrecv );
@@ -233,7 +239,6 @@ P2PeerioBSTR::RecvP2PeerMsg ( HANDLE hFile
     if ( dwBytes >    S       &&
          dwBytes >= *pMsgSize     )
     {
-      //TODO FIXME m_iRecvTimeout = 0;
       ASSERT(dwBytes==*pMsgSize);
       P2PeerMsg *pMsg;
       pMsg = new P2PeerMsg ( m_pCon->GetP2Paddress()

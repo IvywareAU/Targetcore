@@ -5017,52 +5017,11 @@ DispatchP2PeerCon ( P2PeerTarget *pTarget
 ///////////////////////////////////////////////////////////////////////
 //  P2Pmsg implementation
 //  NOTES: Thread context sensitive P2Pmsg storage and retrieval
-//       : StartupP2Pmsg()
-//         Performs pump initialisation and startup for thread
 //       : PumpP2Pmsg()
 //         P2PeerTarget P2Pmsg pumping
 //       : CleanupP2Pmsg()
 //         Performs pump shutdown and cleanup for thread
 //
-
-//
-//  Description: Starts up event driven P2Pmsg pump
-//               NOTES: Compliments CleanupP2Pmsg()
-//
-//
-//  Parameters:  P2PeerTarget *pTarget
-//               Initial P2Pmsg ownership target.  Ownership may
-//               be subsequently swapped.
-//
-//               HANDLE hP2PmsgEvent
-//               P2Pmsg to be pumped event
-//
-BOOL
-StartupP2Pmsg ( P2PeerTarget *pTarget, HANDLE hP2PmsgEvent )
-{
-    // To be sure, to be sure
-    ASSERT(0); //TODO:LJM Is this still required
-    if ( !s_bCSectionP2Pmsg )
-    {
-      s_bCSectionP2Pmsg = true;
-      InitializeCriticalSection ( &s_oCSectionP2Pmsg );
-    }
-
-    // To be sure, to be sure
-    P2PsafeCS   oSafeCS     = s_oCSectionP2Pmsg;
-    P2PmsgPump *pP2PmsgPump = P2PmsgPump::GetP2PmsgPump ( );
-    if ( pP2PmsgPump )
-      EVERR->MODULE
-           ->Message_T("P2Pmsg pump already started")
-           ->Advice_T ("Refer StartupP2Pmsg() for further details" )
-           ->Throw    ( );
-
-    // Implementation
-    pP2PmsgPump = P2PmsgPump::Factory ( hP2PmsgEvent, pTarget );
-
-    // Tidy up, and
-    return pP2PmsgPump ? TRUE : FALSE;
-}
 
 //
 //  Description: Starts up IOCP driven P2Pmsg pump

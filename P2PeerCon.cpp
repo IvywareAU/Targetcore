@@ -301,91 +301,6 @@ P2PeerCon::RenderThisSafe ( )
     m_pEvent         = 0;
 }
 
-//
-//  Description: Splits listening connection into listening and
-//               accepted P2PeerCon'nections
-//               NOTES: Derived classes must delegate
-//
-//
-//  Parameters:  P2PeerCon **pConListen = 0
-//               Previously manufactured listening instance
-//
-//               P2PeerCon **pConAccept = 0
-//               Previously manufactured accept instance
-//
-/*void
-P2PeerCon::AcceptSplit ( P2PeerCon **ppConListen, P2PeerCon **ppConAccept )
-{
-    // Locals
-    P2PeerCon *pConListen = *ppConListen;
-    P2PeerCon *pConAccept = *ppConAccept;
-
-    // Manufacture listening object
-    // NOTES: This object by default
-    if ( !pConListen )
-      pConListen = this;
-
-    // Settlement
-    if ( pConListen != this )
-    {
-           pConListen -> m_hCPortP2PumpID  = m_hCPortP2PumpID;
-           pConListen -> m_hCPort          = m_hCPort;
-    delete pConListen -> m_pP2Peerio;
-           pConListen -> m_pP2Peerio       = m_pP2Peerio -> Clone();
-           pConListen -> m_pP2Peerio -> Register ( pConListen );
-           pConListen -> m_oThisP2Paddr    = m_oThisP2Paddr;
-           pConListen -> m_oThisP2Paddr1   = m_oThisP2Paddr1;
-           pConListen -> m_oThatP2Paddr    = m_oThatP2Paddr;
-           pConListen -> m_oThatP2Paddr1   = m_oThatP2Paddr1;
-           pConListen -> m_eP2PeerIDmap    = m_eP2PeerIDmap;
-           pConListen -> m_eP2PeerConMode  =    P2PeerCon_SERVICE;
-           pConListen -> m_dwState
-                       = m_dwState & ~( ConState_Recv
-                                      | ConState_Send
-                                      | ConState_Login );
-    }
-
-    // Manufacture acceptance object
-    // NOTES: Mandatory P2PeerConPlc integration
-    if ( !pConAccept )
-    {
-      ASSERT(0); //TODO:LJM FIX_ME
-       //pConAccept  = new P2PeerCon ( );
-      *this += pConAccept;
-    }
-
-    // Settlement
-    if ( pConAccept != this )
-    {
-           pConAccept -> m_hCPortP2PumpID  = m_hCPortP2PumpID;
-           pConAccept -> m_hCPort          = m_hCPort;
-    delete pConAccept -> m_pP2Peerio;
-           pConAccept -> m_pP2Peerio       = m_pP2Peerio -> Clone();
-           pConAccept -> m_pP2Peerio -> Register ( pConAccept );
-           pConAccept -> m_oThisP2Paddr    = m_oThisP2Paddr;
-           pConAccept -> m_oThisP2Paddr1   =   "";
-           pConAccept -> m_oThatP2Paddr    = m_oThatP2Paddr;
-           pConAccept -> m_oThatP2Paddr1   =   "";
-           pConAccept -> m_eP2PeerIDmap    = m_eP2PeerIDmap;
-           pConAccept -> m_oP2Padom        = m_oP2Padom;
-           pConAccept -> m_eP2PeerConMode  =    P2PeerCon_Accept;
-           pConAccept -> m_dwState
-                       = m_dwState & ~( ConState_Recv
-                                      | ConState_Send
-                                      | ConState_Login );
-    }
-
-    // Tidy up, and
-    // NOTES:
-    P2PaddrSTR strThatP2Paddr;
-    *ppConListen   = pConListen;
-    strThatP2Paddr = pConListen -> m_oThatP2Paddr;
-                     pConListen -> m_oThatP2Paddr = strThatP2Paddr;// | 0x00000001;
-    *ppConAccept   = pConAccept;
-    strThatP2Paddr = pConAccept -> m_oThatP2Paddr;
-                     pConAccept -> m_oThatP2Paddr = strThatP2Paddr;// &~0x00000001;
-}*/
-
 P2PeerCon*
 P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
 {
@@ -1195,7 +1110,13 @@ ASSERT(AfxCheckMemory());
     if ( pOVERLAPPEDcon->pUserDB2 == pOVERLAPPEDcon->pBuffer )
       pOVERLAPPEDcon->pBuffer = 0;
     delete [] pOVERLAPPEDcon->pUserDB2;
-    if ( pOVERLAPPEDcon->dwBytesMax > 0 ) //TODO:LJM should this be pBuffer
+    // NOTES: dwBytesMax IS the ownership flag, so this test is correct and
+    //        must NOT become a test on pBuffer.  MakeOVERLAPPED() sets the
+    //        two together, and P2PeerioDmx sets dwBytesMax = 0 precisely
+    //        because its pBuffer points at the message's own P2Piomage -
+    //        deleting on a non-null pBuffer would free foreign storage,
+    //        and with the wrong allocator
+    if ( pOVERLAPPEDcon->dwBytesMax > 0 )
       delete [] pOVERLAPPEDcon->pBuffer;
     delete    pOVERLAPPEDcon;
 ASSERT(AfxCheckMemory());
@@ -4126,13 +4047,31 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
 
     // Accepted P2Paddr assignment
     // NOTES: Such P2Paddr's may be auto-assigned from the domain
+    //      : This assignment deliberately bypasses the swap check below -
+    //        an accepted connection IS allowed to take the address the
+    //        acknowledgement carries - so the domain test is the safety on
+    //        that bypass, and it had been commented out.  Enabled here
+    //      : Guarded on IsNull() for the reason recorded at the OnLogin
+    //        twin: an unconfigured domain means "no restriction", and
+    //        IsMapped() over an empty one reads uninitialised state.  The
+    //        commented original lacked that guard, so enabling it verbatim
+    //        would have refused every unconfigured connection
+    //      : The trace no longer casts pvLoginAck to int - a truncating
+    //        cast on x64, and the pointer value said nothing
+    //      : Covered by DirectExamples/LoginAckDomainTest, and by nothing
+    //        else in that suite.  Reaching this block takes a handler that
+    //        acknowledges with an address of its own choosing: the default
+    //        chain forwards whatever the peer sent, so where no address is
+    //        sent the outer IsNull() skips the block, and where one IS sent
+    //        OnLogin's own domain check throws before LoginAck is called
     if (  m_eP2PeerConMode == P2PeerCon_Accept &&
            !oThatP2Paddr.IsNull()              &&
          !m_oThatP2Paddr.IsNull()                 )
     {
-      /*TODO:Activate debugging if ( !m_oP2Padomain.IsMapped(oThatP2Paddr) )
-        EVERR->Module (L"%hs(%s,%i,%i)", __FUNCTION__
-                      , m_oThatP2Paddr.c_wstr(), (int)pvLoginAck, iSize )
+      if (  !m_oP2Padomain.IsNull()               &&
+            !m_oP2Padomain.IsMapped(oThatP2Paddr)    )
+        EVERR->Module (L"%hs(%s,%i)", __FUNCTION__
+                      , m_oThatP2Paddr.c_wstr(), iSize )
              ->Message(L"LoginAck P2Paddr[%s] is not within domain [%s]"
                       ,   oThatP2Paddr.c_wstr()
                       , m_oP2Padomain.c_wstr() )
@@ -4140,7 +4079,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
                       , GetP2PaddrHub().c_wstr(),m_oThatP2Paddr.c_wstr() )
              ->Advice ("Connection mis-match" )
              ->Advice ("Attempted security breach" )
-             ->Group("P2P")->Throw();*/
+             ->Group("P2P")->Throw();
       m_oThatP2Paddr = oThatP2Paddr;
     }
 

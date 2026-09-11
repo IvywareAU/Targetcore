@@ -833,7 +833,14 @@ P2Peerio::On_PITimer ( bool bCancel
     if ( nPITimerID == m_nPITimerIDack )
     {
       m_nPITimerIDack = 0;
-      // TODO: Implement default acknowledgement processing
+      // NOTES: There is nothing to process.  m_nPITimerIDack is the only
+      //        timer id this class holds, and it is initialised to 0,
+      //        tested, cancelled and cleared - but never ARMED.  No
+      //        SetPITimer() in the tree assigns it, so it stays 0, every
+      //        cancel guarding it is false, and this branch can only match
+      //        a dispatched timer whose id is 0 - which no live timer has.
+      //        Default acknowledgement processing needs the timer started
+      //        first, and that is an ack policy decision, not a gap here
       return;
     }
 
