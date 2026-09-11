@@ -105,10 +105,6 @@ class TargetCore_EXT P2PeerConPipe : public P2PeerCon
 
     // IOCP Integration
     public:
-      /*virtual bool
-        On_QueuedCompletionStatus ( DWORD dwError
-                                  , DWORD dwBytes
-                                  , OVERLAPPEDcon *pOVERLAPPEDcon );*/
       virtual void
         Drop ( P2Pevent *pEVENT );
 

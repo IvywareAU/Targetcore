@@ -119,28 +119,6 @@ P2PeerEvents::WsaLogFactory( P2PaddrSTR  strThisP2Paddr
     delete pP2PeerEvents;
     return 0;                          // Flags failure
 }
-//P2PeerEvents*
-//P2PeerEvents::FactoryStart_( HANDLE      hEventExternal
-//                           , P2PaddrSTR  pThisP2PaddrSTR
-//                           , P2PaddrSTR  pSinkP2PaddrSTR
-//                           , LPCTSTR  lpszHostname, short nIpPort
-//                           , DWORD      dwEventsMask )
-//{
-//    // Introduce locals
-//    P2PeerEvents *pP2PeerEvents;
-//
-//    // Manufacture
-//    pP2PeerEvents = new P2PeerEvents ( pThisP2PaddrSTR );
-//    pP2PeerEvents -> m_dwEventsClassMask = dwEventsMask;
-//
-//    // Start
-//    //TODO:LJM ACtivate if ( pP2PeerEvents->StartLogging(hEventExternal
-//    //                                ,pSinkP2PaddrSTR
-//    //                                ,lpszHostname,nIpPort) )
-//      return pP2PeerEvents;            // Up and running
-//    delete pP2PeerEvents;
-//    return 0;
-//}
 
 //
 //  Plain network P2PmsgHub implementation
@@ -302,25 +280,6 @@ ASSERT(pLogEventails->nSize<612);
     // Tidy up and
     return pLogEventails;
 }*/
-//void WINAPI
-//P2PeerEvents::P2PeventCB_ ( P2PeventSinkID nSinkID, DWORD dwCBKey
-//                         , const P2Pevent& oEvent )
-//{
-//    // Resolve
-//    ASSERT(0);//TODO:Deprecated by On_P2Pevent handler
-//    P2PeerEvents *pThis  = (P2PeerEvents *)dwCBKey;
-//
-//    // Package and delivery
-//    P2PeerMsgSP spMsg = new P2PeerMsg ( pThis->GetP2PaddrHub()
-//                                      , pThis->m_oSinkP2Paddr
-//                                      , P2Pmsg_Error
-//                                      , 0, 0 );
-//                spMsg -> AttachP2Pevent ( &oEvent );
-//    PostP2Pmsg ( spMsg.Dereference(), pThis->m_nHubID, false );
-//
-//    // Tidy up and
-//    return;
-//}
 
 ///////////////////////////////////////////////////////////////////////
 // Operations
