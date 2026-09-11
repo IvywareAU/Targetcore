@@ -948,9 +948,13 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     while ( EnumP2PmsgCon(m_nHubID,&pCon) )
     { 
       const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
+      // NOTES: EnumP2PmsgCon() is deliberately unfiltered - it is the
+      //        "every connection on this hub" primitive, and the ten
+      //        loops in this file each apply their own predicate to it.
+      //        A listener is not a routing candidate, so the
+      //        test belongs at this call site and not in the enumerator
       if ( pCon->GetMode() == P2PeerCon_SERVICE )
       {
-        //TODO:LJM this logic should not be required
         continue;
       }
 

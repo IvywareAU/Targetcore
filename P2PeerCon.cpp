@@ -2066,7 +2066,11 @@ P2PeerCon::Accept ( )
     // NOTES: Audits the development cycle and traps illogical states
     //        that can propogate subtle bugs.
     //      : Low frequency check more than worth the overhead
-    if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Listen) &&   //TODO:LJM This state will be phased out
+    //      : P2P_Listen was NOT phased out.  The tree standardised on it
+    //        instead - refer P2PeerConDmx.cpp, where the accept path
+    //        posts P2P_Listen "for consistency with the other
+    //        transports (Wsa/Pipe)"
+    if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Listen) &&
          !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Accept)    )
       EVERR->MODULE->AFPcon(this)
            ->Message_T("Requires ON_P2PeerOLD_ACCEPT handler state")
@@ -2168,8 +2172,6 @@ P2PeerCon::OnAccept ( const P2Paddr oThatP2Paddr )
            ->Throw  ( );
 
     // To be sure, to be sure
-if(!oThatP2Paddr.IsNull())
-m_oThatP2Paddr=oThatP2Paddr;//TODO:LJM Hack to make progress
     if (   !oThatP2Paddr.IsNull()        &&
          !m_oThatP2Paddr.IsNull()        &&
           m_oThatP2Paddr != oThatP2Paddr    )
@@ -3904,17 +3906,17 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     // Implementation
     // NOTES: Logon acknowledgement is posted directly to the
     //        output queue.
-P2PeerMsg *pMsg = new P2PeerMsg( GetP2PaddrHub(), m_oThatP2Paddr //TODO:LJM delete this
-               , P2Pmsg_Login
-               , pvSendMsg, iSendSize );
-//ASSERT(pMsg->Exists(VBLockBSTR_MSG));
-//pMsg->r_node(0)+= P3PmsgNode(P3PmsgField("Test",21));
+    //      : The message is held in a P2PeerMsgSP until PostP2PeerMsg()
+    //        has taken it.  That call can throw BEFORE the queue holds
+    //        the message - AssertValid() under g_bP2Pmsg_AssertValid,
+    //        and the list insert - and the raw new leaked on both
+    //        paths.  Dereference() hands ownership on once it cannot
+    P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
+                                      , P2Pmsg_Login
+                                      , pvSendMsg, iSendSize );
     delete [] pAuthBuf;                // copied into the message above
-PostP2PeerMsg(pMsg);//Delete above
-    // FIX-ME possible memory leak if PostP2PeerMsg() fails
-    //PostP2PeerMsg ( new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
-    //                              , P2Pmsg_Login
-    //                              , pvLoginMsg, iSize ) );
+    PostP2PeerMsg ( spMsg );
+    spMsg.Dereference ( );
 
     // Tidy up, and
     return;
@@ -3972,16 +3974,14 @@ P2PeerCon::Login_Fractal ( P2PaddrSTR strThisP2Paddr1, P2PaddrSTR strThatP2Paddr
     // Implementation
     // NOTES: Logon acknowledgement is posted directly to the
     //        output queue.
-P2PeerMsg *pMsg = new P2PeerMsg( GetP2PaddrHub(), m_oThatP2Paddr //TODO:LJM delete this
-               , P2Pmsg_Login
-               , pvLoginMsg, iSize );
-//ASSERT(pMsg->Exists(VBLockBSTR_MSG));
-//pMsg->r_node(0)+= P3PmsgNode(P3PmsgField("Test",21));
-PostP2PeerMsg(pMsg);//Delete above
-    // FIX-ME possible memory leak if PostP2PeerMsg() fails
-    //PostP2PeerMsg ( new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
-    //                              , P2Pmsg_Login
-    //                              , pvLoginMsg, iSize ) );
+    //      : Held in a P2PeerMsgSP for the reason given in LoginSend() -
+    //        PostP2PeerMsg() can throw before the queue takes the
+    //        message, and the raw new leaked when it did
+    P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
+                                      , P2Pmsg_Login
+                                      , pvLoginMsg, iSize );
+    PostP2PeerMsg ( spMsg );
+    spMsg.Dereference ( );
 
     // Tidy up, and
     return;

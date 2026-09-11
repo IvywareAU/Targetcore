@@ -1627,7 +1627,13 @@ P2PeerMsg::SetAddrTag ( const void *pvTagData, P2Psize_t iSize )
     ASSERT(r_name().VerifyContainment()); 
     P2PeerMsgPrefix *pPrefix = (P2PeerMsgPrefix *)r_data().c_vBlob();
     pPrefix -> dwAddrTag_ = *(DWORD_PTR *)pvTagData;
-    //TODO:LJM activate oNodeAddr.DeclareItem ( TMsg_Tag, P3PmsgData(pvTagData,iSize) );
+    // NOTES: The tag rides in the message PREFIX, not as a named node
+    //        item.  Declaring TMsg_Tag as well would put one value on
+    //        the wire twice and give it two places to diverge, and
+    //        nothing would read it there.  AddrTag() reads the prefix
+    //        and is the only reader - refer HasOwnership() and
+    //        PostP2PeerMsg() in P2PeerTarget.cpp.  TMsg_Tag has no
+    //        other user in the tree
 
     // Simply
     return pPrefix -> dwAddrTag_;
