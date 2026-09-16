@@ -507,9 +507,9 @@ P2PeerHub::ProcHub ( void *pvData )
     }
     catch ( ... )
     {
-      EVERR->Module (_T("P2PeerHub::ProcHub") )
-           ->Message(_T("Last resort exception of unknown type, "
-                        "P2PmsgHub terminated") )
+      EVERR->Module (L"P2PeerHub::ProcHub" )
+           ->Message(L"Last resort exception of unknown type, "
+                        "P2PmsgHub terminated" )
            ->Cancel();
     }
 
@@ -1620,10 +1620,10 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     //        interoperability out of the field below.
     P3PmsgField_SERIALISE ( oNodeVar, L"Version"
                           , TARGETCORE_VERSION_STRINGW, bDsc
-                          , _T("TargetCore build version of the running Hub") );
+                          , L"TargetCore build version of the running Hub" );
     P3PmsgField_SERIALISE ( oNodeVar, L"VersionHex"
                           , (UINT32)TARGETCORE_VERSION_HEX, bDsc
-                          , _T("Build version packed MAJOR,MINOR,PATCH,BUILD") );
+                          , L"Build version packed MAJOR,MINOR,PATCH,BUILD" );
     //      : PumpsMax reported the LITERAL 0 from the import until Stage 4
     //        step 13.  A field that always reports a constant is worse than an
     //        absent one - an absent field is asked about, a constant one is
@@ -1632,7 +1632,7 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     //        CreateP2PmsgPump() refuses against
     P3PmsgField_SERIALISE ( oNodeVar, L"PumpsMax"
                           , (UINT32)GetP2PmsgHubPumpsMax(m_nHubID), bDsc
-                          , _T("Maxmimum number of pumps supported by Hub") );
+                          , L"Maxmimum number of pumps supported by Hub" );
 
     //      : QueDepth and Accepted are Stage 4 step 13, and the reason they
     //        are HERE rather than in a new message is the reason Version is:
@@ -1659,10 +1659,10 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     //        fault from inside the report of the first
     P3PmsgField_SERIALISE ( oNodeVar, L"QueDepth"
                           , (UINT32)GetP2PmsgHubQueCount(m_nHubID), bDsc
-                          , _T("P2Pmsg's queued across all of the Hub's pumps") );
+                          , L"P2Pmsg's queued across all of the Hub's pumps" );
     P3PmsgField_SERIALISE ( oNodeVar, L"Accepted"
                           , (UINT32)GetP2PmsgHubAcceptedCount(m_nHubID), bDsc
-                          , _T("Connections currently accepted by Hub services") );
+                          , L"Connections currently accepted by Hub services" );
 
     //      : Throttled is Stage 4 step 12, and it belongs beside QueDepth
     //        rather than in a message of its own because it is the OTHER half
@@ -1673,7 +1673,7 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     //        fields read together say so where either alone misleads
     P3PmsgField_SERIALISE ( oNodeVar, L"Throttled"
                           , (UINT32)GetP2PmsgHubHeldCount(m_nHubID), bDsc
-                          , _T("Backpressure holds applied to Hub connections") );
+                          , L"Backpressure holds applied to Hub connections" );
 
     //      : SECURITY POSTURE, and it is F-S6-2. Every field
     //        above this line is about identity or load. Until these existed a
@@ -1714,27 +1714,27 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     bool bPosture = TryReadPosture ( oPosture );
     P3PmsgField_SERIALISE ( oNodeVar, L"PostureOk"
                           , (UINT32)( bPosture ? 1 : 0 ), bDsc
-                          , _T("Security fields below were readable this instant") );
+                          , L"Security fields below were readable this instant" );
     if ( bPosture )
     {
       P3PmsgField_SERIALISE ( oNodeVar, L"AuthRequired"
                             , (UINT32)( oPosture.bAuthRequired ? 1 : 0 ), bDsc
-                            , _T("Hub requires peers to prove their identity") );
+                            , L"Hub requires peers to prove their identity" );
       P3PmsgField_SERIALISE ( oNodeVar, L"AuthCanSign"
                             , (UINT32)( oPosture.bAuthCanSign ? 1 : 0 ), bDsc
-                            , _T("Hub holds an identity key and can sign a login") );
+                            , L"Hub holds an identity key and can sign a login" );
       P3PmsgField_SERIALISE ( oNodeVar, L"AuthArm"
                             , (UINT32)oPosture.nAuthArm, bDsc
-                            , _T("Can enforce what it requires: 0 armed, 1 auth off") );
+                            , L"Can enforce what it requires: 0 armed, 1 auth off" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RelayAuth"
                             , (UINT32)( oPosture.bRelayAuth ? 1 : 0 ), bDsc
-                            , _T("Relayed traffic must carry an origin attestation") );
+                            , L"Relayed traffic must carry an origin attestation" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RelayReplay"
                             , (UINT32)( oPosture.bRelayReplay ? 1 : 0 ), bDsc
-                            , _T("An attestation already accepted is refused again") );
+                            , L"An attestation already accepted is refused again" );
       P3PmsgField_SERIALISE ( oNodeVar, L"SealReplay"
                             , (UINT32)( oPosture.bSealReplay ? 1 : 0 ), bDsc
-                            , _T("A sealed body already opened is refused again") );
+                            , L"A sealed body already opened is refused again" );
       //  FOUR revocation fields and not one, and the first draft of this block
       //  got it wrong in a way worth keeping on the record. It reported
       //  IsRevocationUsable() as "a list is loaded and usable", and the gate
@@ -1751,10 +1751,10 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  seeing 1/0 here means somebody changed it after arming.
       P3PmsgField_SERIALISE ( oNodeVar, L"SealReq"
                             , (UINT32)( oPosture.bSealRequired ? 1 : 0 ), bDsc
-                            , _T("Relayed bodies are sealed, or not sent") );
+                            , L"Relayed bodies are sealed, or not sent" );
       P3PmsgField_SERIALISE ( oNodeVar, L"SealOpen"
                             , (UINT32)( oPosture.bSealCanOpen ? 1 : 0 ), bDsc
-                            , _T("Hub holds an agreement key and can open a seal") );
+                            , L"Hub holds an agreement key and can open a seal" );
       //  Reported separately from SealReq because it answers a different
       //  question and can disagree with it. SealReq=1 SealBcast=0 is a
       //  deployment that has decided its broadcasts are not confidential, and
@@ -1763,7 +1763,7 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  one
       P3PmsgField_SERIALISE ( oNodeVar, L"SealBcast"
                             , (UINT32)( oPosture.bSealBcast ? 1 : 0 ), bDsc
-                            , _T("The seal requirement extends to broadcasts") );
+                            , L"The seal requirement extends to broadcasts" );
       //  The §6.3 waiver, and it is rendered HERE - beside SealReq rather than
       //  beside the link-policy block below - because it is the field that
       //  makes SealReq readable. SealReq=1 WaiveE2E=1 is a hub that requires
@@ -1779,8 +1779,8 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  live with it. Refer P2PeerHub::WaiveEndToEndInProcess.
       P3PmsgField_SERIALISE ( oNodeVar, L"WaiveE2E"
                             , (UINT32)( oPosture.bWaiveE2E ? 1 : 0 ), bDsc
-                            , _T("Seal and attestation waived for an "
-                                 "in-process destination") );
+                            , L"Seal and attestation waived for an "
+                                 "in-process destination" );
       //  FIVE since 2026-08-21, and the new one is INTENT where the four
       //  below are capability - the same separation AuthRequired keeps from
       //  AuthArm, and it earns its place for the same reason. RevocList=0
@@ -1789,19 +1789,19 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  those are a misconfiguration and a decision.
       P3PmsgField_SERIALISE ( oNodeVar, L"RevocReq"
                             , (UINT32)( oPosture.bRevocRequired ? 1 : 0 ), bDsc
-                            , _T("Hub demands a revocation position before arming") );
+                            , L"Hub demands a revocation position before arming" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RevocList"
                             , (UINT32)( oPosture.bRevocConfigured ? 1 : 0 ), bDsc
-                            , _T("A revocation list is configured on this Hub") );
+                            , L"A revocation list is configured on this Hub" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RevocOk"
                             , (UINT32)( oPosture.bRevocOk ? 1 : 0 ), bDsc
-                            , _T("Revocation is not refusing logins (1 if none set)") );
+                            , L"Revocation is not refusing logins (1 if none set)" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RevocFresh"
                             , (UINT32)( oPosture.bRevocFresh ? 1 : 0 ), bDsc
-                            , _T("Revocation knowledge is within its staleness bound") );
+                            , L"Revocation knowledge is within its staleness bound" );
       P3PmsgField_SERIALISE ( oNodeVar, L"RevocEpoch"
                             , (INT64)oPosture.llRevocEpoch, bDsc
-                            , _T("Epoch of the revocation list this hub has applied") );
+                            , L"Epoch of the revocation list this hub has applied" );
       //  The per-trust-class link policy: 0 full, 1 open. THREE fields rather
       //  than one packed number, because a reader selects by NAME and a
       //  bitfield would make the one interesting case - "which class did they
@@ -1816,13 +1816,13 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  always was.
       P3PmsgField_SERIALISE ( oNodeVar, L"LinkPolWire"
                             , (UINT32)oPosture.anLinkPolicy[0], bDsc
-                            , _T("Wire links: 0 full handshake (cannot be opened)") );
+                            , L"Wire links: 0 full handshake (cannot be opened)" );
       P3PmsgField_SERIALISE ( oNodeVar, L"LinkPolLocal"
                             , (UINT32)oPosture.anLinkPolicy[1], bDsc
-                            , _T("Kernel-local links: 0 full handshake, 1 opened") );
+                            , L"Kernel-local links: 0 full handshake, 1 opened" );
       P3PmsgField_SERIALISE ( oNodeVar, L"LinkPolProc"
                             , (UINT32)oPosture.anLinkPolicy[2], bDsc
-                            , _T("In-process links: 0 full handshake, 1 opened") );
+                            , L"In-process links: 0 full handshake, 1 opened" );
       //  The fence, and it is rendered beside the three above it because it
       //  is what makes them safe to read. LinkPolProc=1 with TrustFloor=0 is
       //  a hub that has relaxed its in-process links and can still be handed
@@ -1831,15 +1831,15 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       //  they are a different exposure.
       P3PmsgField_SERIALISE ( oNodeVar, L"TrustFloor"
                             , (UINT32)oPosture.nTrustFloor, bDsc
-                            , _T("Lowest link class this Hub will hold (0 no fence)") );
+                            , L"Lowest link class this Hub will hold (0 no fence)" );
     }
 
     P3PmsgField_SERIALISE ( oNodeVar, L"Name", GetP2PaddrHub().c_name(), bDsc
-                          , _T("Allocated Hub name") );
+                          , L"Allocated Hub name" );
     P3PmsgField_SERIALISE ( oNodeVar, L"P2Paddr", GetP2PaddrHub().c_wstr(), bDsc
-                          , _T("Allocated Hub address") );
+                          , L"Allocated Hub address" );
     P3PmsgField_SERIALISE ( oNodeVar, L"P2Padom", GetP2PaddrHub().c_wstr(), bDsc
-                          , _T("Allocated Hub domain") );
+                          , L"Allocated Hub domain" );
 
     // Append P2PeerTarget state to node
     oNodeVar += P2PeerTarget::Serialise ( L"" );

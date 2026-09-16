@@ -162,7 +162,7 @@ theClass::GetP2PeerMsgMap() const \
 { return &theClass::P2PeerMsgMap; } \
 LPCTSTR \
 theClass::GetThisClassName() const \
-{ return _T(#theClass); } \
+{ return L#theClass; } \
 AFX_COMDAT const P2P_MSGMAP theClass::P2PeerMsgMap \
    = { &baseClass::P2PeerMsgMap, &theClass::_P2PeerMsgEntries[0] }; \
 AFX_COMDAT const P2P_MSGMAP_ENTRY theClass::_P2PeerMsgEntries[] \
@@ -229,7 +229,22 @@ struct P2P_SNKMAP
 //
 //  P2PeerSnk map wrappers
 //  NOTES: P2PeerSNK mapping macros must be encapsulated
-//         by the following two wrappers
+//         by the following two wrappers.  Such P2PeerSNK's are internal to the
+//         P2PeerTarget and are not intended to be used by external clients.  The
+//         appropriate mechanism for external clients to post P2PeerSnk messages
+//         to a target sink is via the P2PeerTarget::PostP2PeerSnk() function.
+//       : Refer P2PeerTarget::PostP2PeerSnk() for posting P2PeerSnk messages
+//         to the target sink
+//       : Refer P2PeerTarget::RegisterWithTargetSink () for registering with
+//         the target sink and obtaining the P2PmsgSinkID for posting P2PeerSnk
+//         messages to the target sink	
+//       : Refer P2PeerTarget::CreateTargetSink () for creating a new target
+//         sink and obtaining the P2PmsgSinkID for posting P2PeerSnk messages
+//         to the target sink.
+//       : Refer P2PeerTarget::CancelTargetSinkRegistration () for cancelling
+//         registration with the target sink and releasing the P2PmsgSinkID
+//         for posting P2PeerSnk messages to the target sink
+
 #define BEGIN_P2PeerSnk_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_SNKMAP* \
