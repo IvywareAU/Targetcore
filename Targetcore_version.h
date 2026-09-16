@@ -13,15 +13,15 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-//  TargetCore_version.h - the single source of version identity.
+//  Targetcore_version.h - the single source of version identity.
 //
 //  NOTES: This header is the ONLY place a version number is written. It is
 //         consumed by three parties that must never disagree:
-//           - TargetCore.rc       -> the DLL's VERSIONINFO resource
-//           - TargetCore.h        -> the macros a C++ consumer tests against
-//           - TargetCore_c.h      -> the same, for the flat C / Panama surface
+//           - Targetcore.rc       -> the DLL's VERSIONINFO resource
+//           - Targetcore.h        -> the macros a C++ consumer tests against
+//           - Targetcore_c.h      -> the same, for the flat C / Panama surface
 //         Bump it here and all of them move together. Before this header the
-//         number was spelled out five separate times inside TargetCore.rc.
+//         number was spelled out five separate times inside Targetcore.rc.
 //       : It must stay preprocessor-only above the RC_INVOKED guard. rc.exe
 //         compiles this file as well as the C++ compiler, and rc.exe
 //         understands #define and nothing else - no types, no enums, no
@@ -30,12 +30,12 @@
 //       : It carries version identity and NOTHING else. The Windows platform
 //         floor lives in targetver.h, which stdafx.h includes and nothing else
 //         does. It stays out of here on purpose: the version macros are PUBLIC
-//         - TargetCore.h and TargetCore_c.h both include this file, rc.exe
+//         - Targetcore.h and Targetcore_c.h both include this file, rc.exe
 //         compiles it, and jextract reads it - and a Windows SDK pin is not
 //         something to push into every consumer translation unit.
 //       : Modelled on Msgcore\Msgcore_version.h, which does the same job for
 //         the sibling component. The two version identities are deliberately
-//         INDEPENDENT - TargetCore links Msgcore but does not ship as it, and
+//         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
 //       : Keep the release tag and this file in step: version 3.0.0 is tag
 //         v3.0.0. A build whose DLL reports a version no tag matches cannot
@@ -119,7 +119,7 @@
 //  available to rc.exe, which cannot evaluate a function-like macro.
 //
 //    #if !TARGETCORE_VERSION_AT_LEAST(3,0,0)
-//    #  error TargetCore 3.0.0 or later is required
+//    #  error Targetcore 3.0.0 or later is required
 //    #endif
 //
 #define TARGETCORE_VERSION_AT_LEAST(maj,min,pat) \

@@ -1,6 +1,6 @@
 # Security revision: posture per hub, cost per link
 
-*2026-09-04. A design review of where TargetCore's security switch lives, what it costs on the links
+*2026-09-04. A design review of where Targetcore's security switch lives, what it costs on the links
 that cannot benefit from it, and how to move the decision to the link without giving up the
 fail-closed properties the hub-only rule was written to protect. Line references are to the tree at
 commit `a145834`.*
@@ -158,7 +158,7 @@ holds an identity, an allow-list naming somebody, and a revocation position. For
 built as a dozen in-process hubs that is a dozen identity files, a dozen allow-lists that each name
 the others, a dozen revocation positions, and, to keep §3.2's seal from dropping traffic, a dozen
 agreement keys, all for hubs that could read each other's memory by dereferencing a pointer. The
-`MixConTestAuth` example (`_TargetCore_UseExamples/SecurityExamples/MixConTestAuth/README.md:60-73`)
+`MixConTestAuth` example (`_Targetcore_UseExamples/SecurityExamples/MixConTestAuth/README.md:60-73`)
 walks through exactly this for three hubs and it is four files per hub.
 
 Every in-tree harness that uses DMX takes the other exit: `dmx_mesh.cpp:201,216`,
@@ -488,7 +488,7 @@ the virtual, so no `AcceptSpawn` line is needed; the `Dual` family refusal of a 
 
 ### 6.7 The C ABI
 
-The whole hub surface is mirrored in `TargetCore_c.h`, and the security calls were added there
+The whole hub surface is mirrored in `Targetcore_c.h`, and the security calls were added there
 deliberately (`:227-352`). This adds:
 
 ```c

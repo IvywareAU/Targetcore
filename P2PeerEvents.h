@@ -37,7 +37,7 @@
 //       : Create an instance of this object for each connected
 //         event log.  Thread safe
 //
-class TargetCore_EXT P2PeerEvents : protected P2PeerHub
+class Targetcore_EXT P2PeerEvents : protected P2PeerHub
 {
       void
         RenderEventSafe();
@@ -113,4 +113,4 @@ class TargetCore_EXT P2PeerEvents : protected P2PeerHub
         On_P2PmsgErrorCatch ( P2PeerMsg *pMsg );
 };
 
-extern TargetCore_EXT P2PeerEvents *g_pP2PeerEvents;
+extern Targetcore_EXT P2PeerEvents *g_pP2PeerEvents;

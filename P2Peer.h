@@ -18,10 +18,10 @@
 //
 
 #pragma once
-#include "TargetCore.h"
+#include "Targetcore.h"
 
 //
-//  TargetCore data types
+//  Targetcore data types
 //  NOTES: Sit on top of the Msgcore data types and in particular keep
 //         T_ADDR synchronised with T_NAME
 typedef TCHAR          T_ADDR;         // P2Paddr type, keep synchronised with T_NAME
@@ -63,7 +63,7 @@ typedef unsigned int   P2Psize_t;      // P2PeerMsg size
                                        //        756 and every bound built on it
                                        //        read green exactly when the
                                        //        thing it guarded had happened
-                                       //        (TargetCoreSuite cascade hook)
+                                       //        (TargetcoreSuite cascade hook)
                                        //      : MAX_P2Psize (32768) is
                                        //        unchanged - this widens the
                                        //        MEASUREMENT, not the message
@@ -217,7 +217,7 @@ const P2Pmsecs_t DEF_P2PeerConLogin = 0;
 //  P2Pmsg address object
 //  NOTES: Supports Virtual P2Peer Network addresses of the form
 //         [VNetname:]RootHubname.Hubname[i]. . .Hubname etc
-class TargetCore_EXT P2Paddr
+class Targetcore_EXT P2Paddr
 {
     // Constructors and destructors
     public:
@@ -305,7 +305,7 @@ typedef const P2Paddr CP2Paddress;
 //  NOTES: Supports Virtual P2Peer Network addresses of the form
 //         [VNetname:]RootHubname.Hubname[i]. . .Hubname etc
 #define P2Padom P2Padomain
-class TargetCore_EXT P2Padomain
+class Targetcore_EXT P2Padomain
 {
     // Constructors
     public:
@@ -408,7 +408,7 @@ typedef const P2PaddrTemplate CP2PaddrTemplate ;*/
 //
 //  Prototypes
 //
-//TargetCore_EXT DWORD
+//Targetcore_EXT DWORD
 //GetHostID ( );
 
 //

@@ -20,17 +20,17 @@ Private(SMA)
 # Single build output root: out\<Platform>\<Configuration>\ (binaries) and
 # out\<Platform>\<Configuration>\obj\ (intermediates), pinned in the vcxproj.
 # The old split -- Debug\ and Release\ for Win32, x64\<Config>\ plus a stray
-# TargetCore\<Platform>\<Config>\ for x64 -- is no longer produced.
+# Targetcore\<Platform>\<Config>\ for x64 -- is no longer produced.
 out/
-/.vs/TargetCore(2026)/FileContentIndex/cd21ea52-636a-4103-bf57-4aa3348b0d96.vsidx
-/.vs/TargetCore(2026)/v17/Browse.VC.db
-/.vs/TargetCore(2026)/v17/Browse.VC.db-shm
-/.vs/TargetCore(2026)/v17/Browse.VC.db-wal
-/.vs/TargetCore(2026)/v17/Browse.VC.opendb
+/.vs/Targetcore(2026)/FileContentIndex/cd21ea52-636a-4103-bf57-4aa3348b0d96.vsidx
+/.vs/Targetcore(2026)/v17/Browse.VC.db
+/.vs/Targetcore(2026)/v17/Browse.VC.db-shm
+/.vs/Targetcore(2026)/v17/Browse.VC.db-wal
+/.vs/Targetcore(2026)/v17/Browse.VC.opendb
 .understand-anything
 .vs
 *.aps
-TargetCore Unfinished Work Register_files
+Targetcore Unfinished Work Register_files
 
 # Python bytecode. .github/ci/ holds the repository checks; running one leaves a
 # __pycache__ beside it, and an untracked directory in a check directory is the

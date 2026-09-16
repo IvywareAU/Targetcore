@@ -1255,7 +1255,7 @@ P2PeerHub::On_P2PexpumpCtrl ( P2PeerMsg *pMsg )
     //        instanciation of P2PeerExpump object and second being
     //        the demand activation of such object
     //      : External instanciation is an application dependant
-    //        activity.  TargetCore provides no such service
+    //        activity.  Targetcore provides no such service
     //      : Absense of m_pP2PeerExpump object effectively blocks
     //        exploration through this routing vector.
     P2PeerExpump *pP2PeerExpump = dynamic_cast<P2PeerExpump*>(m_pP2PeerExpump);
@@ -1603,8 +1603,8 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       oNodeVar.r_data() = P3PmsgData ( L"{P2PeerHub}" );
 
     // Append P2PeerHub state to node
-    // NOTES: Version is the build identity of the TargetCore binary this hub
-    //        is running, taken from TargetCore_version.h - the only place the
+    // NOTES: Version is the build identity of the Targetcore binary this hub
+    //        is running, taken from Targetcore_version.h - the only place the
     //        number is written, and the same one stamped into the DLL's
     //        VERSIONINFO resource. Reported here rather than through a new
     //        message because every hub snapshot, every P2Pevent carrying hub
@@ -1620,7 +1620,7 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
     //        interoperability out of the field below.
     P3PmsgField_SERIALISE ( oNodeVar, L"Version"
                           , TARGETCORE_VERSION_STRINGW, bDsc
-                          , L"TargetCore build version of the running Hub" );
+                          , L"Targetcore build version of the running Hub" );
     P3PmsgField_SERIALISE ( oNodeVar, L"VersionHex"
                           , (UINT32)TARGETCORE_VERSION_HEX, bDsc
                           , L"Build version packed MAJOR,MINOR,PATCH,BUILD" );

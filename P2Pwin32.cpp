@@ -3282,7 +3282,7 @@ SetP2PmsgPumpFunc ( P2PumpID nPumpID, LPCTNAM lpszFunc )
     return pP2PmsgPump -> m_strFunc = lpszFunc;
 }
 
-TargetCore_EXT HANDLE
+Targetcore_EXT HANDLE
 GetP2PmsgPumpHANDLE ( )
 {
     // Preamble
@@ -7232,7 +7232,7 @@ P2PmsgSinkCreate ( LPCTNAM lpszSinkname )
     return pP2PmsgSink -> m_nSinkID;
 }
 
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 P2PmsgSinkRegister ( P2PmsgSinkID nP2PmsgSinkID, P2PeerTarget *pTarget, P2PsysID nP2PsysID )
 {
     // Locals
@@ -7257,7 +7257,7 @@ P2PmsgSinkRegister ( P2PmsgSinkID nP2PmsgSinkID, P2PeerTarget *pTarget, P2PsysID
            ->Throw  ( );
     return pP2PmsgSink -> RegisterTarget ( pTarget, nP2PsysID ) ? TRUE : FALSE;
 }
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 P2PmsgSinkCancel ( P2PmsgSinkID nP2PmsgSinkID, P2PeerTarget *pTarget, P2PsysID nP2PsysID )
 {
     // Locals
@@ -7282,7 +7282,7 @@ P2PmsgSinkCancel ( P2PmsgSinkID nP2PmsgSinkID, P2PeerTarget *pTarget, P2PsysID n
            ->Throw  ( );
     return pP2PmsgSink -> CancelTarget ( pTarget, nP2PsysID );
 }
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 P2PmsgSinkClose ( P2PmsgSinkID nP2PmsgSinkID )
 {
     // Locals
@@ -7304,7 +7304,7 @@ P2PmsgSinkClose ( P2PmsgSinkID nP2PmsgSinkID )
     pP2PmsgHub -> RemoveP2PmsgSink ( pP2PmsgSink );
     return TRUE;
 }
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 P2PmsgSinkIsValid ( P2PmsgSinkID nP2PmsgSinkID )
 {
     // Locals
@@ -7323,7 +7323,7 @@ P2PmsgSinkIsValid ( P2PmsgSinkID nP2PmsgSinkID )
     P2PmsgSink *pP2PmsgSink  = pP2PmsgHub -> GetP2PmsgSink(nP2PmsgSinkID);
     return pP2PmsgSink ? TRUE : FALSE;
 }
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 PostP2PmsgSink ( P2PmsgSinkID nP2PmsgSinkID, P2PsysID nP2PsysID
                , const P2PeerTarget *pTarget
                , WPARAM wParam, LPARAM lParam )
@@ -7378,7 +7378,7 @@ ASSERT(VerifyP2Pmsg(pP2Pmsg));
     }
     return nItems;
 }
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 PostP2PmsgSink ( P2PmsgSinkID nP2PmsgSinkID, P2PsysID nP2PsysID
                , const P2PeerTarget *pTarget
                , const P3PmsgItem& oItem

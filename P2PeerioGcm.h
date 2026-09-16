@@ -41,7 +41,7 @@
 //  NOTES: One instance per connection per direction of use; the underlying
 //         AesGcm holds a BCrypt key handle and is not internally serialised,
 //         so an instance must not be shared across threads
-class TargetCore_EXT P2PeerioGcm : public P2PeerioCrypto
+class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
 {
     // Constructors and destructor
     public:

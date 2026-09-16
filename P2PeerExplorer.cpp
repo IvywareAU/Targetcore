@@ -1677,7 +1677,7 @@ P2PeerExplorer::On_P2PexpCtrl ( P2PeerMsg *pMsg )
 //
 //  MSG_P2PmsgExp_Hub handler
 //  NOTES: P2PeerHub status notifications that have been generated
-//         from within the TargetCore
+//         from within the Targetcore
 //       : Such notifications are subsequently broadcast to either the 
 //         nominated address or all P2Pexplorers registered for such
 //         notifications
@@ -1721,7 +1721,7 @@ P2PeerExplorer::On_P2PmsgExp_Hub ( P2PeerMsg *pMsg )
 //
 //  MSG_P2PmsgExp_Pmp handler
 //  NOTES: P2PmsgPump status notifications that have been generated
-//         from within the TargetCore
+//         from within the Targetcore
 //       : Such notifications are subsequently broadcast to either the 
 //         nominated address or all P2Pexplorers registered for such
 //         notifications
@@ -1771,7 +1771,7 @@ P2PeerExplorer::On_P2PmsgExp_Pmp ( P2PeerMsg *pMsg )
 //
 //  MSG_P2PmsgExpCon handler
 //  NOTES: P2PeerCon status notifications that have been generated
-//         from within the TargetCore
+//         from within the Targetcore
 //       : Such notifications are subsequently broadcast to either the 
 //         nominated address or all P2Pexplorers registered for such
 //         notifications
@@ -1880,7 +1880,7 @@ P2PeerExplorer::AssertValid ( ) const
 //
 //  Activates the P2Pexpump exploration service on the passed P2PeerHub
 //  NOTES: External instanciation of the P2PeerExpump is deliberately the
-//         application's job - TargetCore provides no such service and never
+//         application's job - Targetcore provides no such service and never
 //         starts one by itself (refer P2PeerHub.cpp:1034-1040).  This is the
 //         documented helper an application calls to do it.
 //       : The instance is REGISTERED with the hub through PostP2PeerExpump().
@@ -1912,7 +1912,7 @@ P2PeerExplorer::AssertValid ( ) const
 //  Returns:    P2PeerExpump*
 //              The expump now registered with the hub, or 0 on failure
 //
-TargetCore_EXT P2PeerExpump*
+Targetcore_EXT P2PeerExpump*
 P2PeerExpump_ACTIVATE ( P2PeerHub *pHub, P2PeerExpump *pExpump )
 {
     // Already active
@@ -1946,14 +1946,14 @@ P2PeerExpump_ACTIVATE ( P2PeerHub *pHub, P2PeerExpump *pExpump )
     // Tidy up, and
     return dynamic_cast<P2PeerExpump *>(pHub->GetP2PeerExpump());
 }
-TargetCore_EXT P2PeerExpump*
+Targetcore_EXT P2PeerExpump*
 P2PeerExpump_DESTROY ( P2PeerExpump *pExpump )
 {
     if ( pExpump )
       delete pExpump;
     return (P2PeerExpump *)0;
 }
-TargetCore_EXT msgRESULT
+Targetcore_EXT msgRESULT
 P2PeerExpump_INTERCEPT ( P2PeerHub *pHub, P2PeerExpump *pExpump, P2PeerMsg *pMsg )
 {
     UNREFERENCED_PARAMETER(pHub);

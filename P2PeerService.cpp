@@ -26,7 +26,7 @@
 #include "P2PeerService.h"
 #include "Msgexception.h"
 #if defined(_WIN32)
-#include "TargetCoreEvt.h"             // generated from TargetCoreEvt.mc, committed.
+#include "TargetcoreEvt.h"             // generated from TargetcoreEvt.mc, committed.
                                        // Guarded so the Linux build needs no
                                        // mc.exe output: everything it declares
                                        // is used only from Windows-only code.
@@ -579,7 +579,7 @@ P2PeerServiceEventLogSink ( P2Pevent_e eClass
 //  NOTES: NOT the host executable.  GetModuleFileName(0) would name the .exe,
 //         which carries no message table, and the Event Viewer would then
 //         report every entry as unformattable.  The table is linked into THIS
-//         module (TargetCore, from TargetCoreEvt.mc), so the module is found
+//         module (Targetcore, from TargetcoreEvt.mc), so the module is found
 //         from the address of code that lives in it.
 //
 //  Parameters:  CStringW& strModule

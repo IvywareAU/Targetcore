@@ -23,14 +23,14 @@
 #   1  INSTALL   -- cmake --install into a scratch prefix, from nothing but the
 #                   build tree, and check the manifest by name.
 #   2  BUILD     -- configure a project that has never heard of this source tree
-#                   and knows only find_package(TargetCore).
+#                   and knows only find_package(Targetcore).
 #   3  RUN       -- run it, with the build tree scrubbed off PATH.
 #   4  FALSIFY   -- take the sibling runtime out of the prefix and run THE SAME
 #                   BINARY again.  It must fail to load.
 #
 # Phase 4 is not decoration.  Without it a green phase 3 proves only that the
 # program found A copy of the libraries somewhere -- and on Windows the test
-# preset puts the build tree's Msgcore and TargetCore directories on PATH for
+# preset puts the build tree's Msgcore and Targetcore directories on PATH for
 # every ctest process, so "somewhere" would very likely have been the build
 # tree, and an install prefix containing nothing but a header could have passed.
 # Scrubbing PATH in phase 3 and deleting the sibling in phase 4 are two halves
@@ -92,7 +92,7 @@ run_or_die("cmake --install" ${CMAKE_COMMAND} ${_install_args})
 # CMAKE_INSTALL_LIBDIR is lib on Debian and lib64 on Fedora, and a gate that
 # hardcoded one would be a gate that only works on the machine it was written
 # on.  Matching is case-insensitive: the CMake target is `targetcore` while the
-# vcxproj-built DLL is `TargetCore.dll`, and on Windows those are one file.
+# vcxproj-built DLL is `Targetcore.dll`, and on Windows those are one file.
 if(WIN32)
     set(_want targetcore.dll msgcore.dll targetcore.lib msgcore.lib)
 else()
@@ -100,8 +100,8 @@ else()
 endif()
 list(APPEND _want
      # Headers.  BOTH version headers are listed by name because their absence
-     # is exactly the defect step 14 found: TargetCore_c.h was staged without
-     # TargetCore_version.h, which it includes on its first line, so the shipped
+     # is exactly the defect step 14 found: Targetcore_c.h was staged without
+     # Targetcore_version.h, which it includes on its first line, so the shipped
      # header did not preprocess and nothing said so.
      targetcore_c.h targetcore_version.h
      msgcore_c.h    msgcore_version.h

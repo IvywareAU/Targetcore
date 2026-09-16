@@ -74,7 +74,7 @@ enum P2PeerConPipeAccess_e
 //       : P2PeerHub's pump P2PeerConPipe objects through P2PeerCon_MAP's
 //         in response to state changes.
 //
-class TargetCore_EXT P2PeerConPipe : public P2PeerCon
+class Targetcore_EXT P2PeerConPipe : public P2PeerCon
 {
       void
         RenderThisSafe();

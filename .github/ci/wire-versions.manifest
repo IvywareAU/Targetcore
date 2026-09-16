@@ -1,4 +1,4 @@
-# TargetCore wire formats that carry their own version, and the value each one
+# Targetcore wire formats that carry their own version, and the value each one
 # is at. The versioning policy is the prose; this is the part a script can
 # check.
 #

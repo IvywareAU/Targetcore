@@ -25,12 +25,12 @@
  *
  * It is deliberately narrow. The full behaviour of the cores is MscsUnitTests'
  * job and that suite runs against the shared libraries. What can only be
- * measured here is what changes when Msgcore_STATIC / TargetCore_STATIC are
+ * measured here is what changes when Msgcore_STATIC / Targetcore_STATIC are
  * defined and the code arrives by archive rather than by import library, so
  * this covers exactly the two things that were broken:
  *
- *   [1] P2PCngCrypto.h under TargetCore_STATIC. Its export macro was guarded
- *       `_WIN32 && !defined(TargetCore_STATIC)`, so a Windows static build fell
+ *   [1] P2PCngCrypto.h under Targetcore_STATIC. Its export macro was guarded
+ *       `_WIN32 && !defined(Targetcore_STATIC)`, so a Windows static build fell
  *       through to the GCC arm and MSVC was handed
  *       __attribute__((visibility("default"))). That is a COMPILE failure, so
  *       merely including the header here would catch a regression -- but
@@ -90,15 +90,15 @@ int main ( void )
     std::printf("  FAIL  Msgcore_STATIC is not defined -- this is not a static build\n");
     return 2;
 #endif
-#if !defined(TargetCore_STATIC)
-    std::printf("  FAIL  TargetCore_STATIC is not defined -- this is not a static build\n");
+#if !defined(Targetcore_STATIC)
+    std::printf("  FAIL  Targetcore_STATIC is not defined -- this is not a static build\n");
     return 2;
 #endif
-    std::printf("  ok    Msgcore_STATIC and TargetCore_STATIC are both defined\n");
+    std::printf("  ok    Msgcore_STATIC and Targetcore_STATIC are both defined\n");
 
     //  [1] The crypto backend, reached through the header whose static arm had
     //      never been compiled. SelfTest runs the RFC 4231 / RFC 5869 KATs.
-    std::printf("[1] P2PCngCrypto under TargetCore_STATIC\n");
+    std::printf("[1] P2PCngCrypto under Targetcore_STATIC\n");
     try
     {
         check ( p2pcng::SelfTest(), "p2pcng::SelfTest() passes from the archive" );

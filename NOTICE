@@ -1,4 +1,4 @@
-TargetCore
+Targetcore
 Copyright 2000-2026 Ivyware Pty Ltd, Khrustal & Mann
              MELBOURNE, VICTORIA, AUSTRALIA, 3000
 
@@ -19,13 +19,13 @@ terms and carry their own notices, which must not be removed:
 
     targetver.h                        Visual Studio project template.
     Resource.h                         Visual C++ generated include file.
-    TargetCore.rc                      Visual C++ generated resource script.
+    Targetcore.rc                      Visual C++ generated resource script.
     stdafx.h                           Visual Studio project template.
     stdafx.cpp                         Visual Studio project template.
-    TargetCore(2026).sln               Visual Studio solution file.
-    TargetCore(2026).vcxproj           Visual Studio project files.
-    TargetCore(2026).vcxproj.filters
-    TargetCore(2026).vcxproj.user
+    Targetcore(2026).sln               Visual Studio solution file.
+    Targetcore(2026).vcxproj           Visual Studio project files.
+    Targetcore(2026).vcxproj.filters
+    Targetcore(2026).vcxproj.user
 
 -------------------------------------------------------------------------
 Third-party components required at build or run time

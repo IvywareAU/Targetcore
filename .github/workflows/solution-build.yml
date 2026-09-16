@@ -51,14 +51,14 @@
 # sentence that says what to do.
 #
 # WHAT A GREEN RUN PROVES
-#   * MscsSolution + Msgcore + TargetCore + MscsUnitTests configure,
+#   * MscsSolution + Msgcore + Targetcore + MscsUnitTests configure,
 #     build and link together under CMake, on Windows/MSVC and Linux/GCC.
 #   * The full CTest suite passes on both.
 #   * On Windows: that ctest works with NOTHING on PATH. See the ctest step --
 #     that is a deliberate regression guard, not an oversight.
 #
 # WHAT A GREEN RUN DOES NOT PROVE
-#   * Nothing about TargetCore(2026).sln / .vcxproj, which Readme.md calls the
+#   * Nothing about Targetcore(2026).sln / .vcxproj, which Readme.md calls the
 #     AUTHORITATIVE Windows build. This workflow never invokes MSBuild. A defect
 #     that exists only in the vcxproj -- a source file missing from one of its
 #     four configurations -- is invisible here, which is why the `invariants`
@@ -167,7 +167,7 @@ jobs:
             echo
             echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
-            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
@@ -191,7 +191,7 @@ jobs:
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
             echo
-            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           if [ "$code" != "200" ]; then
@@ -250,19 +250,19 @@ jobs:
           path: mscs/MscsUnitTests
 
       # This repository last, at the ref that triggered the run - the commit
-      # under test is TargetCore's, and the siblings are its context.
-      - name: Check out TargetCore (the commit under test)
+      # under test is Targetcore's, and the siblings are its context.
+      - name: Check out Targetcore (the commit under test)
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       # Fail loudly and specifically. A missing sibling must never read as a
-      # skip, and it must never read as a TargetCore defect either.
+      # skip, and it must never read as a Targetcore defect either.
       - name: Verify the sibling layout
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests TargetCore; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests Targetcore; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
@@ -274,7 +274,7 @@ jobs:
           fi
           echo
           echo "Refs actually built:"
-          for d in Msgcore MscsUnitTests TargetCore; do
+          for d in Msgcore MscsUnitTests Targetcore; do
             printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
           done
 
@@ -312,7 +312,7 @@ jobs:
             echo "  are built by MscsUnitTestsExternal alone (every dsp_*, every util_*,"
             echo "  and unit_suite_external). Do not read this run total as the suite."
             echo "  The security label is unaffected: all 29 of its tests live in"
-            echo "  MscsUnitTests (seal_interop moves to TargetCore off Windows), both of"
+            echo "  MscsUnitTests (seal_interop moves to Targetcore off Windows), both of"
             echo "  which are present, so the sanitizer workflow measures what it claims."
           fi
 
@@ -400,7 +400,7 @@ jobs:
             echo
             echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
-            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
@@ -424,7 +424,7 @@ jobs:
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
             echo
-            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           if [ "$code" != "200" ]; then
@@ -480,16 +480,16 @@ jobs:
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
 
-      - name: Check out TargetCore (the commit under test)
+      - name: Check out Targetcore (the commit under test)
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       - name: Verify the sibling layout
         shell: bash
         run: |
           missing=0
-          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests TargetCore; do
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests Targetcore; do
             if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
             else echo "  MISSING mscs/$p"; missing=1; fi
           done
@@ -501,7 +501,7 @@ jobs:
           fi
           echo
           echo "Refs actually built:"
-          for d in Msgcore MscsUnitTests TargetCore; do
+          for d in Msgcore MscsUnitTests Targetcore; do
             printf '  %-16s %s\n' "$d" "$(git -C mscs/$d rev-parse --short HEAD)"
           done
 
@@ -539,7 +539,7 @@ jobs:
             echo "  are built by MscsUnitTestsExternal alone (every dsp_*, every util_*,"
             echo "  and unit_suite_external). Do not read this run total as the suite."
             echo "  The security label is unaffected: all 29 of its tests live in"
-            echo "  MscsUnitTests (seal_interop moves to TargetCore off Windows), both of"
+            echo "  MscsUnitTests (seal_interop moves to Targetcore off Windows), both of"
             echo "  which are present, so the sanitizer workflow measures what it claims."
           fi
 

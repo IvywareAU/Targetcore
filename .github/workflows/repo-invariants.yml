@@ -18,7 +18,7 @@
 #
 # READ THIS BEFORE TRUSTING A GREEN TICK FROM THIS WORKFLOW.
 #
-# TargetCore does not build on its own and this workflow does not pretend it
+# Targetcore does not build on its own and this workflow does not pretend it
 # does. `..\Msgcore` -- which carries `Platform\` inside it since 2026-09-03, when
 # that repository was retired -- is a peer directory in a parent solution that is
 # not published alongside this repository; it is not a submodule and not vendored
@@ -60,7 +60,7 @@
 #   * The routing kernel, the hubs, the pumps, all four transports, the C API --
 #     26 of the 30 translation units are never even parsed.
 #   * The CNG crypto backend, and therefore Windows/Linux wire compatibility.
-#   * The TargetCore(2026).vcxproj/.sln build, which Readme.md calls
+#   * The Targetcore(2026).vcxproj/.sln build, which Readme.md calls
 #     authoritative on Windows. CI never invokes MSBuild.
 #   * The MscsUnitTests suite -- unit_suite, the transport meshes, alex_test,
 #     and the five security gate tests all live in a sibling repository.
@@ -86,7 +86,7 @@ jobs:
   # Bookkeeping the repository can check about itself. See the header of
   # .github/ci/check_repo_invariants.py for the full proves/does-not-prove list.
   # The check with teeth is build-system parity: a .cpp added to
-  # TargetCore(2026).vcxproj but not to CMakeLists.txt (or the reverse) means
+  # Targetcore(2026).vcxproj but not to CMakeLists.txt (or the reverse) means
   # the Windows and Linux builds ship different libraries, and nothing else in
   # the tree compares the two lists. MscsUnitTests/CMakeLists.txt:23-25 records
   # the same failure mode going unnoticed for 14 days on a test suite.

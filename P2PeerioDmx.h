@@ -30,7 +30,7 @@
 //
 //  P2PeerioDmx protocol management
 //  NOTES: Performs in-process P2PeerMsg image exchange
-class TargetCore_EXT P2PeerioDmx : public P2Peerio
+class Targetcore_EXT P2PeerioDmx : public P2Peerio
 {
       void
         RenderThisSafe();

@@ -13,12 +13,12 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-//  Implements the TargetCore.DLL export linkage macro and the DLL-private
+//  Implements the Targetcore.DLL export linkage macro and the DLL-private
 //  MFC resource-state guard
 //  NOTES: To be included with the definitions for any object exported
-//         from the TargetCore.DLL  Follows the MFC_EXT_CLASS pattern
-//       : Either the TargetCore project or the StdAfx.h file MUST
-//         contain the TargetCore_EXPORTS definition.  For further
+//         from the Targetcore.DLL  Follows the MFC_EXT_CLASS pattern
+//       : Either the Targetcore project or the StdAfx.h file MUST
+//         contain the Targetcore_EXPORTS definition.  For further
 //         Developer Studio details refer Project Properties >> Config >>
 //         C/C++ Preprocessor
 //
@@ -27,26 +27,26 @@
 
 //  The component's version identity. Included here rather than left to the
 //  consumer because this header is the one every exported object already
-//  pulls in, so TARGETCORE_VERSION_* is available anywhere TargetCore_EXT is.
-#include "TargetCore_version.h"
+//  pulls in, so TARGETCORE_VERSION_* is available anywhere Targetcore_EXT is.
+#include "Targetcore_version.h"
 
 //  Static-library variant (DebugLib/ReleaseLib) carries NO __declspec at all: the
 //  objects are archived straight into the consumer, so there is nothing to export
 //  and nothing to import. Mirrors Msgcore.h's Msgcore_STATIC branch and the
-//  TargetCore_STATIC branch already present in TargetCore_c.h. This arm MUST come
-//  first -- the Lib configurations define neither TargetCore_EXPORTS nor anything
-//  else, so without it every TargetCore_EXT class would be decorated dllimport and
+//  Targetcore_STATIC branch already present in Targetcore_c.h. This arm MUST come
+//  first -- the Lib configurations define neither Targetcore_EXPORTS nor anything
+//  else, so without it every Targetcore_EXT class would be decorated dllimport and
 //  the archive would reference import thunks that no DLL provides.
-#if defined (TargetCore_STATIC)
-  #define TargetCore_EXT
-#elif defined (TargetCore_EXPORTS)
-  #define TargetCore_EXT __declspec(dllexport)
+#if defined (Targetcore_STATIC)
+  #define Targetcore_EXT
+#elif defined (Targetcore_EXPORTS)
+  #define Targetcore_EXT __declspec(dllexport)
 #else
-  #define TargetCore_EXT __declspec(dllimport)
+  #define Targetcore_EXT __declspec(dllimport)
 #endif
 
 //
-//  Manages MFC resource state for the TargetCore DLL
+//  Manages MFC resource state for the Targetcore DLL
 //  NOTES: Not to be exported, MUST remain private to DLL for which it's instanciated
 //       : Each MFC extension DLL requires it's own specialised implementation
 //         for its own resource instance
@@ -58,7 +58,7 @@
 //           MANAGE_RESOURCE_STATE;
 //           return CDialog::DoModal_EoD();
 //         }
-#if defined (TargetCore_EXPORTS)
+#if defined (Targetcore_EXPORTS)
 class P2PresourceState                 // Do not export
 {
     public:

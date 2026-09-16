@@ -14,7 +14,7 @@
 // permissions and limitations under the License.
 //
 //
-//  TargetCore Windows event log catalogue
+//  Targetcore Windows event log catalogue
 //  NOTES: Read by the Event Viewer, NOT by this library.  A hub hosted
 //         inside a Windows service has no console and no standard error, so
 //         P2PeerService installs an event log sink (refer P2Pevent::
@@ -32,9 +32,9 @@
 //  tools/check_evt_catalogue.py closes by regenerating and comparing.  To
 //  change the catalogue, edit THIS file and run:
 //
-//    mc.exe -U -n -h . -r . TargetCoreEvt.mc
+//    mc.exe -U -n -h . -r . TargetcoreEvt.mc
 //
-//  which writes TargetCoreEvt.h, TargetCoreEvt.rc and MSG00001.bin.  Commit
+//  which writes TargetcoreEvt.h, TargetcoreEvt.rc and MSG00001.bin.  Commit
 //  all four.  -U (UTF-16LE messages) is mc's default and is stated anyway so
 //  the command is reproducible; -n NUL-terminates every string.
 //

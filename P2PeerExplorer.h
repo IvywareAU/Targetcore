@@ -56,7 +56,7 @@ typedef CMap<CStringADDR,CStringADDR&,CStringADDR,CStringADDR&> CMapADDR2ADDR;
 //         real-time.
 //
 #define P2PeerExplorer P2PeerExpump
-class TargetCore_EXT P2PeerExplorer : public P2PeerTarget
+class Targetcore_EXT P2PeerExplorer : public P2PeerTarget
 {
       void
         RenderExplorerSafe();
@@ -220,34 +220,34 @@ const DWORD P2PmsgExp_ALL    = ~0u;
 //         P2PeventSink's.  Clients may register for P2Pevent
 //         notifications
 //       : Thread isolation of P2Pevent's
-TargetCore_EXT P2PexpumpID
+Targetcore_EXT P2PexpumpID
 CreateP2Pexpump ( P2PmsgHubID nHubID, P2PeerTarget *pTarget );
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 CloseP2Pexpump ( );
-TargetCore_EXT DWORD
+Targetcore_EXT DWORD
 RegisterP2Pexpump ( DWORD dwMask, BOOL bRegister );
 
-TargetCore_EXT P2PeerMsg*
+Targetcore_EXT P2PeerMsg*
 PostP2Pexp ( P2PeerMsg *pMsg, P2PexpumpID nP2PexpumpID
            , bool bPrepend = false );
-TargetCore_EXT msgRESULT
+Targetcore_EXT msgRESULT
 SwapP2PexpContext  ( P2PeerMsg *pMsg );
 void
 PostP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon *pCon );
 BOOL
 EnumP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon **pCon );
 
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 RegisterP2PmsgExp_Hub ( P2PaddrSTR lpszDestin, BOOL bRegister = FALSE );
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 QueryP2PmsgExp_Hub ( P2PaddrSTR lpszDestin, BOOL bVerbose = FALSE );
 
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 RegisterP2PmsgExp_Pmp ( LPCTSTR lpszDestin, BOOL bRegister = FALSE );
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 QueryP2PmsgExp_Pmp ( P2PumpID nPumpID, P2PaddrSTR lpszDestin, BOOL bVerbose = FALSE );
 
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 QueryP2PmsgExp_Con ( P2PconID nConID, P2PaddrSTR lpszDestin, BOOL bRegister = FALSE );
 
 //
@@ -261,11 +261,11 @@ QueryP2PmsgExp_Con ( P2PconID nConID, P2PaddrSTR lpszDestin, BOOL bRegister = FA
 //P2PeerHub_CloseExp ( P2PeerHub *pHub );
 //P2PeerExpump*
 //P2PeerHub_GetP2PeerExp ( P2PeerHub *pHub );
-TargetCore_EXT P2PeerExpump*
+Targetcore_EXT P2PeerExpump*
 P2PeerExpump_ACTIVATE ( P2PeerHub *pHub, P2PeerExpump *pExpump = 0 );
-TargetCore_EXT P2PeerExpump*
+Targetcore_EXT P2PeerExpump*
 P2PeerExpump_DESTROY ( P2PeerExpump *pExpump );
-TargetCore_EXT msgRESULT
+Targetcore_EXT msgRESULT
 P2PeerExpump_INTERCEPT ( P2PeerHub *pHub, P2PeerExpump *pExpump, P2PeerMsg *pMsg );
 
 // Inline P2PeerHub::P2PeerMsgPeek() interceptions

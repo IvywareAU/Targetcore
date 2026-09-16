@@ -808,7 +808,7 @@ namespace p2pcng
             AesGcm cipher;
             if ( !cipher.SetKey ( key, sizeof(key) ) ) return false;
 
-            const char    msg[]  = "TargetCore secure channel self-test payload";
+            const char    msg[]  = "Targetcore secure channel self-test payload";
             const unsigned char aad[] = { 'h','d','r' };
             size_t cbPlain = sizeof(msg) - 1;
 
@@ -868,7 +868,7 @@ namespace p2pcng
         // still passing on Windows, which is exactly the drift it exists to
         // catch. Keep the two blocks in sync.
         {
-            const char msg[] = "TargetCore identity KAT";
+            const char msg[] = "Targetcore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pub[kEcdsaPubLen] = {
@@ -889,7 +889,7 @@ namespace p2pcng
             if ( !v.ImportPublic ( pub ) ) return false;
             if ( !v.Verify ( (const unsigned char *)msg, cbMsg, sig ) ) return false;
 
-            const char msgBad[] = "TargetCore identity KAU";
+            const char msgBad[] = "Targetcore identity KAU";
             if ( v.Verify ( (const unsigned char *)msgBad, sizeof(msgBad) - 1, sig ) )
                 return false;
 
@@ -933,7 +933,7 @@ namespace p2pcng
         // below 32 bytes, and BN_bn2bin would emit a short buffer, shifting
         // the raw layout. sigShortR carries TWO leading zeros. Keep in sync.
         {
-            const char msg[] = "TargetCore identity KAT";
+            const char msg[] = "Targetcore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pubShortR[kEcdsaPubLen] = {

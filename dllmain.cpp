@@ -22,10 +22,10 @@
 //       : Contents audited against VS2019 wizard 
 
 #include "stdafx.h"
-#include "TargetCore.h"
+#include "Targetcore.h"
 
 //  The whole of this file is DLL-only. The DebugLib/ReleaseLib configurations
-//  archive TargetCore straight into the consumer, where there is no module to
+//  archive Targetcore straight into the consumer, where there is no module to
 //  attach: no DllMain runs, AfxInitExtensionModule has nothing to initialise and
 //  CDynLinkLibrary has no resource chain to join. The consumer's own module owns
 //  all of that. The Lib configurations therefore also mark this file
@@ -33,9 +33,9 @@
 //  for any other build system (CMake) that might compile it into a static target.
 //
 //  Nothing is lost by dropping it: MANAGE_RESOURCE_STATE is never used anywhere in
-//  the tree, and TargetCore.rc holds only a VERSIONINFO block and one IDS_APP_TITLE
+//  the tree, and Targetcore.rc holds only a VERSIONINFO block and one IDS_APP_TITLE
 //  string -- there are no dialogs, menus or bitmaps needing a resource handle swap.
-#if !defined (TargetCore_STATIC)
+#if !defined (Targetcore_STATIC)
 
 #include <afxwin.h>
 #include <afxdllx.h>
@@ -44,7 +44,7 @@
 #define new DEBUG_NEW
 #endif
 
-static AFX_EXTENSION_MODULE TargetCore_DLL = { false, nullptr };
+static AFX_EXTENSION_MODULE Targetcore_DLL = { false, nullptr };
 
 extern "C" int APIENTRY
 DllMain ( HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved )
@@ -54,9 +54,9 @@ DllMain ( HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved )
 
     if ( dwReason == DLL_PROCESS_ATTACH )
     {
-      TRACE0("TargetCore.DLL Initializing!\n");
+      TRACE0("Targetcore.DLL Initializing!\n");
       // Extension DLL one-time initialization
-      if ( !AfxInitExtensionModule(TargetCore_DLL,hInstance) )
+      if ( !AfxInitExtensionModule(Targetcore_DLL,hInstance) )
         return 0;
 
       // Insert this DLL into the resource chain
@@ -70,13 +70,13 @@ DllMain ( HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved )
       //  the CDynLinkLibrary object will not be attached to the
       //  Regular DLL's resource chain, and serious problems will
       //  result.
-      new CDynLinkLibrary(TargetCore_DLL);
+      new CDynLinkLibrary(Targetcore_DLL);
     }
     else if (dwReason == DLL_PROCESS_DETACH)
     {
-      TRACE0("TargetCore.DLL Terminating!\n");
+      TRACE0("Targetcore.DLL Terminating!\n");
       // Terminate the library before destructors are called
-      AfxTermExtensionModule(TargetCore_DLL);
+      AfxTermExtensionModule(Targetcore_DLL);
     }
     return 1;   // ok
 }
@@ -84,14 +84,14 @@ DllMain ( HINSTANCE hInstance, DWORD dwReason, LPVOID lpReserved )
 //
 //  Manages MFC resource state for this P2PmsgCharts DLL
 //  NOTES: Each extension DLL requires its own private implementation
-//         based around the TargetCore_DLL equivalent external.
+//         based around the Targetcore_DLL equivalent external.
 //       : Code ia duplicated for each MFC extension DLL.  Not unlike
 //         the way Dllmain() is replicated
 P2PresourceState::P2PresourceState()
 {
     m_hRestore = AfxGetResourceHandle();
-    if ( m_hRestore != TargetCore_DLL.hModule )
-      AfxSetResourceHandle(TargetCore_DLL.hModule);
+    if ( m_hRestore != Targetcore_DLL.hModule )
+      AfxSetResourceHandle(Targetcore_DLL.hModule);
     else           // We are our own state
       m_hRestore = NULL;
 }
@@ -101,4 +101,4 @@ P2PresourceState::~P2PresourceState()
       AfxSetResourceHandle(m_hRestore);
 }
 
-#endif  // !TargetCore_STATIC
+#endif  // !Targetcore_STATIC

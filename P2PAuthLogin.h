@@ -534,7 +534,7 @@ namespace p2pauth
         //        useless as an answer to "is there a list". A snapshot that
         //        reported the first as the second would tell an operator with
         //        no revocation configured that their revocation was fine
-        //        (TargetCore F-S6-2, found by the gate test
+        //        (Targetcore F-S6-2, found by the gate test
         //        reading 1 out of a hub that had never seen a list)
         bool   IsRevocationConfigured ( ) const { return m_bRevokeConfigured; }
 

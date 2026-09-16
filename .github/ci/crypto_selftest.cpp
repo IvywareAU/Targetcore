@@ -82,7 +82,7 @@ namespace
 
 int main ( )
 {
-    std::printf ( "TargetCore standalone crypto self-test (OpenSSL backend)\n"
+    std::printf ( "Targetcore standalone crypto self-test (OpenSSL backend)\n"
                   "-------------------------------------------------------\n" );
 
     int nFailed = 0;

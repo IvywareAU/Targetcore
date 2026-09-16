@@ -25,7 +25,7 @@
 # symbol appearing or vanishing in the declaration. It cannot catch either of
 # the two failures that only a binary can show:
 #
-#   * A header promise the library does not keep. TargetCore_c.h can declare an
+#   * A header promise the library does not keep. Targetcore_c.h can declare an
 #     entry point whose definition was never compiled in -- the header is a
 #     promise, the export table is the delivery -- and the consumer finds out at
 #     link time, which is the worst place to find out.
@@ -154,16 +154,16 @@ def check_file_version(library: Path, expected: str) -> None:
     # FileVersion renders as "0.10.0.0"; some toolchains render "0, 10, 0, 0".
     got_norm = got.replace(" ", "").replace(",", ".")
     if got_norm == expected:
-        ok(f"the DLL's FileVersion is {got_norm}, matching TargetCore_version.h")
+        ok(f"the DLL's FileVersion is {got_norm}, matching Targetcore_version.h")
     else:
-        fail(f"the DLL reports FileVersion {got!r} but TargetCore_version.h "
+        fail(f"the DLL reports FileVersion {got!r} but Targetcore_version.h "
              f"declares {expected!r}. The versioning policy tells a consumer "
              f"to find the source of a binary by that number, and it would "
              f"send them to the wrong tag")
 
 
 def header_version(repo: Path) -> str:
-    text = (repo / "TargetCore_version.h").read_text(encoding="utf-8-sig")
+    text = (repo / "Targetcore_version.h").read_text(encoding="utf-8-sig")
     m = re.search(r'#define\s+TARGETCORE_VERSION_STRING\s+"([0-9.]+)"', text)
     return m.group(1) if m else ""
 
@@ -239,7 +239,7 @@ def main() -> int:
     if expected:
         check_file_version(args.library, expected)
     else:
-        fail("could not read TARGETCORE_VERSION_STRING from TargetCore_version.h")
+        fail("could not read TARGETCORE_VERSION_STRING from Targetcore_version.h")
 
     print()
     if failures:

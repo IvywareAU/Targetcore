@@ -24,7 +24,7 @@
 //  MsgexceptionLog implementation
 //  NOTES: Logs Msgexceptions
 //
-class TargetCore_EXT MsgexceptionLog : public P3PmsgItem
+class Targetcore_EXT MsgexceptionLog : public P3PmsgItem
 {
     // Constructors and destructor
     public:

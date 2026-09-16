@@ -118,7 +118,7 @@ typedef enum
 //         of P2PeerCon objects
 //       : Manages private interactions between P2PeerHub, P2PeerCon
 //         objects and the P2Pmsg pump
-class TargetCore_EXT P2PeerConPlc : public CObject
+class Targetcore_EXT P2PeerConPlc : public CObject
 {
     // Constructors and destructor
     public:
@@ -196,11 +196,11 @@ const P2PsigID P2PsigCon_WAKEUP   =  9;//   Cancels a pending P2PsigCon_CLOSEONI
 //  the type IS complete, which is where the block is made
 struct P2PeerConSourceTally;
 
-class TargetCore_EXT P2PeerCon : public P2PeerConPlc
+class Targetcore_EXT P2PeerCon : public P2PeerConPlc
 {
       friend
         P2Peerio;
-      friend TargetCore_EXT DWORD
+      friend Targetcore_EXT DWORD
         PumpP2Pmsg ( DWORD, P2PsigID& );
       void
         RenderThisSafe();
@@ -829,7 +829,7 @@ class TargetCore_EXT P2PeerCon : public P2PeerConPlc
 //         Example: if ( ConQuery("A.B",oSafeCon) )
 //                    oSafeCon -> GetP2Peerio() -> SetIFTrace ( true );
 //
-class TargetCore_EXT SafeP2PeerCon
+class Targetcore_EXT SafeP2PeerCon
 {
       void
         RenderThisSafe ( );

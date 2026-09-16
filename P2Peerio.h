@@ -134,7 +134,7 @@ typedef struct
 //       : Aggregated within P2PeerCon objects
 //
 class P2PeerCon;
-class TargetCore_EXT P2Peerio
+class Targetcore_EXT P2Peerio
 {
       void
         RenderThisSafe() noexcept;

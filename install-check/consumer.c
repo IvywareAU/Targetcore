@@ -25,7 +25,7 @@
  *
  *   * It includes exactly TWO headers of ours plus three from the C standard
  *     library.  If either installed header needed anything that is not staged
- *     -- as TargetCore_c.h needed TargetCore_version.h, which was NOT staged
+ *     -- as Targetcore_c.h needed Targetcore_version.h, which was NOT staged
  *     until step 14 -- this file does not preprocess, and that is the failure
  *     the gate is there to catch.
  *
@@ -34,11 +34,11 @@
  *     the export was lying about its dependencies.
  *
  *   * It exercises BOTH shipped libraries, and Msgcore directly rather than
- *     only through TargetCore.  Reaching libmsgcore only transitively would
+ *     only through Targetcore.  Reaching libmsgcore only transitively would
  *     leave the sibling header and import library untested, and those are
  *     exactly the parts an install tree is prone to forget.
  *
- * The hub sequence mirrors MscsUnitTests/TargetCoreSuite.cpp Test_CApiHubSink,
+ * The hub sequence mirrors MscsUnitTests/TargetcoreSuite.cpp Test_CApiHubSink,
  * which is the in-tree version of the same probe: create, opt out of auth, spawn,
  * post, wait for the sink, close.  RequireAuth defaults ON since Stage 3 step 8
  * and an unprovisioned hub refuses to arm, so the opt-out is not a convenience --
@@ -57,7 +57,7 @@
 #include <time.h>
 
 #include <Msgcore_c.h>
-#include <TargetCore_c.h>
+#include <Targetcore_c.h>
 
 static int g_failures = 0;
 
@@ -145,7 +145,7 @@ int main(void)
     memset(&oCap, 0, sizeof oCap);
 
     printf("install-check consumer\n");
-    printf("  compiled against Msgcore %s, TargetCore %s\n",
+    printf("  compiled against Msgcore %s, Targetcore %s\n",
            MSGCORE_VERSION_STRING, TARGETCORE_VERSION_STRING);
 
     /* 1. The sibling library, called directly.  If Msgcore_c.h or the Msgcore
@@ -157,11 +157,11 @@ int main(void)
     check(msgcore_mgr_is_valid(hMgr), "msgcore_mgr_is_valid on a fresh manager");
     msgcore_mgr_destroy(hMgr);
 
-    /* 2. TargetCore's object model -- no environment, no threads.  Separated
+    /* 2. Targetcore's object model -- no environment, no threads.  Separated
      *    from the hub phase on purpose: if this passes and the hub phase does
      *    not, the library loaded and the failure is in the kernel, not the
      *    install. */
-    printf("[2] TargetCore object model\n");
+    printf("[2] Targetcore object model\n");
     hMsg = p2peermsg_create_full_u8("Install.Sender", "Install.Probe",
                                     "InstallProbe", szPayload, cbPayload);
     check(hMsg != NULL, "p2peermsg_create_full_u8 returned a message");
@@ -175,7 +175,7 @@ int main(void)
 
     /* 3. A live hub: a spawned pump thread, a posted message, and a callback
      *    that crosses back over the ABI into this program. */
-    printf("[3] TargetCore hub\n");
+    printf("[3] Targetcore hub\n");
     check(targetcore_startup(4) == 1, "targetcore_startup(4)");
 
     hHub = p2peerhub_create_u8("Install.Probe");
@@ -198,7 +198,7 @@ int main(void)
         /* The LEAF, not the full address.  p2peerhub_get_address_u8 returns
          * P2Paddr::c_name(), which for "Install.Probe" is "Probe", while the
          * destination the sink is handed below is the full "Install.Probe" --
-         * the two disagree on purpose and MscsUnitTests/TargetCoreSuite.cpp
+         * the two disagree on purpose and MscsUnitTests/TargetcoreSuite.cpp
          * says so in as many words.  Asserted here because a consumer reading
          * only this header would guess the other way, as the first draft of
          * this file did. */

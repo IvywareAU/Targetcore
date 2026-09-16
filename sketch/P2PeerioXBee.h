@@ -93,7 +93,7 @@ typedef struct
 //
 //  P2PeerioXBee protocol management
 //  NOTES: Translates between P2PeerMsg images and XBee API frames
-class TargetCore_EXT P2PeerioXBee : public P2Peerio
+class Targetcore_EXT P2PeerioXBee : public P2Peerio
 {
       void
         RenderThisSafe();

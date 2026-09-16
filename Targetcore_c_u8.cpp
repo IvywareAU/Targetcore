@@ -13,19 +13,19 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// TargetCore_c_u8.cpp  –  UTF-8 (_u8) parallel entry points for the Panama bridge
+// Targetcore_c_u8.cpp  –  UTF-8 (_u8) parallel entry points for the Panama bridge
 // Each _u8 function converts its UTF-8 strings to
 // the platform-native wchar_t and delegates to the matching wchar_t p2p*_c entry
 // point — no new object-model logic. Conversion via MultiByteToWideChar /
 // WideCharToMultiByte with CP_UTF8: genuine Win32 on Windows (wchar_t = UTF-16),
 // Platform shim on Linux (wchar_t = UTF-32); one path, correct incl. astral.
 //
-// Compiles as part of TargetCore.dll (TargetCore_EXPORTS via project settings).
+// Compiles as part of Targetcore.dll (Targetcore_EXPORTS via project settings).
 // stdafx.h MUST be first (PCH); it also brings in MultiByteToWideChar/
 // WideCharToMultiByte (windows.h on Windows, the Platform shim on Linux).
 
 #include "stdafx.h"          // precompiled header – must be first
-#include "TargetCore_c.h"
+#include "Targetcore_c.h"
 
 #include <string>
 
@@ -111,6 +111,6 @@ P2PC_API const char* p2peerhub_get_address_u8(P2PeerHubHandle h)
 // p2peerhub_set_sink_u8 is the one _u8 entry point NOT defined here: it shares
 // CSinkHub's sink storage instead of delegating to the wchar_t twin, and it needs
 // three converted strings live at once (WtoU8 above returns into a single
-// thread_local buffer). See TargetCore_c.cpp.
+// thread_local buffer). See Targetcore_c.cpp.
 
 } // extern "C"

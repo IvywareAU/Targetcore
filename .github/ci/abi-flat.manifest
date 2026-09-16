@@ -1,6 +1,6 @@
-# TargetCore exported surface -- the flat C ABI. THE COVERED SURFACE.
+# Targetcore exported surface -- the flat C ABI. THE COVERED SURFACE.
 #
-# Generated from TargetCore_c.h (every declaration marked P2PC_API), names only,
+# Generated from Targetcore_c.h (every declaration marked P2PC_API), names only,
 # sorted. Regenerate with:
 #     python .github/ci/check_repo_invariants.py --regenerate-abi
 #

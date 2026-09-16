@@ -43,7 +43,7 @@ gap is much wider in this repository than in the sibling `Msgcore` one this hook
 from.
 
 `repo-invariants.yml` is the only workflow that runs on a push, and **it never compiles the
-library.** TargetCore does not build on its own: `../Msgcore` — which carries the `Platform`
+library.** Targetcore does not build on its own: `../Msgcore` — which carries the `Platform`
 shim layer inside it since 2026-09-03 — is a peer directory in a parent solution that is not
 published alongside this repository. So a green
 run is exactly three claims:

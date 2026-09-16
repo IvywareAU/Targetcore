@@ -14,7 +14,7 @@
 // permissions and limitations under the License.
 //
 //
-//  P2PIdentityStore.h - at-rest storage for the TargetCore peer identity.
+//  P2PIdentityStore.h - at-rest storage for the Targetcore peer identity.
 //
 //  EcdsaP256 (P2PCngCrypto.h) can generate, sign and verify, but it holds a key
 //  only in memory: the key a peer authenticates with must survive a restart, or

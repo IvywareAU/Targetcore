@@ -34,7 +34,7 @@
 //  NOTES: Used to manage queues of P2PeerMsg's.
 //       : Thread safe implementation.
 //
-class TargetCore_EXT P2PeerMsgQue
+class Targetcore_EXT P2PeerMsgQue
 {
       void
         RenderQueSafe ( );

@@ -31,7 +31,7 @@
 //  NOTES: Placeholder for bridging between the Windows Service Control
 //         Manager and a P2PeerHub.
 //
-class TargetCore_EXT P2PeerService
+class Targetcore_EXT P2PeerService
 {
       void
         RenderThisSafe ( );

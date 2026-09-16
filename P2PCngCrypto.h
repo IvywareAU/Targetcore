@@ -15,7 +15,7 @@
 //
 //
 //  P2PCngCrypto.h - CNG (Windows BCrypt) cryptographic primitives for the
-//  TargetCore secure channel.
+//  Targetcore secure channel.
 //
 //  Replaces the legacy hand-rolled crypto (custom Rijndael + Buint Diffie-
 //  Hellman), which was insecure (rand()-seeded keys, 256-bit unvalidated DH,
@@ -45,23 +45,23 @@
 #include <cstddef>
 
 // Export linkage for the few symbols a test or a consumer outside this DLL
-// needs. Declared locally rather than by including TargetCore.h so this header
-// keeps its "no dependencies" property - TargetCore.h's macro expands to
+// needs. Declared locally rather than by including Targetcore.h so this header
+// keeps its "no dependencies" property - Targetcore.h's macro expands to
 // __declspec unconditionally, which does not compile under GCC for the Linux
 // backend that shares this header.
 #if defined(_WIN32)
-#  if defined(TargetCore_STATIC)
+#  if defined(Targetcore_STATIC)
 //  A static library exports nothing and imports nothing, so the macro is empty --
-//  the same arm TargetCore.h and TargetCore_c.h already carry for TargetCore_STATIC.
-//  It was written here as `_WIN32 && !TargetCore_STATIC`, which does not select an
+//  the same arm Targetcore.h and Targetcore_c.h already carry for Targetcore_STATIC.
+//  It was written here as `_WIN32 && !Targetcore_STATIC`, which does not select an
 //  empty macro for a Windows static build: it falls through to the GCC branch below
 //  and hands MSVC __attribute__((visibility("default"))), which is a syntax error.
 //  That arm had never been compiled. It is not only the CMake msgcore_static target
 //  that hits it -- the vcxproj's own DebugLib/ReleaseLib configurations define
-//  TargetCore_STATIC, so 4 of the 8 configurations the .sln declares could not build
+//  Targetcore_STATIC, so 4 of the 8 configurations the .sln declares could not build
 //  this header either (verified 2026-08-22 by compiling DebugLib|x64 directly).
 #    define P2PCNG_EXT
-#  elif defined(TargetCore_EXPORTS)
+#  elif defined(Targetcore_EXPORTS)
 #    define P2PCNG_EXT __declspec(dllexport)
 #  else
 #    define P2PCNG_EXT __declspec(dllimport)

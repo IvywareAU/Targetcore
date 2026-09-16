@@ -17,7 +17,7 @@
 //  Definitions for the Microsoft Ws2_32.dll library extensions
 //
 #pragma once
-#include "TargetCore.h"
+#include "Targetcore.h"
 
 //
 //  Safe SOCKET container
@@ -46,5 +46,5 @@ class SafeSOCKET
 
 //
 //  WS extensions
-TargetCore_EXT CString
+Targetcore_EXT CString
 WSA_GetHostName ( );

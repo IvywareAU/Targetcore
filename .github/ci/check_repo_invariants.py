@@ -22,8 +22,8 @@
 #   2. Every relative link in the shipped Markdown resolves to a file that
 #      exists -- a README that points at a deleted document is the exact defect
 #      class Ahtung_Disaster.md Part 1 is about, only cheaper to catch.
-#   3. THE TWO BUILD SYSTEMS DESCRIBE THE SAME LIBRARY. TargetCore is built by
-#      TargetCore(2026).vcxproj (authoritative on Windows) AND by CMakeLists.txt
+#   3. THE TWO BUILD SYSTEMS DESCRIBE THE SAME LIBRARY. Targetcore is built by
+#      Targetcore(2026).vcxproj (authoritative on Windows) AND by CMakeLists.txt
 #      (authoritative on Linux, parity path on Windows). Nothing else in the
 #      tree compares them, so a .cpp added to one and not the other silently
 #      ships in one shape and not the other. MscsUnitTests/CMakeLists.txt:23-25
@@ -60,7 +60,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-VCXPROJ = ROOT / "TargetCore(2026).vcxproj"
+VCXPROJ = ROOT / "Targetcore(2026).vcxproj"
 CMAKE = ROOT / "CMakeLists.txt"
 
 # stdafx.cpp is the classic /Yc precompiled-header TU. The vcxproj compiles it;
@@ -94,8 +94,8 @@ REQUIRED_FILES = [
 # passing this check). What must never happen is one of them becoming a BUILD
 # INPUT again, so comments are stripped before the search.
 LEGACY_TOKENS = ["DHKeyXChanger", "DHPKeyXChanger", "CRijndael", "Rijndael"]
-BUILD_INPUT_FILES = ["TargetCore(2026).vcxproj",
-                     "TargetCore(2026).vcxproj.filters",
+BUILD_INPUT_FILES = ["Targetcore(2026).vcxproj",
+                     "Targetcore(2026).vcxproj.filters",
                      "CMakeLists.txt"]
 
 failures: list[str] = []
@@ -236,11 +236,11 @@ def check_source_parity() -> None:
     only_vcx = vcx_sources - win_s - DOCUMENTED_VCXPROJ_ONLY
     only_cmake = win_s - vcx_sources
     for name in sorted(only_vcx):
-        fail("parity", f"'{name}' is compiled by TargetCore(2026).vcxproj but NOT by the "
+        fail("parity", f"'{name}' is compiled by Targetcore(2026).vcxproj but NOT by the "
                        f"Windows CMake build -- the two builds produce different libraries")
     for name in sorted(only_cmake):
         fail("parity", f"'{name}' is compiled by the Windows CMake build but NOT by "
-                       f"TargetCore(2026).vcxproj -- the two builds produce different libraries")
+                       f"Targetcore(2026).vcxproj -- the two builds produce different libraries")
     missing_documented = DOCUMENTED_VCXPROJ_ONLY - vcx_sources
     for name in sorted(missing_documented):
         fail("parity", f"'{name}' is recorded here as a documented vcxproj-only source, "
@@ -306,7 +306,7 @@ def check_legacy_crypto_stays_deleted() -> None:
 # ---------------------------------------------------------------------------
 # 5. The event log catalogue, and its committed generated output
 # ---------------------------------------------------------------------------
-# TargetCoreEvt.mc is compiled by mc.exe into a header, a resource script and a
+# TargetcoreEvt.mc is compiled by mc.exe into a header, a resource script and a
 # binary message table, and all three are COMMITTED so that neither build
 # system needs mc.exe and a build never depends on which Windows SDK happens to
 # be installed. That is a deliberate trade, and the thing it trades away is the
@@ -315,7 +315,7 @@ def check_legacy_crypto_stays_deleted() -> None:
 #
 # Two tiers, because the interesting one cannot always run:
 #   STRUCTURAL, always -- every artifact present, the generated script actually
-#     included by TargetCore.rc, and every symbolic value in the committed
+#     included by Targetcore.rc, and every symbolic value in the committed
 #     header equal to the value implied by the .mc's own MessageId/Severity/
 #     Facility declarations. That last one is the real content: it is what
 #     catches a MessageId edited in the .mc and not regenerated, which is the
@@ -326,8 +326,8 @@ def check_legacy_crypto_stays_deleted() -> None:
 # Skipping the second tier is reported as a NOTE, never as a pass: this check
 # runs on a Linux runner where no message compiler exists, and "ok" there would
 # be a claim nobody verified.
-EVT_MC = "TargetCoreEvt.mc"
-EVT_GENERATED = ["TargetCoreEvt.h", "TargetCoreEvt.rc", "MSG00001.bin"]
+EVT_MC = "TargetcoreEvt.mc"
+EVT_GENERATED = ["TargetcoreEvt.h", "TargetcoreEvt.rc", "MSG00001.bin"]
 EVT_SEVERITY_BITS = {"Success": 0x0, "Informational": 0x1,
                      "Warning": 0x2, "Error": 0x3}
 
@@ -400,12 +400,12 @@ def check_evt_catalogue() -> None:
     ok(f"{EVT_MC} and its {len(EVT_GENERATED)} generated artifacts present")
 
     # The table is only in the DLL if the generated script is included.
-    rc_text = read(ROOT / "TargetCore.rc")
-    if 'TargetCoreEvt.rc' in rc_text:
-        ok("TargetCore.rc includes the generated message table script")
+    rc_text = read(ROOT / "Targetcore.rc")
+    if 'TargetcoreEvt.rc' in rc_text:
+        ok("Targetcore.rc includes the generated message table script")
     else:
         fail("evt-catalogue",
-             "TargetCore.rc does not #include TargetCoreEvt.rc, so the message "
+             "Targetcore.rc does not #include TargetcoreEvt.rc, so the message "
              "table is absent from the DLL and the Event Viewer cannot format "
              "a hosted service's diagnostics")
 
@@ -416,7 +416,7 @@ def check_evt_catalogue() -> None:
         fail("evt-catalogue", f"parsed no messages out of {EVT_MC}")
         return
 
-    header = read(ROOT / "TargetCoreEvt.h")
+    header = read(ROOT / "TargetcoreEvt.h")
     committed = {name: int(value, 16) for name, value in
                  re.findall(r"#define\s+(P2PMSG_EVT_\w+)\s+\(\(DWORD\)(0x[0-9A-Fa-f]+)L\)",
                             header)}
@@ -494,7 +494,7 @@ def check_evt_catalogue() -> None:
 # without a deliberate manifest edit; that one catches a header promise the
 # library does not actually export.
 # ---------------------------------------------------------------------------
-C_HEADER = ROOT / "TargetCore_c.h"
+C_HEADER = ROOT / "Targetcore_c.h"
 ABI_MANIFEST = ROOT / ".github" / "ci" / "abi-flat.manifest"
 
 # P2PC_API must start the line. In the macro's own #define block it does not,
@@ -539,19 +539,19 @@ def check_abi_surface() -> None:
     promised = abi_names_from_manifest()
 
     if not declared:
-        fail("abi-surface", "no P2PC_API declarations found in TargetCore_c.h -- "
+        fail("abi-surface", "no P2PC_API declarations found in Targetcore_c.h -- "
                             "the parser is broken, not the header")
         return
 
     for name in sorted(declared - promised):
         fail("abi-surface",
-             f"'{name}' is declared P2PC_API in TargetCore_c.h but is NOT in "
+             f"'{name}' is declared P2PC_API in Targetcore_c.h but is NOT in "
              f"abi-flat.manifest. A new entry point is a promise; add it to the "
              f"manifest in the same commit, or take it off the shipped header")
     for name in sorted(promised - declared):
         fail("abi-surface",
              f"'{name}' is in abi-flat.manifest but is no longer declared in "
-             f"TargetCore_c.h. Removing a covered symbol is a MAJOR bump once "
+             f"Targetcore_c.h. Removing a covered symbol is a MAJOR bump once "
              f"this project is 1.0 -- see the versioning policy")
 
     if declared == promised:

@@ -204,7 +204,7 @@ GcmCryptoSelfTest ( )
     if ( !oGcm.IsKeyed ( ) ) return false;
 
     // 3. Round trip
-    const char szPlain[] = "TargetCore payload, sealed.";
+    const char szPlain[] = "Targetcore payload, sealed.";
     const UINT nPlain    = (UINT)sizeof(szPlain);   // includes the terminator
     const UINT nSealed   = oGcm.SealedSize ( nPlain );
 

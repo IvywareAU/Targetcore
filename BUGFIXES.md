@@ -1,8 +1,8 @@
-# TargetCore — Memory-leak & Crash Fixes
+# Targetcore — Memory-leak & Crash Fixes
 
 Fixes for the acknowledged memory leaks and crashes flagged in the repo-root
 `TODO.md`. Each change was verified with a clean MSBuild
-(`TargetCore(2026).sln`, `Debug|x64`, exit 0).
+(`Targetcore(2026).sln`, `Debug|x64`, exit 0).
 
 | # | Symptom | File / site | Commit |
 |---|---------|-------------|--------|
@@ -129,7 +129,7 @@ With `RearmRecv()` removed it reports *"THE HELD MESSAGES WERE LOST (20 of 40)"*
 `Msgcore\` is a sibling copy and carried the same issues. Fixed in Msgcore
 commit `0f0b221`. **The file those line numbers point into no longer exists**: `Msgcorewin32.cpp`
 was deleted from `Msgcore` on 2026-07-17 at `3a6d0b0` — *"a dead, stale clone of
-TargetCore/P2Pwin32.cpp"* — so every `Msgcorewin32.cpp` reference below is readable only against
+Targetcore/P2Pwin32.cpp"* — so every `Msgcorewin32.cpp` reference below is readable only against
 `0f0b221`, and the surviving copy of each fix is the one in this repository.
 
 - `Msgcorewin32.cpp:6068` (leak) and `:4127` (crash) — same two fixes as #2/#3.

@@ -36,7 +36,7 @@
 #
 #  The workflow gated on below is repo-invariants.yml, and green from it is a
 #  MUCH weaker statement than green from Msgcore's CI. Its own header spells out
-#  why: TargetCore does not build on its own, so the library is never compiled.
+#  why: Targetcore does not build on its own, so the library is never compiled.
 #  A green run means the bookkeeping holds (build-system parity, links resolve,
 #  legacy crypto stayed deleted), the OpenSSL crypto core passes its KATs and
 #  refusal paths, and CMakeLists.txt generates. 26 of the 30 translation units

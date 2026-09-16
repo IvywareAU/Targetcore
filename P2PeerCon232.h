@@ -34,7 +34,7 @@
 //       : P2PeerHub's pump P2PeerCon232 objects through P2PeerCon_MAP's
 //         in response to state changes.
 //
-class TargetCore_EXT P2PeerCon232 : public P2PeerCon
+class Targetcore_EXT P2PeerCon232 : public P2PeerCon
 {
       void
         RenderThisSafe();

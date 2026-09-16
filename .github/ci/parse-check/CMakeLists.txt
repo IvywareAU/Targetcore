@@ -15,7 +15,7 @@
 #
 # ---------------------------------------------------------------------------
 # parse-check -- a STUB parent project, for CI only. Never build what it
-# generates, and never use it as a template for consuming TargetCore.
+# generates, and never use it as a template for consuming Targetcore.
 #
 # ../../../CMakeLists.txt is a COMPONENT script, not a project: Readme.md
 # "CMake (in-tree)" says so, and it opens straight into set()/add_library()
@@ -41,7 +41,7 @@
 #     libraries. They carry no Msgcore headers and no import library, so the
 #     generated project would fail at the first #include of P2PmsgBSTR.h. The
 #     CI job deliberately stops after generate.
-#   * It therefore says nothing about whether TargetCore compiles, links, or
+#   * It therefore says nothing about whether Targetcore compiles, links, or
 #     works. It proves the build script is well-formed, and that is all.
 #   * The Linux branch of the component script is NOT exercised: it compiles
 #     ../Msgcore/Platform/p2piocp.cpp, which is in a sibling repository, and requires
@@ -53,7 +53,7 @@
 # ---------------------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.24)
-project(TargetCoreParseCheck LANGUAGES CXX)
+project(TargetcoreParseCheck LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -72,7 +72,7 @@ add_library(p2pplatform INTERFACE)
 # deliberately: Msgcore/CMakeLists.txt explains that the installed targetcore
 # really does need the installed msgcore beside it to load, so unlike p2pplatform
 # it must NOT be wrapped in $<BUILD_INTERFACE:>. install(TARGETS targetcore EXPORT
-# TargetCoreTargets) then refuses at GENERATE time -- "requires target msgcore that
+# TargetcoreTargets) then refuses at GENERATE time -- "requires target msgcore that
 # is not in any export set" -- and a generate failure is not something the stub can
 # opt out of. In the real parent solution msgcore is exported, by
 # install(TARGETS msgcore EXPORT MsgcoreTargets). These two lines are that fact.

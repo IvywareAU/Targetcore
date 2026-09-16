@@ -322,7 +322,7 @@ The second line complements `uiSync2` against *itself* rather than against `uiSy
 uninitialised bytes from `new char[]`. It also never set the addressing-mode byte. Any image it
 produced would fail every validity check.
 
-It was unreachable: its only caller, `P2Peerio::PKeyXChangeAck` (`TargetCore/P2Peerio.cpp:926`),
+It was unreachable: its only caller, `P2Peerio::PKeyXChangeAck` (`Targetcore/P2Peerio.cpp:926`),
 sits behind `ASSERT(0)` with the dispatch commented out — an unfinished code path. Corrected as
 part of the §4 change, since that function had to learn to write the sentinel regardless.
 

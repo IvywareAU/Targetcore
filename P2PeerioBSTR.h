@@ -33,7 +33,7 @@
 //  P2PeerioBSTR protocol management
 //  NOTES: Prefixes P2PeerMsg data with size of data.  Common in
 //         3rd Party type protocols
-class TargetCore_EXT P2PeerioBSTR : protected P2Peerio
+class Targetcore_EXT P2PeerioBSTR : protected P2Peerio
 {
       void
         RenderThisSafe();

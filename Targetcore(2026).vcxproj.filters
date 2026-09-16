@@ -69,10 +69,10 @@
     <ClCompile Include="P2PeerTarget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TargetCore_c.cpp">
+    <ClCompile Include="Targetcore_c.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TargetCore_c_u8.cpp">
+    <ClCompile Include="Targetcore_c_u8.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="P2Pwin32.cpp">
@@ -96,7 +96,7 @@
     <ClCompile Include="dllmain.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="TargetCoreLog.cpp">
+    <ClCompile Include="TargetcoreLog.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -152,7 +152,7 @@
     <ClInclude Include="P2PeerTarget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TargetCore.h">
+    <ClInclude Include="Targetcore.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="P2PmsgMaps.h">
@@ -182,12 +182,12 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="TargetCoreLog.h">
+    <ClInclude Include="TargetcoreLog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="TargetCore.rc">
+    <ResourceCompile Include="Targetcore.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

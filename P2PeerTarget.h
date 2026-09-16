@@ -66,7 +66,7 @@ const    mapRESULT evtHANDLED = TRUE;  // Handled
 const    mapRESULT evtSWAP    = 7;     // Swap processing context
 
 class P2PeerHub;
-class TargetCore_EXT P2PeerTarget
+class Targetcore_EXT P2PeerTarget
 {
     P2PeerTarget&
       operator = ( const P2PeerTarget& ) { ASSERT(0); return *this; }
@@ -262,7 +262,7 @@ class TargetCore_EXT P2PeerTarget
       short            m_nPriority{0};
       P2PmsgSinkIDmap *m_pP2PmsgSinkIDmap{nullptr};
     private:
-      friend TargetCore_EXT DWORD
+      friend Targetcore_EXT DWORD
         PumpP2Pmsg ( DWORD, P2PsigID& );
       UINT_PTR         m_uiValidObject{0};
  
@@ -390,6 +390,6 @@ union P2PeerMsgMapFunctions
 //       : Such P2Pevent's are posted back in the context of the P2PmsgPump
 //         under which the sink was created.
 //       : Refer On_P2Pevent() handler for further details
-TargetCore_EXT P2PeventSinkID
+Targetcore_EXT P2PeventSinkID
 CreateP2PeventSink ( P2PeerTarget *pTarget
                    , bool bReg4all = true );

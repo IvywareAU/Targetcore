@@ -44,8 +44,8 @@ recommendation — build §6.3 — is in *Step 5* below with the numbers it rest
 
 | | Result |
 |---|---|
-| `TargetCore(2026).sln`, Debug \| x64, MSBuild 17 | **clean**, exit 0, DLL produced |
-| `TargetCore(2026).sln`, Release \| x64 | **clean**, exit 0, DLL produced |
+| `Targetcore(2026).sln`, Debug \| x64, MSBuild 17 | **clean**, exit 0, DLL produced |
+| `Targetcore(2026).sln`, Release \| x64 | **clean**, exit 0, DLL produced |
 | `.github/ci/check_repo_invariants.py` | **all seven sections green**; **99** flat C symbols, header and manifest agree (step 4 adds none — the flat surface has no pipe handle) |
 | `dumpbin /EXPORTS` on the Release DLL | all six new flat-C symbols exported; `RequireTrustAtLeast` and `GetRequiredTrust` present as C++ exports |
 | CMake tree, `windows-msvc` preset, Debug, full build | **clean**, exit 0 |
@@ -273,7 +273,7 @@ Two things were taken that the numbered steps do not name. Both are recorded her
 folded in silently.
 
 **§6.7, the flat C ABI (4 symbols).** Taken because this tree's own stated rule is that a hub
-security setting which is not reachable through `TargetCore_c.h` has no migration at all for a
+security setting which is not reachable through `Targetcore_c.h` has no migration at all for a
 redistributed build — the argument written into that header three times over, on 2026-08-18,
 2026-08-21 and again for sealing. Nothing here changes a default, so a C consumer needs nothing new
 to keep working; what it would otherwise lack is the ability to *use* the feature.
@@ -671,7 +671,7 @@ one.
 ### No new ABI
 
 The flat C surface exposes hub and `P2PeerConWsa` handles only — there is no `p2peerconpipe_*` in
-`TargetCore_c.h`. So step 4 adds **no** symbols and the manifest stays at **99**. If the pipe is
+`Targetcore_c.h`. So step 4 adds **no** symbols and the manifest stays at **99**. If the pipe is
 ever given a flat-C surface, `set_pipe_access` and `get_trust_class` are what it needs.
 
 ### §8.3 phases 6 and 7 — and what phase 0 could not do alone
@@ -919,7 +919,7 @@ it. This paragraph is left standing as it was written because the correction is 
 
 ### What step 5 did NOT change
 
-No library source. `TargetCore` is byte-identical to what step 4 left; the manifest is still 99
+No library source. `Targetcore` is byte-identical to what step 4 left; the manifest is still 99
 symbols and the ABI is untouched. Step 5 is a harness, a CMake registration and this section. The
 `security` label still selects the same 37 tests — `p2p_linkcost` is labelled `measure` precisely so
 that a `-L security` run is comparable across the whole pass.
@@ -1041,8 +1041,8 @@ demotion algebra, which is the part of I4 that is code rather than absence.
    `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION` — is closed with it**: one flag on a call step 4
    was editing anyway. Refer *Step 4* above.
 2. **The "83 symbols" figure is stale in two places** and was already stale before this pass — the
-   manifest held **93**, not 83, and now holds **99**. It appears in `TargetCore_version.h` (the
-   "WHAT THE MAJOR DOES NOT CLAIM" block) and in `TargetCore/CMakeLists.txt` (the `p2p_abisurface`
+   manifest held **93**, not 83, and now holds **99**. It appears in `Targetcore_version.h` (the
+   "WHAT THE MAJOR DOES NOT CLAIM" block) and in `Targetcore/CMakeLists.txt` (the `p2p_abisurface`
    block), and probably in the versioning policy. **Not corrected here** — it was not this pass's
    subject and the versioning policy was not read. One line each when someone does.
 3. **The version was not bumped.** These three steps add **6** symbols to the covered ABI, which
@@ -1197,7 +1197,7 @@ Two placement decisions, and they point opposite ways on purpose:
 object answers `false` — the fail-closed reading here is the one that declines to waive.
 
 §6.7 names only the setter. The getter was added with it because every other policy pair in
-`TargetCore_c.h` has one and there is **no flat-C posture reader**, so without it an FFI consumer
+`Targetcore_c.h` has one and there is **no flat-C posture reader**, so without it an FFI consumer
 could set the waiver and never read it back. Two symbols; the manifest is now **101**.
 
 ### The three call sites
@@ -1339,7 +1339,7 @@ the honest reading is that step 5 raised it without having read `Sealing.md`.
 
 Step 5 timed `SealFor` and `OpenFrom` **whole**, which is why it could attribute the whole of D − C
 to the ephemeral. A scratch harness (`sealcost.cpp`, built Release against
-`build/windows-msvc/TargetCore/Release/TargetCore.lib`, same instrument as `p2p_linkcost` — QPC for
+`build/windows-msvc/Targetcore/Release/Targetcore.lib`, same instrument as `p2p_linkcost` — QPC for
 wall, `GetProcessTimes` for CPU) times the exported primitives individually. N = 4 000, three runs,
 CPU µs per call, **stable to under 5%**:
 
@@ -1455,7 +1455,7 @@ Two things were tightened while moving it, both about silent failure:
 | `P2PAuthLogin.cpp` | those two bodies; array zeroed in the constructor; **step 3:** floor zeroed beside it, the three new bodies, `Arm()`'s second early return, one `AuthArmText` line |
 | `P2PeerHub.h` | `P2PeerLinkPolicy_e`; `Set/GetLinkPolicy`; `Posture::anLinkPolicy[3]`; **step 3:** `RequireTrustAtLeast` / `GetRequiredTrust`, `Posture::nTrustFloor` |
 | `P2PeerHub.cpp` | those two bodies; posture filled both branches; three snapshot fields; **step 3:** the two new bodies, the fence in `PostP2PeerCon`, `TrustFloor` in the posture and its snapshot field, `ArmNotRequiredByPolicy` admitted in `AuthArmOrRefuse` |
-| `TargetCore_c.h` / `.cpp` | the four flat-C entry points; **step 3:** `p2peerhub_require_trust_at_least`, `p2peerhub_get_required_trust` |
+| `Targetcore_c.h` / `.cpp` | the four flat-C entry points; **step 3:** `p2peerhub_require_trust_at_least`, `p2peerhub_get_required_trust` |
 | `.github/ci/abi-flat.manifest` | 4 names added for step 2, 2 more for step 3, sorted — 93 → 97 → **99** |
 | `SECURITY.md` | the `RequireAuth` bullet qualified; a `SetLinkPolicy` bullet added |
 | `THREAT_MODEL.md` | §3 three-class table + the pipe caveat; §6.1 two rows, both checked by `p2p_linktrust`; §8 F-SR-1 |
@@ -1469,7 +1469,7 @@ Two things were tightened while moving it, both about silent failure:
 | `P2PAuthLogin.h` / `.cpp` | **§6.3:** `Set/IsEndToEndWaivedInProcess`, `m_bWaiveE2EInProcess`, `false` in the constructor |
 | `P2PeerHub.h` / `.cpp` | **§6.3:** `WaiveEndToEndInProcess` / `IsEndToEndWaivedInProcess` with the A-B-C block comment; `Posture::bWaiveE2E` **appended** to the struct and filled in both branches; the `WaiveE2E` snapshot field rendered beside `SealReq` |
 | `P2PeerCon.cpp` | **§6.3:** the three call sites — `SealAppMsgOutbound` (scope), `AttestAppMsgOutbound` (destination), `GateRelayInbound` (source). The two send-side ones also require `!HasScope()` |
-| `TargetCore_c.h` / `.cpp` | **§6.3:** `p2peerhub_waive_end_to_end_in_process` and its getter; the assumption restated for an FFI reader who cannot see the C++ header |
+| `Targetcore_c.h` / `.cpp` | **§6.3:** `p2peerhub_waive_end_to_end_in_process` and its getter; the assumption restated for an FFI reader who cannot see the C++ header |
 | `.github/ci/abi-flat.manifest` | **§6.3:** 2 more, regenerated — 99 → **101** |
 | `SECURITY.md` | **§6.3:** a `WaiveEndToEndInProcess` bullet carrying the measurement, the assumption and the A-B-C failure |
 | `THREAT_MODEL.md` | **§6.3:** a §6.2 row — the only one in that document that removes a protection — and the paragraph that says why a table cannot carry it |
@@ -1484,7 +1484,7 @@ Two things were tightened while moving it, both about silent failure:
 
 - Read `securityRevision.md` in full.
 - Confirmed `.reversa/reversa-config.json` at `MSCS/` root: `allowLegacyEdits: true`,
-  `allowedPaths: []` — unrestricted, so edits to the TargetCore sources are permitted.
+  `allowedPaths: []` — unrestricted, so edits to the Targetcore sources are permitted.
 - Scope selected by the user: **steps 1 and 2 only**.
 
 ### 2026-09-04 — steps 1 and 2 landed

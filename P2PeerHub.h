@@ -64,7 +64,7 @@ typedef void (P2PeerHub::*RUN_HUB)(void);
 //  NOTES: Manages the routing of P2PeerMsg's between hubs and implements
 //         the P2PeerSys_MAP, P2PeerCon_MAP and P2PeerMsg_MAP's
 //
-class TargetCore_EXT P2PeerHub : public P2PeerTarget
+class Targetcore_EXT P2PeerHub : public P2PeerTarget
 {
       void
         RenderHubSafe();

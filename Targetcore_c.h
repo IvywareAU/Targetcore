@@ -13,7 +13,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// TargetCore_c.h  –  extern "C" wrapper for Java Panama FFI
+// Targetcore_c.h  –  extern "C" wrapper for Java Panama FFI
 // Exposes: P2Paddr, P2PeerMsg, P2PeerConWsa, P2PeerHub
 // String convention: all TCHAR/wchar_t strings are wchar_t* (Windows UNICODE build).
 // Ownership: strings returned by getters point to internal C++ object storage;
@@ -63,15 +63,15 @@ extern "C" {
 // jextract, etc. -- can include this header directly on either toolchain. Mirrors
 // Msgcore_c.h's MSGCORE_C_API. Windows behaviour is byte-identical to before.
 #if defined(_WIN32)
-#  if defined(TargetCore_EXPORTS)
+#  if defined(Targetcore_EXPORTS)
 #    define P2PC_API __declspec(dllexport)
-#  elif defined(TargetCore_STATIC)
+#  elif defined(Targetcore_STATIC)
 #    define P2PC_API
 #  else
 #    define P2PC_API __declspec(dllimport)
 #  endif
 #else                                   // GCC/Clang (Linux port)
-#  if defined(TargetCore_EXPORTS)
+#  if defined(Targetcore_EXPORTS)
 #    define P2PC_API __attribute__((visibility("default")))
 #  else
 #    define P2PC_API               // imports need no decoration on ELF
@@ -84,7 +84,7 @@ extern "C" {
 // The component's version identity, so an FFI consumer can test what it
 // compiled against without a second copy of the number. Preprocessor-only, so
 // it costs jextract nothing and adds no symbol to the ABI.
-#include "TargetCore_version.h"
+#include "Targetcore_version.h"
 
 // ── Opaque handles ────────────────────────────────────────────────────────────
 typedef void* P2PAddrHandle;
@@ -554,7 +554,7 @@ P2PC_API const char*     p2peerhub_get_address_u8(P2PeerHubHandle h);
 // should bind. Same contract as p2peerhub_set_sink above (pump thread, borrowed
 // pointers, non-zero = consumed); the three strings arrive as UTF-8, converted at
 // the boundary, and `data` stays an opaque binary payload in both variants.
-// Unlike the other _u8 twins it is implemented in TargetCore_c.cpp, because it
+// Unlike the other _u8 twins it is implemented in Targetcore_c.cpp, because it
 // shares the hub's sink storage rather than delegating to the wchar_t entry point.
 typedef int (*P2PeerHubSinkFnU8) (void*       ctx,
                                    const char* srcAddr,

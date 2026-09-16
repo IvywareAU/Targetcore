@@ -102,7 +102,7 @@ struct P2PeerConWsaSourceFilter;
 //       : P2PeerHub's pump P2PeerConWsa objects through P2PeerCon_MAP's
 //         in response to state changes.
 //
-class TargetCore_EXT P2PeerConWsa : public P2PeerCon
+class Targetcore_EXT P2PeerConWsa : public P2PeerCon
 {
       void
         RenderThisSafe();

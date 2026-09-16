@@ -1,4 +1,4 @@
-# TargetCore — Usage Examples
+# Targetcore — Usage Examples
 
 Worked examples for the four core classes:
 
@@ -134,7 +134,7 @@ private:
 ### 2. Process startup / shutdown boilerplate
 
 ```cpp
-// Initialise the TargetCore kernel (arg = pump/thread pool hint).
+// Initialise the Targetcore kernel (arg = pump/thread pool hint).
 if (!StartupP2Pmsg(16)) { /* fatal */ }
 
 // StartupP2Pmsg() does NOT call WSAStartup — when you drive a hub directly

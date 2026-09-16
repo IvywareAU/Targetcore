@@ -153,7 +153,7 @@ jobs:
             echo
             echo "Fix: create a PAT with read access to MscsSolution, Msgcore"
             echo "and MscsUnitTests, then:"
-            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present."
@@ -176,10 +176,10 @@ jobs:
           repository: ${{ env.UNITTESTS_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
-      - name: Check out TargetCore into the solution
+      - name: Check out Targetcore into the solution
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       - name: Install build dependencies
         run: |
@@ -266,7 +266,7 @@ jobs:
         run: |
           if [ -z "$TOKEN" ]; then
             echo "MSCS_SOLUTION_TOKEN is not set on this repository."
-            echo "Fix: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "Fix: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present."
@@ -289,10 +289,10 @@ jobs:
           repository: ${{ env.UNITTESTS_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
-      - name: Check out TargetCore into the solution
+      - name: Check out Targetcore into the solution
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       - name: Configure
         run: cmake --preset windows-msvc

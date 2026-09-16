@@ -26,33 +26,33 @@
 # would prove a weaker claim and would quietly tolerate a header that only a
 # C++ compiler accepts.
 cmake_minimum_required(VERSION 3.24)
-project(TargetCoreInstallCheck LANGUAGES C)
+project(TargetcoreInstallCheck LANGUAGES C)
 
 # The one line a third party writes.  If the config package, its version file,
 # its targets file or its find_dependency(Msgcore) is missing or wrong, this
 # fails here -- before a compiler runs -- and says which.
-find_package(TargetCore REQUIRED)
+find_package(Targetcore REQUIRED)
 
 add_executable(installed_consumer consumer.c)
 
 # Msgcore::msgcore is named EXPLICITLY as well as arriving transitively through
-# TargetCore::targetcore.  consumer.c calls msgcore_mgr_* directly, and a
+# Targetcore::targetcore.  consumer.c calls msgcore_mgr_* directly, and a
 # consumer that only reached the sibling by accident of transitivity would not
 # notice if Msgcore_c.h or the msgcore import library never got installed.
 target_link_libraries(installed_consumer PRIVATE
-                      TargetCore::targetcore
+                      Targetcore::targetcore
                       Msgcore::msgcore)
 
 # Report what was resolved, so a failing run says WHICH library it found rather
 # than only that something did not work.
-get_target_property(_p2p_loc TargetCore::targetcore IMPORTED_LOCATION_NOCONFIG)
+get_target_property(_p2p_loc Targetcore::targetcore IMPORTED_LOCATION_NOCONFIG)
 if(NOT _p2p_loc)
-    get_target_property(_p2p_loc TargetCore::targetcore IMPORTED_LOCATION_RELEASE)
+    get_target_property(_p2p_loc Targetcore::targetcore IMPORTED_LOCATION_RELEASE)
 endif()
 if(NOT _p2p_loc)
-    get_target_property(_p2p_loc TargetCore::targetcore IMPORTED_LOCATION_DEBUG)
+    get_target_property(_p2p_loc Targetcore::targetcore IMPORTED_LOCATION_DEBUG)
 endif()
-message(STATUS "install-check: TargetCore ${TargetCore_VERSION} -> ${_p2p_loc}")
+message(STATUS "install-check: Targetcore ${Targetcore_VERSION} -> ${_p2p_loc}")
 message(STATUS "install-check: Msgcore    ${Msgcore_VERSION}")
 
 # The version the config package advertises must equal the version the SHIPPED
@@ -63,11 +63,11 @@ message(STATUS "install-check: Msgcore    ${Msgcore_VERSION}")
 # This is not hypothetical: the first draft of that regex stripped every
 # non-digit from the #define line, which turned "TARGETCORE_VERSION_MAJOR 0"
 # into 20, because the digit in "P2P" counts too. The package then advertised
-# 20.29.20 and find_package(TargetCore 0.9.0) would have accepted it while
-# find_package(TargetCore 1.0) would have accepted it as well. Both libraries
+# 20.29.20 and find_package(Targetcore 0.9.0) would have accepted it while
+# find_package(Targetcore 1.0) would have accepted it as well. Both libraries
 # still worked perfectly; only the number was a lie, and a version number that
 # lies is worse than no version number, because a consumer acts on it.
-foreach(_pkg TargetCore Msgcore)
+foreach(_pkg Targetcore Msgcore)
     string(TOUPPER "${_pkg}" _PKG)
     file(STRINGS "${${_pkg}_DIR}/../../../include/${_pkg}_version.h" _vs
          REGEX "^#define[ \t]+${_PKG}_VERSION_STRING")

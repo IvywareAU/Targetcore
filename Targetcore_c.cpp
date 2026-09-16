@@ -13,13 +13,13 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// TargetCore_c.cpp  –  extern "C" implementation of Panama bridge
-// Compiles as part of TargetCore.dll (TargetCore_EXPORTS defined via project
+// Targetcore_c.cpp  –  extern "C" implementation of Panama bridge
+// Compiles as part of Targetcore.dll (Targetcore_EXPORTS defined via project
 // preprocessor settings; do not redefine here).
 // stdafx.h MUST be the first include to satisfy the precompiled-header requirement.
 
 #include "stdafx.h"          // precompiled header – must be first
-#include "TargetCore_c.h"
+#include "Targetcore_c.h"
 #include "P2Peer.h"
 #include "P2PeerMsg.h"
 #include "P2PeerCon.h"
@@ -124,7 +124,7 @@ static inline P2PeerMsg*    msg (P2PeerMsgHandle     h) { return P2PhandleIs(h, 
 static inline P2PeerConWsa* wsa (P2PeerConWsaHandle  h) { return P2PhandleIs(h, P2PhandleKind_Wsa)  ? static_cast<P2PeerConWsa*>(h) : nullptr; }
 static inline P2PeerHub*    hub (P2PeerHubHandle     h) { return P2PhandleIs(h, P2PhandleKind_Hub)  ? static_cast<P2PeerHub*>(h)    : nullptr; }
 
-// UTF-8 conversion for the _u8 sink. TargetCore_c_u8.cpp's WtoU8() cannot serve
+// UTF-8 conversion for the _u8 sink. Targetcore_c_u8.cpp's WtoU8() cannot serve
 // here: it returns a pointer into ONE thread_local buffer, and the sink needs
 // three converted strings live at the same time. Returning by value costs a C++
 // heap allocation on the pump thread — which is the safe heap; the one that must
@@ -434,7 +434,7 @@ void p2peermsg_destroy(P2PeerMsgHandle h)
 // raw across the C ABI would give every C/Python/PHP caller a pointer that dies
 // silently on Linux the moment it reads a second message - the exact shape of
 // the P2PeerHub::RouteP2PeerMsg defect. The per-thread std::wstring makes the
-// contract the _u8 twins already document (TargetCore_c.h:248-249) true for the
+// contract the _u8 twins already document (Targetcore_c.h:248-249) true for the
 // wchar_t getters too, and matches Msgcore_c.cpp:1670-1685, which does the same
 // for the same reason. Win32 is unaffected either way.
 const wchar_t* p2peermsg_get_source(P2PeerMsgHandle h)
@@ -1101,7 +1101,7 @@ const wchar_t* p2peerhub_get_address(P2PeerHubHandle h)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // P2PeerHub receive sink
-// Both entry points live here (not in TargetCore_c_u8.cpp with the other _u8
+// Both entry points live here (not in Targetcore_c_u8.cpp with the other _u8
 // twins) because they share CSinkHub's storage rather than delegating.
 // ─────────────────────────────────────────────────────────────────────────────
 

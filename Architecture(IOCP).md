@@ -1,6 +1,6 @@
-# TargetCore — I/O Completion Port (IOCP) Architecture
+# Targetcore — I/O Completion Port (IOCP) Architecture
 
-This document traces how the TargetCore messaging kernel uses **Windows I/O Completion
+This document traces how the Targetcore messaging kernel uses **Windows I/O Completion
 Ports** to drive all asynchronous socket, pipe and serial I/O. It walks the complete
 lifecycle of a single I/O completion, end to end, with references to the actual source
 (`file:line`).
@@ -234,7 +234,7 @@ keeps the object alive across the async gap.
 
 # Connection-handshake regressions & fixes (2026-07-02)
 
-This section documents four latent regressions in `TargetCore` that, together, broke the
+This section documents four latent regressions in `Targetcore` that, together, broke the
 **entire connection lifecycle on every transport** (WSA sockets *and* named pipes) in the
 current build. Symptomatically a connection would abort at dispatch, or a hub would never
 listen, or the login message would be rejected, or the first already-buffered application
@@ -435,7 +435,7 @@ both transports.
 | 3 | `P2PeerMsg.h:36`, `P2Peerio.cpp:73-74` | 2048-byte cap rejects the ~4 KB login message | raised `MAX_P2Psize` + P2Peerio buffers to `32768` |
 | 4 | `P2Peerio.cpp:753-767` | synchronous `ReadFile` misread stale `GetLastError()` as failure | treat synchronous success as `ERROR_IO_PENDING` |
 
-> **Consumer impact.** These fixes are in the shared `TargetCore` DLL/`.lib` (output to
+> **Consumer impact.** These fixes are in the shared `Targetcore` DLL/`.lib` (output to
 > `../lib` and `$WDMSCS_DEBUG`). Every consumer that links it — the downstream MFC
 > applications and any generated projects — picks them up on the next rebuild. The changes are corrective
 > (no API/ABI changes), but rebuild + smoke-test dependent apps after taking them.
@@ -446,7 +446,7 @@ both transports.
 
 Two runtime harnesses probe how a single `P2PeerHub` supervises **more than one** connection, and
 how it behaves when those connections use **different transports**. Both are standalone MFC console
-projects that link the shared `TargetCore`/`Msgcore` libs and self-connect over loopback in one
+projects that link the shared `Targetcore`/`Msgcore` libs and self-connect over loopback in one
 process, mirroring `AlexTest` (WSA) and `PipeMeshTest` (pipe). Both are **verified passing** (built
 `Debug|x64`, VS2026 v145; run headless; verdict via exit code).
 
@@ -519,13 +519,13 @@ Verdict: **PASS** — one hub holds live connections of mixed transports at the 
 
 ## Build & runtime notes (both harnesses)
 
-- Each project references the sibling `Msgcore` + `TargetCore` projects (`..\lib` import libs,
-  `..\Msgcore` / `..\TargetCore` headers) and delay-loads `TargetCore.dll`.
+- Each project references the sibling `Msgcore` + `Targetcore` projects (`..\lib` import libs,
+  `..\Msgcore` / `..\Targetcore` headers) and delay-loads `Targetcore.dll`.
 - **Incremental build breaks (`error C2859`):** the post-build step copies
-  `..\TargetCore\x64\Debug\vc143.pdb` next to the exe, clobbering the local compiler PDB. Use
+  `..\Targetcore\x64\Debug\vc143.pdb` next to the exe, clobbering the local compiler PDB. Use
   `/t:Rebuild`.
-- **Staging the DLL:** if `TargetCore` is built only to `..\bin\Debug64\`, copy
-  `TargetCore.dll` next to the test exe before running.
+- **Staging the DLL:** if `Targetcore` is built only to `..\bin\Debug64\`, copy
+  `Targetcore.dll` next to the test exe before running.
 - **Console mode / pipe transport:** `MixConTest` deliberately does **not** put stdout in
   `_O_U16TEXT` (wide) mode. With the pipe transport active, wide (`wprintf`) and narrow stdio
   writes mix on stdout, and a stream left in `_O_U16TEXT` asserts inside the UCRT
@@ -533,14 +533,14 @@ Verdict: **PASS** — one hub holds live connections of mixed transports at the 
   output avoids it. (`TwoConTest`, WSA-only, never exercises that path and keeps `_O_U16TEXT`.)
 
 > These harnesses are **new sibling projects only** (`../TwoConTest`, `../MixConTest`); no existing
-> project or the `TargetCore` library itself was modified. Each project also carries its own
+> project or the `Targetcore` library itself was modified. Each project also carries its own
 > `README.md` with the full trace and design rationale.
 
 ---
 
 # Licence
 
-TargetCore is licensed under the **Apache License, Version 2.0**. See
+Targetcore is licensed under the **Apache License, Version 2.0**. See
 [`LICENSE`](LICENSE) for the full text, or <http://www.apache.org/licenses/LICENSE-2.0>.
 
 ```
@@ -563,7 +563,7 @@ limitations under the License.
 
 Some files in this directory are Microsoft project-template, wizard-generated or
 sample-derived files. They keep Microsoft's own notices and are **not** licensed under
-Apache 2.0: `Resource.h`, `TargetCore.rc`, `stdafx.h`, `stdafx.cpp`,
+Apache 2.0: `Resource.h`, `Targetcore.rc`, `stdafx.h`, `stdafx.cpp`,
 and the Visual Studio solution and project files. See [`NOTICE`](NOTICE) for the full list.
 
 ## Dependencies licensed separately

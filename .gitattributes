@@ -20,7 +20,7 @@ tools/hooks/**   text eol=lf
 #   - The message table is BINARY. It is UTF-16 and full of NUL bytes; git's heuristic
 #     would very likely classify it correctly on its own, but a build input is not
 #     something to leave to a heuristic, and any EOL normalisation destroys it.
-TargetCoreEvt.mc  text eol=crlf
-TargetCoreEvt.h   text eol=crlf
-TargetCoreEvt.rc  text eol=crlf
+TargetcoreEvt.mc  text eol=crlf
+TargetcoreEvt.h   text eol=crlf
+TargetcoreEvt.rc  text eol=crlf
 MSG00001.bin     binary

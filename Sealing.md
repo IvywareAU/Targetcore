@@ -229,7 +229,7 @@ could hold an agreement key. It was refused because that test provisions no agre
 forge what it forwards is the whole claim."* The refusal was a **provisioning** refusal on a unicast.
 
 **And `P2Pmsg_BCast` is the suite's generic message name.** `alex_test:193`, `com232_mesh:259`,
-`dmx_mesh:172`, `mix_con:194`, `mix_con3:174` and `TargetCoreSuite:240` all post it from one address
+`dmx_mesh:172`, `mix_con:194`, `mix_con3:174` and `TargetcoreSuite:240` all post it from one address
 to one address and override `On_P2PeerBCast` to receive it. Not one of them fans out. "Broadcast" in
 that diagnostic was a message **name**, not a routing mode.
 

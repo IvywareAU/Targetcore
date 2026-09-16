@@ -23,7 +23,7 @@
 #include "Msgexception.h"
 #include "P2Pwin32.h"
 
-#include "TargetCoreLog.h"
+#include "TargetcoreLog.h"
 #include <fcntl.h>
 #include <corecrt_io.h>
 #include <ShlObj_core.h>

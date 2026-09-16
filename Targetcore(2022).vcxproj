@@ -35,11 +35,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectName>TargetCore</ProjectName>
+    <ProjectName>Targetcore</ProjectName>
     <ProjectGuid>{DD78AE5D-9A41-4004-84FF-0106B45F5D18}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <RootNamespace>TargetCore</RootNamespace>
+    <RootNamespace>Targetcore</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
@@ -169,7 +169,7 @@
          - IntDir defaulted to $(ShortProjectName)\$(Platform)\$(Configuration)\
            when SolutionDir was this project's own folder and to
            $(Platform)\$(Configuration)\ otherwise, which is how the old x64\Debug
-           held intermediates but no DLL while a stray TargetCore\x64\Debug held
+           held intermediates but no DLL while a stray Targetcore\x64\Debug held
            the rest.
        Everything downstream is path-independent and needs no change: the deploy
        CustomBuildStep reads $(TargetDir), and the import library goes to
@@ -194,7 +194,7 @@
     </CustomBuildStep>
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;_AFXEXT;TargetCore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;_AFXEXT;Targetcore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
@@ -240,7 +240,7 @@
     </CustomBuildStep>
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;_AFXEXT;TargetCore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;_AFXEXT;Targetcore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
@@ -283,7 +283,7 @@
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>true</OmitFramePointers>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;_AFXEXT;TargetCore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;_AFXEXT;Targetcore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -324,7 +324,7 @@
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>true</OmitFramePointers>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;_AFXEXT;TargetCore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;_AFXEXT;Targetcore_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -356,8 +356,8 @@
   <!-- DebugLib / ReleaseLib: static-library variants of the same sources.    -->
   <!--                                                                       -->
   <!-- Differences from the DLL configurations, all deliberate:               -->
-  <!--   * TargetCore_STATIC replaces TargetCore_EXPORTS, so TargetCore_EXT   -->
-  <!--     (TargetCore.h) and P2PC_API (TargetCore_c.h) expand to nothing.    -->
+  <!--   * Targetcore_STATIC replaces Targetcore_EXPORTS, so Targetcore_EXT   -->
+  <!--     (Targetcore.h) and P2PC_API (Targetcore_c.h) expand to nothing.    -->
   <!--   * Msgcore_STATIC is ALSO defined, and is not optional. These TUs     -->
   <!--     include Msgcore's headers, so without it Msgcore_EXT expands to    -->
   <!--     dllimport and the archive records __imp_ references to Msgcore's   -->
@@ -378,7 +378,7 @@
   <!--   * No Msgcore.lib / ws2_32 / MsWsock / comsuppwd / Propsys here.      -->
   <!--     A static library records no dependencies, so THE CONSUMER must     -->
   <!--     link those itself, and must use the matching STATIC Msgcore        -->
-  <!--     (Msgcore DebugLib/ReleaseLib). Mixing static TargetCore with the   -->
+  <!--     (Msgcore DebugLib/ReleaseLib). Mixing static Targetcore with the   -->
   <!--     Msgcore DLL puts two copies of the Msgcore heap in one process.    -->
   <!--                                                                       -->
   <!-- The archive lands in $(OutDir) (which is also $(TargetPath), so        -->
@@ -392,7 +392,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugLib|Win32'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;Msgcore_STATIC;TargetCore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;Msgcore_STATIC;Targetcore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MinimalRebuild>false</MinimalRebuild>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
@@ -424,7 +424,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugLib|x64'">
     <ClCompile>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;Msgcore_STATIC;TargetCore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;Msgcore_STATIC;Targetcore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
@@ -457,7 +457,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>true</OmitFramePointers>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;Msgcore_STATIC;TargetCore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;Msgcore_STATIC;Targetcore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -485,7 +485,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
       <Optimization>MaxSpeed</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <OmitFramePointers>true</OmitFramePointers>
-      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;Msgcore_STATIC;TargetCore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_WINDOWS;NDEBUG;Msgcore_STATIC;Targetcore_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <StringPooling>true</StringPooling>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -509,7 +509,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
   <ItemGroup>
     <!-- DLL-only: DllMain, AfxInitExtensionModule, CDynLinkLibrary and
          P2PresourceState have no meaning in an archive. The file also guards its
-         own body with #if !defined(TargetCore_STATIC); excluding it here as well
+         own body with #if !defined(Targetcore_STATIC); excluding it here as well
          keeps the librarian from emitting LNK4221 for an empty object. -->
     <ClCompile Include="dllmain.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='DebugLib|Win32'">true</ExcludedFromBuild>
@@ -570,9 +570,9 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClCompile Include="P2PeerMsgQue.cpp" />
     <ClCompile Include="P2PeerService.cpp" />
     <ClCompile Include="P2PeerTarget.cpp" />
-    <ClCompile Include="TargetCoreLog.cpp" />
-    <ClCompile Include="TargetCore_c.cpp" />
-    <ClCompile Include="TargetCore_c_u8.cpp" />
+    <ClCompile Include="TargetcoreLog.cpp" />
+    <ClCompile Include="Targetcore_c.cpp" />
+    <ClCompile Include="Targetcore_c_u8.cpp" />
     <ClCompile Include="P2Pwin32.cpp" />
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -608,9 +608,9 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClInclude Include="P2PeerMsgQue.h" />
     <ClInclude Include="P2PeerService.h" />
     <ClInclude Include="P2PeerTarget.h" />
-    <ClInclude Include="TargetCoreLog.h" />
-    <ClInclude Include="TargetCore.h" />
-    <ClInclude Include="TargetCore_version.h" />
+    <ClInclude Include="TargetcoreLog.h" />
+    <ClInclude Include="Targetcore.h" />
+    <ClInclude Include="Targetcore_version.h" />
     <ClInclude Include="P2PmsgMaps.h" />
     <ClInclude Include="P2Pwin32.h" />
     <ClInclude Include="Resource.h" />
@@ -619,7 +619,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClInclude Include="WSA_Ext.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="TargetCore.rc" />
+    <ResourceCompile Include="Targetcore.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

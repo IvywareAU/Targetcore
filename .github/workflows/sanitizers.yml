@@ -139,7 +139,7 @@ jobs:
             echo
             echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
-            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
@@ -163,7 +163,7 @@ jobs:
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
             echo
-            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           if [ "$code" != "200" ]; then
@@ -213,10 +213,10 @@ jobs:
           repository: ${{ env.UNITTESTS_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
-      - name: Check out TargetCore into the solution
+      - name: Check out Targetcore into the solution
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       - name: Verify the sibling layout
         shell: bash
@@ -291,7 +291,7 @@ jobs:
             echo
             echo "Fix: create a PAT with read access to MscsSolution,"
             echo "Msgcore and MscsUnitTests, then:"
-            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
@@ -315,7 +315,7 @@ jobs:
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
             echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
             echo
-            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/TargetCore"
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
             exit 1
           fi
           if [ "$code" != "200" ]; then
@@ -365,10 +365,10 @@ jobs:
           repository: ${{ env.UNITTESTS_REPO }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
-      - name: Check out TargetCore into the solution
+      - name: Check out Targetcore into the solution
         uses: actions/checkout@v5
         with:
-          path: mscs/TargetCore
+          path: mscs/Targetcore
 
       - name: Verify the sibling layout
         shell: bash

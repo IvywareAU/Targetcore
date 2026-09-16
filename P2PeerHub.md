@@ -305,7 +305,7 @@ address for logging.
   a dangling pointer on the first case tried. Copy the result if you intend to keep it.
 
 - **The C ABI's `get_address` returns only the last hop.** `p2peerhub_get_address()`
-  (`TargetCore_c.cpp:990`) is implemented as `GetP2PaddrHub().c_name()`, so a hub at
+  (`Targetcore_c.cpp:990`) is implemented as `GetP2PaddrHub().c_name()`, so a hub at
   `MyApp.Region.Server` reports `Server`. Use the full address if you need to route with
   it.
 
@@ -404,7 +404,7 @@ Prefix-ancestry is antisymmetric and acyclic on strings: Up strictly shortens to
 root, Down strictly lengthens toward `D`, and a hub that sent a message Up cannot receive
 it back Down (the `!H.IsRable(D)` that justified Up is exactly what blocks the reverse
 Down at the next node). The addressing scheme is its own loop guard, which is why
-**TargetCore carries no TTL or hop count** — there is none in the C++ core. The TTL
+**Targetcore carries no TTL or hop count** — there is none in the C++ core. The TTL
 (default 16) described in `../P2P_architecture.md` belongs to the Java `P2PeerHub` layer,
 which routes over a graph that is not guaranteed to be a tree.
 

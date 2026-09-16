@@ -184,7 +184,7 @@ typedef struct P2PeerMsgPrefix
 //  P2PeerMsg object
 //  NOTES: P2Peer data wrapper.  
 // 
-class TargetCore_EXT P2PeerMsg : public P3PmsgBSTR
+class Targetcore_EXT P2PeerMsg : public P3PmsgBSTR
 {
       void
         RenderThisSafe ( );
@@ -442,7 +442,7 @@ class TargetCore_EXT P2PeerMsg : public P3PmsgBSTR
 };
 typedef P2PSafePtr<P2PeerMsg> P2PeerMsgSP;
 typedef CList<P2PeerMsg*> CListP2PeerMsg;
-extern  TargetCore_EXT std::atomic<UINT> g_P2PeerMsgInstances;  // ++/-- across pump threads - atomic (TSan Risk #3)
+extern  Targetcore_EXT std::atomic<UINT> g_P2PeerMsgInstances;  // ++/-- across pump threads - atomic (TSan Risk #3)
 
 ///////////////////////////////////////////////////////////////////////
 //  P2PeerMsgnn targeted addressing 
@@ -610,9 +610,9 @@ P2PmsgID P2Pmsg_Timer = L"P2PmsgTimer";
 
 //
 //  P2PeerMsg locking and unlocking
-//TargetCore_EXT P2PeerMsg*
+//Targetcore_EXT P2PeerMsg*
 //P2PeerMsg_P2PmsgLock ( P2PeerMsg *pMsg, bool bEoD );
-//TargetCore_EXT P2PeerMsg*
+//Targetcore_EXT P2PeerMsg*
 //P2PeerMsg_P2PeerConLock ( P2PeerMsg *pMsg, bool bEoD );
 
 //
@@ -621,18 +621,18 @@ P2PmsgID P2Pmsg_Timer = L"P2PmsgTimer";
 //         of nParentID
 //       : IsP2PeerRable() is used to confirm nMsgID
 //         routable down through strP2Paddr
-TargetCore_EXT P2PeerMsg*
+Targetcore_EXT P2PeerMsg*
 P2PeerMsg_SetReflected ( P2PeerMsg *pMsg, bool bReflected );
-TargetCore_EXT P2PeerMsg*
+Targetcore_EXT P2PeerMsg*
 P2PeerMsg_DstSwapSrc ( P2PeerMsg *pMsg );
-TargetCore_EXT bool
+Targetcore_EXT bool
 Wildcard ( P2PmsgID strWildcard, P2PmsgID strMsgName );
 
 //
 //  State summary etc
-TargetCore_EXT BOOL
+Targetcore_EXT BOOL
 P2PeerMsg_IsPosted ( const P2PeerMsg *pMsg );
-TargetCore_EXT UINT08
+Targetcore_EXT UINT08
 P2PeerMsg_SetCtrlOptions ( P2PeerMsg *pMsg
                          , UINT uiCtrlOptionAdd, UINT08 uiCtrlOptionRemove );
 

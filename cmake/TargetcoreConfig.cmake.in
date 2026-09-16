@@ -13,9 +13,9 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# TargetCoreConfig.cmake - what find_package(TargetCore) loads.
+# TargetcoreConfig.cmake - what find_package(Targetcore) loads.
 #
-# It declares ONE imported target, TargetCore::targetcore, and pulls in its one
+# It declares ONE imported target, Targetcore::targetcore, and pulls in its one
 # real dependency first. The find_dependency(Msgcore) is not a formality: the
 # installed targetcore cannot LOAD without libmsgcore beside it, so a config
 # that resolved without it would hand a consumer a link line that builds and an
@@ -37,6 +37,6 @@
 include(CMakeFindDependencyMacro)
 find_dependency(Msgcore)
 
-include("${CMAKE_CURRENT_LIST_DIR}/TargetCoreTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/TargetcoreTargets.cmake")
 
-check_required_components(TargetCore)
+check_required_components(Targetcore)

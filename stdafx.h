@@ -37,16 +37,16 @@
 // own repository until 2026-09-03; that one is retired, and this is the only copy.
 // Reaching it through Msgcore rather than keeping a copy here is deliberate: two
 // physical p2ptypes.h on one include path is what ended the previous vendored
-// arrangement, and TargetCore already depends on Msgcore for everything else.
+// arrangement, and Targetcore already depends on Msgcore for everything else.
 //
 // A quoted include resolves relative to THIS file first, so "../Msgcore/Platform/..."
-// needs no -I of its own -- though TargetCore(2026).vcxproj does carry ..\Msgcore in
+// needs no -I of its own -- though Targetcore(2026).vcxproj does carry ..\Msgcore in
 // AdditionalIncludeDirectories, in all eight configurations, for the Msgcore headers.
 //
 // p2psvc.h is the one shim header Msgcore never pulls: platform.h does not include it,
 // and it arrives only through P2PeerService.h's #include <WinSvc.h>, which on Linux
 // resolves through the generated win-compat/ forwarder. It lives with the rest of the
-// layer rather than in a TargetCore-local platform directory, because splitting it out
+// layer rather than in a Targetcore-local platform directory, because splitting it out
 // would put its own #include "p2ptypes.h" on the far side of a repository boundary and
 // would need gen_wincompat.sh to emit forwarders into two trees.
 #include "../Msgcore/Platform/platform.h"

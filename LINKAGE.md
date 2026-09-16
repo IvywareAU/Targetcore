@@ -1,13 +1,13 @@
-# TargetCore linkage: all static or all dynamic
+# Targetcore linkage: all static or all dynamic
 
-TargetCore builds in two shapes, and **a single process must commit to exactly one of
+Targetcore builds in two shapes, and **a single process must commit to exactly one of
 them**. Mixing them inside one process is the one way to use this library that compiles,
 links, starts up, and then silently misbehaves.
 
 | Shape | Configurations | Output | Macro |
 |---|---|---|---|
-| MFC extension DLL | `Debug` / `Release` × `Win32` / `x64` | `TargetCore.dll` + import lib | `TargetCore_EXPORTS` |
-| Static archive | `DebugLib` / `ReleaseLib` × `Win32` / `x64` | `TargetCore.lib` | `TargetCore_STATIC` |
+| MFC extension DLL | `Debug` / `Release` × `Win32` / `x64` | `Targetcore.dll` + import lib | `Targetcore_EXPORTS` |
+| Static archive | `DebugLib` / `ReleaseLib` × `Win32` / `x64` | `Targetcore.lib` | `Targetcore_STATIC` |
 
 Both land in `out\<Platform>\<Configuration>\` and are staged to
 `$(WDMSCS_LIB)` = `MSCS\lib\<Platform>\<Configuration>\`.
@@ -16,17 +16,17 @@ Both land in `out\<Platform>\<Configuration>\` and are staged to
 
 ## The rule
 
-> Every module in a process that touches TargetCore must reach it the same way.
-> Either they all import it from one `TargetCore.dll`, or there is exactly one module
+> Every module in a process that touches Targetcore must reach it the same way.
+> Either they all import it from one `Targetcore.dll`, or there is exactly one module
 > in the process and it absorbs the archive.
 
-The moment two modules in one process each link `TargetCore.lib` statically — say
+The moment two modules in one process each link `Targetcore.lib` statically — say
 `Chartboard.exe` and `P2PmsgCharts.dll` — the process contains **two complete, mutually
-invisible copies of TargetCore**, each with its own hub table and its own locks.
+invisible copies of Targetcore**, each with its own hub table and its own locks.
 
 ## Why: the state is process-wide, not per-object
 
-TargetCore keeps genuinely global state at file scope. With the DLL there is one copy
+Targetcore keeps genuinely global state at file scope. With the DLL there is one copy
 per process no matter how many modules import it, because there is one module holding
 it. With the archive there is one copy **per linking module**:
 
@@ -64,23 +64,23 @@ well-formed. Pick a shape per process and hold it.
 
 ## Corollaries
 
-**1. Static TargetCore requires static Msgcore.** TargetCore sits on Msgcore, and
+**1. Static Targetcore requires static Msgcore.** Targetcore sits on Msgcore, and
 Msgcore has its own process-wide state (see `Msgcore/LINKAGE.md`). Linking the
-TargetCore archive against `Msgcore.dll` puts two Msgcore heaps in the process for the
+Targetcore archive against `Msgcore.dll` puts two Msgcore heaps in the process for the
 same reason. Pair `DebugLib`↔`DebugLib`, `ReleaseLib`↔`ReleaseLib`.
 
 **2. A consumer of the archives must define BOTH macros:**
 
 ```
-/DMsgcore_STATIC /DTargetCore_STATIC
+/DMsgcore_STATIC /DTargetcore_STATIC
 ```
 
-Not just `TargetCore_STATIC`. Omitting `Msgcore_STATIC` compiles Msgcore's headers in
+Not just `Targetcore_STATIC`. Omitting `Msgcore_STATIC` compiles Msgcore's headers in
 `dllimport` mode. Most symbols still resolve against the static Msgcore, but only behind
 a wall of `LNK4217`, and **inline members of `dllimport`-decorated classes do not resolve
 at all** — `P2Pevent::SetFParam(LPCTNAM, const P3PmsgItem&)` is defined inline in
 `Msgcore/Msgexception.h`, so the `dllimport` view emits a call to an export the static
-Msgcore never produced, and the link dies on `LNK2001`. TargetCore's own Lib
+Msgcore never produced, and the link dies on `LNK2001`. Targetcore's own Lib
 configurations define both for exactly this reason.
 
 **3. A static archive records no dependencies.** The consumer links them:
@@ -96,8 +96,8 @@ includes `<afx.h>` under `/MD` also needs `/D_AFXDLL`.
 **5. `_AFXEXT` is not defined in the Lib configurations.** It declares an MFC *extension
 DLL*; an archive is not a module, runs no `DllMain` and joins no `CDynLinkLibrary`
 resource chain. `dllmain.cpp` is excluded from those configurations and guards its own
-body with `#if !defined(TargetCore_STATIC)`. Nothing is lost — `MANAGE_RESOURCE_STATE` is
-unused across the tree, and `TargetCore.rc` holds only a `VERSIONINFO` block and one
+body with `#if !defined(Targetcore_STATIC)`. Nothing is lost — `MANAGE_RESOURCE_STATE` is
+unused across the tree, and `Targetcore.rc` holds only a `VERSIONINFO` block and one
 `IDS_APP_TITLE` string.
 
 ## Choosing

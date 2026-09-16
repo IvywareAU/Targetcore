@@ -649,7 +649,7 @@ namespace p2pcng
             AesGcm cipher;
             if ( !cipher.SetKey ( key, sizeof(key) ) ) return false;
 
-            const char    msg[]  = "TargetCore secure channel self-test payload";
+            const char    msg[]  = "Targetcore secure channel self-test payload";
             const unsigned char aad[] = { 'h','d','r' };
             size_t cbPlain = sizeof(msg) - 1;
 
@@ -710,14 +710,14 @@ namespace p2pcng
         // the thing most likely to drift; the ECDSA maths is the OS's problem.
         //
         // Reproduce with:
-        //   printf 'TargetCore identity KAT' > msg.bin
+        //   printf 'Targetcore identity KAT' > msg.bin
         //   openssl ecparam -name prime256v1 -genkey -noout -out key.pem
         //   openssl dgst -sha256 -sign key.pem -out sig.der msg.bin
         //   openssl ec -in key.pem -text -noout          # pub point, priv scalar
         // then strip the 0x04 prefix from the point and convert the DER
         // SEQUENCE{INTEGER r, INTEGER s} to fixed-width 32-byte r||s.
         {
-            const char msg[] = "TargetCore identity KAT";
+            const char msg[] = "Targetcore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pub[kEcdsaPubLen] = {
@@ -740,7 +740,7 @@ namespace p2pcng
             if ( !v.Verify ( (const unsigned char *)msg, cbMsg, sig ) ) return false;
 
             // 2. A one-character change in the message must NOT verify.
-            const char msgBad[] = "TargetCore identity KAU";
+            const char msgBad[] = "Targetcore identity KAU";
             if ( v.Verify ( (const unsigned char *)msgBad, sizeof(msgBad) - 1, sig ) )
                 return false;
 
@@ -800,7 +800,7 @@ namespace p2pcng
         // yields a backend disagreement that appears intermittently, depends
         // on the random k, and would be miserable to diagnose in the field.
         {
-            const char msg[] = "TargetCore identity KAT";
+            const char msg[] = "Targetcore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pubShortR[kEcdsaPubLen] = {

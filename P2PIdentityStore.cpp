@@ -88,8 +88,8 @@ namespace
     //
     // Windows-only: POSIX protects the file with its mode, not with a blob, so
     // off Windows these are dead weight and gcc rightly says so.
-    const char kEntropy[]      = "TargetCore.identity.v1";
-    const char kEntropyAgree[] = "TargetCore.agreement.v1";
+    const char kEntropy[]      = "Targetcore.identity.v1";
+    const char kEntropyAgree[] = "Targetcore.agreement.v1";
 
     // Returns the entropy bytes and, through pcb, their length. Separate values
     // per kind so the DPAPI layer refuses the swap too, not only the header.
@@ -538,8 +538,8 @@ namespace
         if ( eProtect == IdProtect_DpapiMachine ) dwFlags |= CRYPTPROTECT_LOCAL_MACHINE;
 
         if ( !CryptProtectData ( &blobIn,
-                                 eKind == KindAgreement ? L"TargetCore agreement"
-                                                        : L"TargetCore identity",
+                                 eKind == KindAgreement ? L"Targetcore agreement"
+                                                        : L"Targetcore identity",
                                  &blobEnt, nullptr, nullptr, dwFlags, &blobOut ) )
             return IdErrProtect;
         if ( blobOut.cbData == 0 || blobOut.cbData > kMaxPayload )
@@ -836,7 +836,7 @@ namespace
         HexEncode ( pub, sizeof(pub), sHex );
 
         std::string sText;
-        sText  = "# TargetCore ";
+        sText  = "# Targetcore ";
         sText += pszWhat;
         sText += " public key - P-256, raw X||Y, hex.\n";
         sText += "# Publishable: this is the half a peer needs in order to\n";
@@ -1046,7 +1046,7 @@ IdResult AppendAllowList ( const char *pszPathUtf8, const char *pszIdentity,
     {
         vText.clear();
         const char szHead[] =
-            "# TargetCore peer allow-list:\n"
+            "# Targetcore peer allow-list:\n"
             "#   <identity> <identity key, hex> [<agreement key, hex>]\n";
         vText.assign ( (const unsigned char *)szHead,
                        (const unsigned char *)szHead + sizeof(szHead) - 1 );
@@ -1174,7 +1174,7 @@ IdResult AppendRevocationList ( const char *pszPathUtf8,
     {
         vText.clear();
         const char szHead[] =
-            "# TargetCore revocation list:\n"
+            "# Targetcore revocation list:\n"
             "#   <public point, hex> [<revoked-at, epoch seconds>]  # why\n"
             "# A listed point is refused wherever it appears - login and\n"
             "# sealing, identity keys and agreement keys alike. The timestamp\n"

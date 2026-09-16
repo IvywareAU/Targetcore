@@ -1,4 +1,4 @@
-# Contributing to TargetCore
+# Contributing to Targetcore
 
 Thank you for looking. This file is the authoritative version of the contribution policy that the
 [README](Readme.md) summarises.
@@ -61,7 +61,7 @@ Especially welcome:
 
 - **Does the model make sense?** Dotted-address routing, the priority queue, the handler maps. If
   the mental model did not land from the README, that is a documentation defect and we want it.
-- **API friction.** Anything in the C++ surface or the flat C surface (`TargetCore_c.h`) that
+- **API friction.** Anything in the C++ surface or the flat C surface (`Targetcore_c.h`) that
   fought you. FFI reports are especially welcome — the C surface exists for consumers we cannot
   see, so friction there is invisible to us until someone says so.
 - **Docs that lie.** A comment, a table or a grammar that describes something the code does not do.
@@ -103,7 +103,7 @@ without one.
 Two workflows, and the difference between them matters more than the fact that they exist.
 
 [**`repo-invariants.yml`**](.github/workflows/repo-invariants.yml) runs on every push and pull
-request. It is scoped to what this repository can verify *about itself*, because TargetCore does
+request. It is scoped to what this repository can verify *about itself*, because Targetcore does
 not build on its own — `../Msgcore`, which carries the `Platform` shim layer, is a sibling in a
 parent solution that is not published here. **It never compiles the library.** A green tick means the build-system
 bookkeeping holds, the OpenSSL crypto core (4 of 30 translation units) passes its known-answer
