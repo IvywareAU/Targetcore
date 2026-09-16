@@ -883,9 +883,9 @@ P2PeerConWsa::AllowAcceptFrom ( LPCTSTR lpszPrefix )
       EVERR->Module (L"%hs[%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
            ->Message(L"Unparsable accept prefix '%s'"
-                    , lpszPrefix ? lpszPrefix : _T("(null)") )
-           ->Advice_T("Dotted IPv4 with an optional /bits - \"192.168.1.0/24\", "
-                      "\"10.0.0.0/8\", or \"10.1.2.3\" for one host")
+                    , lpszPrefix ? lpszPrefix : L"(null)" )
+           ->Advice (L"Dotted IPv4 with an optional /bits - \"192.168.1.0/24\", "
+                     L"\"10.0.0.0/8\", or \"10.1.2.3\" for one host")
            //  Advice_T is a FORMAT function, so the zone suffix is named
            //  rather than shown - a literal per cent sign here was eaten as a
            //  conversion and printed the advice as nonsense
@@ -1096,13 +1096,13 @@ P2PeerConWsa::ListenBindSockaddr ( SOCKADDR_STORAGE &rAddr )
       EVERR->Module (L"%hs[%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
            ->Message(L"P2PeerConFamily_Dual cannot bind a loopback scope" )
-           ->Advice_T("::1 is not the v4-mapped form of 127.0.0.1, so one "
-                      "socket cannot serve both loopbacks and either choice "
-                      "here would silently narrow the other")
-           ->Advice_T("SetFamily(P2PeerConFamily_IPv4) for 127.0.0.1, or "
-                      "SetFamily(P2PeerConFamily_IPv6) for ::1")
-           ->Advice_T("Both at once wants two SERVICE connections, one per "
-                      "family")
+           ->Advice (L"::1 is not the v4-mapped form of 127.0.0.1, so one "
+                     L"socket cannot serve both loopbacks and either choice "
+                     L"here would silently narrow the other")
+           ->Advice (L"SetFamily(P2PeerConFamily_IPv4) for 127.0.0.1, or "
+                     L"SetFamily(P2PeerConFamily_IPv6) for ::1")
+           ->Advice (L"Both at once wants two SERVICE connections, one per "
+                     L"family")
            ->Throw ( );
 
     //  The nominated address, parsed once and checked for both the things that
@@ -1121,7 +1121,7 @@ P2PeerConWsa::ListenBindSockaddr ( SOCKADDR_STORAGE &rAddr )
         EVERR->Module (L"%hs[%s]", __FUNCTION__
                       , GetP2PaddrHub().c_wstr() )
              ->Message(L"Listen scope address '%s' is not a host address of "
-                        "the configured family"
+                       L"the configured family"
                       , (LPCTSTR)m_sListenAddress )
              ->Advice_T("SetListenScope(P2PeerConScope_Address,\"a.b.c.d\") "
                         "for P2PeerConFamily_IPv4, naming one interface THIS "
@@ -1449,7 +1449,7 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
           EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
                ->Message(L"Accept refused, source %hs is not on the "
-                          "allow-list", szSource )
+                         L"allow-list", szSource )
                ->Advice_T("P2PeerConWsa::AllowAcceptFrom() to admit it, or "
                           "ClearAcceptSourceFilter() to admit anyone")
                ->Advice_T("An unnameable origin is refused by design, and so "
@@ -1459,7 +1459,7 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
         else if ( bServiceFull )
           EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
-               ->Message(_T("Accept refused, at capacity %i"), m_xMaxAccepted )
+               ->Message(L"Accept refused, at capacity %i", m_xMaxAccepted )
                ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
                ->Cancel ( );
         else if ( bSourceFull )
@@ -1582,7 +1582,7 @@ P2PeerConWsa::On_QueuedCompletionStatus ( DWORD dwError
           EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
-               ->Message("Overlapped accept failed")
+               ->Message(L"Overlapped accept failed")
                ->HResult( hr ) -> Throw();
 
         // Accept the new connection
@@ -2153,11 +2153,11 @@ P2PeerConWsa::Connect ( )
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
              ->Message (L"getaddrinfo(%s) failed", (LPCTSTR)csResolved )
-             ->Advice  ("Unable to resolve server" )
-             ->Advice  ("A name with no record of the configured family?  "
-                        "P2PeerConFamily_IPv4 asks for A records only and "
-                        "_IPv6 for AAAA only; SetFamily(P2PeerConFamily_Dual) "
-                        "takes either" )
+             ->Advice  (L"Unable to resolve server" )
+             ->Advice  (L"A name with no record of the configured family?  "
+                        L"P2PeerConFamily_IPv4 asks for A records only and "
+                        L"_IPv6 for AAAA only; SetFamily(P2PeerConFamily_Dual) "
+                        L"takes either" )
              ->Group("WSA")->HResult( nResolved )->Throw();
 
       // Create socket
@@ -2424,7 +2424,7 @@ P2PeerConWsa::ConnectEx ( SOCKET oSocket
                      , GetP2PaddrHub().c_wstr()
                      , m_oThatP2Paddr.c_wstr() )
            ->Message (L"WSAIoctl(%s) failed", (LPCTSTR)m_sIPaddress )
-           ->Advice  ("ConnectEx requires XP or better" )
+           ->Advice  (L"ConnectEx requires XP or better" )
            ->Group("WSA")->HResult(WSAGetLastError())->Display();
       return FALSE;
     }
@@ -2754,23 +2754,23 @@ P2PeerConWsa::Serialise ( LPCTNAM lpszVar )
 
     // Append our state to node
     P3PmsgField_SERIALISE ( oNodeVar, L"IPaddress", (LPCTSTR)m_sIPaddress, bDsc
-                          , _T("Allocated IP connection address") );
+                          , L"Allocated IP connection address" );
     P3PmsgField_SERIALISE ( oNodeVar, L"IPort", m_nIPort, bDsc
-                          , _T("Allocated IP port") );
+                          , L"Allocated IP port" );
     P3PmsgField_SERIALISE ( oNodeVar, L"Family", (int)m_eFamily, bDsc
-                          , _T("Address family opened - refer "
-                               "P2PeerConFamily_e.  0 IPv4, 1 IPv6, 2 dual") );
+                          , L"Address family opened - refer "
+                               L"P2PeerConFamily_e.  0 IPv4, 1 IPv6, 2 dual" );
     P3PmsgField_SERIALISE ( oNodeVar, L"ListenScope", (int)m_eListenScope, bDsc
-                          , _T("Interfaces the SERVICE binds - refer "
-                               "P2PeerConScope_e") );
+                          , L"Interfaces the SERVICE binds - refer "
+                          L"P2PeerConScope_e" );
     P3PmsgField_SERIALISE ( oNodeVar, L"ListenAddress"
                           , (LPCTSTR)m_sListenAddress, bDsc
-                          , _T("Nominated bind interface, P2PeerConScope_Address "
-                               "only") );
+                          , L"Nominated bind interface, P2PeerConScope_Address "
+                               L"only" );
     P3PmsgField_SERIALISE ( oNodeVar, L"AcceptPrefixes"
                           , m_pxSourceFilter
                           ? (int)m_pxSourceFilter->m_oPrefixes.size ( ) : 0, bDsc
-                          , _T("Accept allow-list rules - 0 admits any source") );
+                          , L"Accept allow-list rules - 0 admits any source" );
 
     // Tidy up and
     oNodeVar += P2PeerCon::Serialise ( 0 );

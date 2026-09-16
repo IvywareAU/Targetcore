@@ -30,6 +30,7 @@
 //  next to the OpenSSL backend TU. The vcxproj marks it PrecompiledHeader
 //  NotUsing for the same reason.
 //
+#include "stdafx.h"
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>

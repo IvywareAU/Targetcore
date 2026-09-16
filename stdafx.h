@@ -49,13 +49,13 @@
 // layer rather than in a Targetcore-local platform directory, because splitting it out
 // would put its own #include "p2ptypes.h" on the far side of a repository boundary and
 // would need gen_wincompat.sh to emit forwarders into two trees.
-#include "../Msgcore/Platform/platform.h"
+//#include "../Msgcore/Platform/platform.h"
 
 #ifdef _WIN32
 #include <AfxMt.h>                     // Multi-tasking
 #include <AfxTempl.h>                  // Templates
 #else
-#include "../Msgcore/Platform/mfcshim.h"   // CObject/CList/CMap/CString/ASSERT on Linux
+//#include "../Msgcore/Platform/mfcshim.h"   // CObject/CList/CMap/CString/ASSERT on Linux
 #endif // _WIN32
 
 // TODO: reference additional headers your program requires here

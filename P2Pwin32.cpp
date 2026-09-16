@@ -1202,8 +1202,8 @@ CreateP2Pexpump ( P2PmsgHubID nHubID, P2PeerTarget *pTarget )
     pP2Pexpump -> m_hQueEvent = CreateEvent ( 0, FALSE, FALSE, 0 );
     pP2Pexpump -> m_bOwnQueEvent = true;          // F-S5-4: ours to close
     pP2Pexpump -> m_oP2Paddr  = L"Expump";
-    pP2Pexpump -> m_csName    = _T("Expump");
-    pP2Pexpump -> m_strFunc   = _T("Anon");
+    pP2Pexpump -> m_csName    = L"Expump";
+    pP2Pexpump -> m_strFunc   = L"Anon";
     pP2Pexpump -> m_hIOCP
            = CreateIoCompletionPort ( INVALID_HANDLE_VALUE
                                     , NULL
@@ -1748,14 +1748,14 @@ NotifyP2PmsgExp_Hub ( P2PmsgHubMgr *pHubMgr, LPCTADDR lpszDestin )
       {
         USES_CONVERSION;
         P3PmsgField_SERIALISE ( oItemHub, L"Machine", A2W(szHostname), bDsc
-                              , _T("Name of machine on which Hub is running") );
+                              , L"Name of machine on which Hub is running" );
       }
       // Firstly fetch name of executable
       TCHAR      szExePathname[_MAX_PATH];
       if ( GetModuleFileName(NULL,szExePathname,_MAX_PATH) > 0 )
       {
         P3PmsgField_SERIALISE ( oItemHub, L"Executable", szExePathname, bDsc
-                              , _T("Name of Module in which the Hub running") );
+                              , L"Name of Module in which the Hub running" );
       }
     }
 
@@ -1887,11 +1887,11 @@ NotifyP2PmsgExp_Pmp ( P2PmsgHubMgr *pHubMgr, P2PmsgPump *pP2PmsgPump
     P3PmsgItem oNodePump ( P3PmsgField ( pP2PmsgPump->m_csName
                                        , P3PmsgData(pP2PmsgPump->m_nPumpID) ) );
     P3PmsgField_SERIALISE ( oNodePump, L"PumpID", pP2PmsgPump->m_nPumpID
-                          , bVerbose, _T("Pump identification") );
-    P3PmsgField_SERIALISE ( oNodePump, L"Function", (LPCTNAM)pP2PmsgPump->m_strFunc
-                          , bVerbose, _T("Operational function") );
-    P3PmsgField_SERIALISE ( oNodePump, L"Class", _T("P2PeerCon"), bVerbose
-                            , _T("Encapsulating connection class name") );
+                          , bVerbose,  L"Pump identification" );
+    P3PmsgField_SERIALISE ( oNodePump, L"Function", (LPCWSTR)pP2PmsgPump->m_strFunc
+                          , bVerbose,  L"Operational function" );
+    P3PmsgField_SERIALISE ( oNodePump, L"Class", L"P2PeerCon", bVerbose
+                            , L"Encapsulating connection class name" );
 
     // Perform notification
     spMsg -> r_datn() += oNodePump;
@@ -1909,10 +1909,8 @@ QueryP2PmsgExp_Pmp ( P2PumpID nPumpID, LPCTADDR lpszDestin, BOOL bVerbose )
          !pP2PmsgPump->m_bP2Pexplorer                                       )
       EVERR->Module ( __FUNCTION__ )
            ->AFP(nPumpID)->AFP(lpszDestin)->AFP(bVerbose)
-           ->Message(_T("ThreadID=%i has no P2PmsgHub or P2Pexplorer context")
-                    , nPumpID )
-           ->Advice (_T("Only valid from context of P2Pexplorer pump, ")
-                     _T("refer CreateP2PmsgExp() for further details") )
+           ->Message(L"ThreadID=%i has no P2PmsgHub or P2Pexplorer context")
+           ->Advice (L"Only valid from context of P2Pexplorer pump, ")
            ->Throw  ( );
     P2PmsgHubMgr *pHubMgr = pP2PmsgPump -> m_pP2PmsgHubMgr;
 
@@ -1951,7 +1949,7 @@ NotifyP2PmsgExp_Con ( P2PmsgHubMgr *pHubMgr, P2PeerCon *pCon
                 oNodeCon.r_Attr() += oConID;
     P3PmsgField oConMode ( L"ConMode", P3PmsgData(pCon->GetMode()) );
                 oNodeCon.r_Attr() += oConMode;
-    P3PmsgField oP2Paddr ( L"P2Paddr",P3PmsgData(pCon->GetP2Paddress().c_wstr()) );
+    P3PmsgField oP2Paddr ( L"P2Paddr"),P3PmsgData(pCon->GetP2Paddress().c_wstr() );
                 oNodeCon.r_Attr() += oP2Paddr;
 
     // Perform notification
@@ -2044,7 +2042,7 @@ StartupP2Pmsg ( UINT nMaxHubs )
     // To be sure, to be sure
     if ( nMaxHubs < 1 || nMaxHubs > MAX_P2PmsgHub )
       EVERR->MODULE
-           ->Message(_T("nMaxHubs=%i out-of-range (1 to %i)\n")
+           ->Message(L"nMaxHubs=%i out-of-range (1 to %i)\n"
                     , nMaxHubs, MAX_P2PmsgHub )
            ->Throw  ( );
 
@@ -3876,7 +3874,7 @@ TOP:bHandled = true;
       else if ( pP2Pmsg->pCon )        // Should not happen
         EVERR->MODULE
              ->Message  (L"Illogical P2PeerCon notification"
-                         "nCode=%i, nMsg=%i, P2PeerID[%s]"
+                         L"nCode=%i, nMsg=%i, P2PeerID[%s]"
                         , pP2Pmsg->nCode
                         , pP2Pmsg->nMsg
                         , (P2PaddrSTR)pP2Pmsg->strP2Paddr )

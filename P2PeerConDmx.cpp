@@ -548,8 +548,8 @@ P2PeerConDmx::Accept ( )
       EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
-           ->Message("Duplicate accepts attempted on single connection"
-                    ,"ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Duplicate accepts attempted on single connection"
+                    ,L"ADVICE\t: Bug (SNHappen)" )
            ->Throw();
 
     // Initiate wait for client connection
@@ -745,7 +745,7 @@ TOP:if ( !m_pConThat )
                     , GetP2PaddrHub().c_wstr() )
            ->Message(L"Connection %s to %s failed"
                     , GetP2Paddress().c_wstr(), (LPCTSTR)m_sServiceName )
-           ->Advice ("This P2PeerHub not yet running?" )
+           ->Advice (L"This P2PeerHub not yet running?" )
            ->Throw();
 
     // Overlapped notification
@@ -866,7 +866,7 @@ P2PeerConDmx::Serialise ( LPCTNAM lpszVar )
 
     // Append our state to node
     P3PmsgField_SERIALISE ( oNodeVar, L"ServiceName", (LPCTSTR)m_sServiceName, bDsc
-                          , _T("Allocated connection address") );
+                          , L"Allocated connection address" );
 
     // Tidy up and
     oNodeVar += P2PeerCon::Serialise ( 0 );

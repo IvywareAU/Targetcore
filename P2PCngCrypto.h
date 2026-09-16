@@ -49,7 +49,7 @@
 // keeps its "no dependencies" property - Targetcore.h's macro expands to
 // __declspec unconditionally, which does not compile under GCC for the Linux
 // backend that shares this header.
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(_WIN64) || defined(WIN32)
 #  if defined(Targetcore_STATIC)
 //  A static library exports nothing and imports nothing, so the macro is empty --
 //  the same arm Targetcore.h and Targetcore_c.h already carry for Targetcore_STATIC.

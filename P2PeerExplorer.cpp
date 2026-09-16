@@ -603,11 +603,11 @@ P2PeerExpump::PostP2PeerCon ( P2PeerCon *pCon )
     {
       EVERR->MODULE->AFPcon(pCon)
            ->Message(L"P2PeerExpump(%s) is not operational, "
-                     "P2PeerCon(%s) not posted"
+                     L"P2PeerCon(%s) not posted"
                     , oP2PaddrCon.c_wstr()
                     , GetP2PaddrHub().c_wstr() )
-           ->Advice ("Perform SpawnExpump() or CreateExpump() before PostP2PeerCon()")
-           ->Advice ("Hub has failed?")
+           ->Advice (L"Perform SpawnExpump() or CreateExpump() before PostP2PeerCon()")
+           ->Advice (L"Hub has failed?")
            ->Display()->SetLast();
       return pCon;
     }
@@ -622,7 +622,7 @@ P2PeerExpump::PostP2PeerCon ( P2PeerCon *pCon )
         continue;
       EVERR->MODULE->AFPcon(pCon)
            ->Message(L"P2PeerCon[%s] instance already exists "
-                     "within P2PmsgHub[%s]"
+                     L"within P2PmsgHub[%s]"
                     ,   oP2PaddrCon.c_wstr()
                     , GetP2PaddrHub().c_wstr() )
            ->SetLast();
@@ -1140,7 +1140,7 @@ P2PeerExplorer::On_XCidSvrStartup ( P2PeerCon *pCon )
            ->Message(L"Cannot startup connection[%s] for mode (%i)\n"
                     , pCon->GetP2Paddress().c_wstr()
                     , pCon->GetMode() )
-           ->Advice ("Bug (SNHappen)")
+           ->Advice (L"Bug (SNHappen)")
            ->Throw();
 
     // Delegated implementation
@@ -1370,7 +1370,7 @@ P2PeerExplorer::On_XCidConLogin ( P2PeerCon *pCon, P2PaddrSTR strThatP2Paddr
 
       // Confirm spare slot located
       if ( oP2PaddrThat.IsEmpty() )
-        EVERR->Message("No free ECid exploration slots available")
+        EVERR->Message(L"No free ECid exploration slots available")
              ->Throw  ( );
 
       // Login request granted

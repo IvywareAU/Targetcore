@@ -26,6 +26,7 @@
 #endif
 
 #include "P2Peer.h"
+#include "P2PmsgMgr.h"
 #include "P2PmsgMaps.h"
 #include "P2PeerCon.h"
 

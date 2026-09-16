@@ -679,8 +679,8 @@ P2PeerTarget::NotHandled ( P2PeerCon *pCon, P2Pmsg_t nMsg )
            ->Message(L"ON_P2PeerCon_%s(%s,...) not handled"
                     ,  EncodeP2Pmsg_t(nMsg)
                     , (P2PaddrSTR)pCon->GetP2Paddress() )
-           ->Advice ("Version problem, bug, connection dropped" )
-           ->Group  ("P2P");
+           ->Advice (L"Version problem, bug, connection dropped" )
+           ->Group  (L"P2P");
 
     // Tidy up, and
     //DropP2PmsgCon ( pCon );
@@ -723,7 +723,7 @@ P2PeerTarget::PostP2PeerCon ( P2PeerCon *pCon )
 }
 
 //
-//  Description: 
+//  Default P2PeerCon handler 
 //
 //
 //  Parameters:  P2PeerCon *pCon
@@ -987,9 +987,8 @@ P2PeerTarget::GetHubID ( ) const
 //  P2PeerTarget hierarchy management
  
 //
-//  Description: Attaches P2PeerMsg map of the passed child
-//               P2PeerTarget to the end of P2PeerMsg map for this
-//               the parent P2PeerTarget
+//  Attaches P2PeerMsg map of the passed child P2PeerTarget to the
+//  end of P2PeerMsg map for this the parent P2PeerTarget
 //
 //
 //  Parameters:  P2PeerTarget *pTargetChild
@@ -1018,11 +1017,11 @@ P2PeerTarget::RegisterTarget( P2PeerTarget *pTargetChild, P2Pri_t nPriority )
     // To be sure, to be sure
     ASSERT(pTargetChild!=this);
     if ( pTargetChild->m_pTargetParent )
-      EVERR->Module (L"%hs(%s)", __FUNCTION__, (LPCTSTR)m_csTargetName )
+      EVERR->Module (L"%hs(%s)", __FUNCTION__, (LPCWSTR)m_csTargetName )
            ->Message(L"P2PeerTarget(%s) is already registered with (%s)"
-                    , (LPCTSTR)pTargetChild->m_csTargetName
-                    , (LPCTSTR)pTargetChild->m_pTargetParent->m_csTargetName )
-           ->Advice ("Duplicate registration" )
+                    , (LPCWSTR)pTargetChild->m_csTargetName
+                    , (LPCWSTR)pTargetChild->m_pTargetParent->m_csTargetName )
+           ->Advice (L"Duplicate registration" )
            ->Throw();
     pTargetChild -> m_pTargetParent = this;
     pTargetChild -> m_nPriority     = nPriority;
@@ -1100,11 +1099,11 @@ P2PeerTarget::RemoveTarget ( P2PeerTarget *pTargetChild )
     if ( pTargetChild->m_pTargetParent         &&
          pTargetChild->m_pTargetParent != this    )
       EVERR->Module (L"%hs(%s)", __FUNCTION__
-                    , (LPCTSTR)m_csTargetName )
+                    , (LPCWSTR)m_csTargetName )
            ->Message(L"P2PeerTarget(%s) is registered with (%s)\n"
-                    , (LPCTSTR)pTargetChild->m_csTargetName
-                    , (LPCTSTR)pTargetChild->m_pTargetParent->m_csTargetName )
-           ->Advice ("Not registered with this object" )
+                    , (LPCWSTR)pTargetChild->m_csTargetName
+                    , (LPCWSTR)pTargetChild->m_pTargetParent->m_csTargetName )
+           ->Advice (L"Not registered with this object" )
            ->Throw();
 
     // Manage priority children of parent
@@ -1261,9 +1260,8 @@ P2PeerTarget::LookupTargetSink ( LPCTNAM lpszSinkname )
 }
 
 //
-//  Description: P2PeerMsg router
-//               NOTES: Override this handler for message
-//                      interceptions
+//  P2PeerMsg router
+//  NOTES: Override this handler for message interceptions
 //
 //  Parameters:  P2PeerID nID
 //               Identification code of orginating P2PeerHub
@@ -1427,8 +1425,7 @@ P2PeerTarget::PostP2PeerMsg ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: Generates P2Perror_UNKNOWN exception and
-//               reflects to P2PeerMsg source
+//  Generates P2Perror_UNKNOWN exception and reflects to P2PeerMsg source
 //
 //
 //  Parameters:  P2PeerMsg *pMsg
@@ -1627,6 +1624,7 @@ P2PeerTarget::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     //        MAX_P2PmsgWrapEmbed - because these two copies are bounded by
     //        different things and fixing either alone leaves the other
     P2Pevent *pEVT =
+    //EVTRC->Module ("%s(pMsg=%s)", __FUNCTION__  TODO Activate-me
     EVERR->MODULE
          // WIDE arguments need the WIDE overload: c_name()/GetSource()/
          // GetDestin() are all LPCWSTR, and a bare "..." literal is NARROW in
@@ -1908,8 +1906,8 @@ P2PeerTarget::Serialise ( LPCTNAM lpszVar, bool bDsc )
       oNodeVar.r_data() = P3PmsgData ( L"{P2PeerTarget}" );
 
     // Append P2PeerHub state to node
-    P3PmsgField_SERIALISE ( oNodeVar, L"Name", (LPCTNAM)m_csTargetName, bDsc
-                          , _T("Target name") );
+    P3PmsgField_SERIALISE ( oNodeVar, L"Name", (LPCWSTR)m_csTargetName, bDsc
+                          , L"Target name" );
 
     // Tidy up and
     return oNodeVar;
@@ -1976,7 +1974,7 @@ P2PeerTarget::PostP2PeerSnc ( P2PmsgSinkID nSinkID, P2PsysID nP2PsysID
 }
 
 //
-//  Description: P2PeerMsg router
+//  P2PeerMsg router
 //               NOTES: Override this handler for message interceptions
 //
 //  Parameters:  P2PeerID nID
@@ -2138,7 +2136,7 @@ P2PeerTarget::PostP2PeerSys ( P2PmsgSinkID nSinkID, P2PsysID nP2PsysID
 }
 
 //
-//  Description: P2PeerMsg router
+//  P2PeerMsg router
 //               NOTES: Override this handler for message interceptions
 //
 //  Parameters:  P2PeerID nID
@@ -2398,9 +2396,9 @@ P2PeerTarget::On_ConStartup ( P2PeerCon *pCon )
 }
 
 //
-//  Description: WSA listen object notification
-//               NOTES: Default implementation is to simply flag
-//                      notification as handled
+//  WSA listen object notification
+//  NOTES: Default implementation is to simply flag notification
+//         as handled
 //
 //
 //  Parameters:  P2PeerCon *pCon
@@ -2692,7 +2690,7 @@ P2PeerTarget::On_ConLogin ( P2PeerCon *pCon, P2PaddrSTR strThatP2Paddr
            ->AFPcon(pCon)->AFP(strThatP2Paddr)
            ->Message(L"P2PeerCon with nominated strThatP2Paddr=%s already exists"
                     , strThatP2Paddr )
-           ->Advice ("Duplicate P2PeerCon's for P2PeerHub attempted" )
+           ->Advice (L"Duplicate P2PeerCon's for P2PeerHub attempted" )
            ->Throw ( );
 
     // Implementation
@@ -2754,9 +2752,8 @@ P2PeerTarget::On_ConLoginAck ( P2PeerCon *pCon
 }
 
 //
-//  Description: Closed connection
-//               NOTES: Default implementation is to simply drop
-//                      the closed connection.
+//  Closed connection
+//  NOTES: Default implementation is to simply drop the closed connection.
 //
 //
 //  Parameters:  P2PeerCon *pCon
@@ -2962,9 +2959,9 @@ const P2P_MSGMAP_ENTRY P2PeerTarget::_P2PeerMsgEntries[] =
 PTM_WARNING_RESTORE
 
 //
-//  Description: Server side handler for P2PeerMsg
-//               NOTES: Default implementation is to simply ignore
-//                      client P2PeerMsg content
+//  Server side handler for P2PeerMsg
+//  NOTES: Default implementation is to simply ignore client
+//         P2PeerMsg content
 //
 //
 //  Parameters:  P2PeerMsg *pMsg
@@ -2987,8 +2984,8 @@ P2PeerTarget::On_MsgIgnore ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: Client side handler for P2Pmsg_Exceptions
-//               containing P2PeerMsg's in normal state
+//  Client side handler for P2Pmsg_Exceptions containing P2PeerMsg's
+//  in normal state
 //               NOTES: Default implementation
 //
 //
@@ -3048,8 +3045,7 @@ P2PeerTarget::On_MsgCatchCatch ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: Client side handler for P2PeerMsg in REFLECT'ed
-//               state
+//  Client side handler for P2PeerMsg in REFLECT'ed state
 //               NOTES: Default implementation
 //
 //
@@ -3076,8 +3072,8 @@ P2PeerTarget::On_MsgReflect ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: Server side handler for MSG_P2PeerExceptions
-//               containing P2PeerMsg's in REFLECT'ed state
+//  Server side handler for MSG_P2PeerExceptions containing
+//  P2PeerMsg's in REFLECT'ed state
 //               NOTES: Default implementation
 //
 //
@@ -3128,7 +3124,7 @@ P2PeerTarget::On_MsgReflectCatch ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: P2PeerMsg peek handler
+//  P2PeerMsg peek handler
 //               NOTES: Default implementation
 //
 //
@@ -3151,9 +3147,8 @@ P2PeerTarget::On_MsgPeek ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: P2PeerMsg poll handler
-//               NOTES: Default implementation is to simply
-//                      return to source
+//  P2PeerMsg poll handler
+//  NOTES: Default implementation is to simply return to source
 //
 //
 //  Parameters:  P2PeerMsg *pMsg
@@ -3175,9 +3170,8 @@ P2PeerTarget::On_MsgPoll ( P2PeerMsg *pMsg )
 }
 
 //
-//  Description: P2PeerMsg ping handler
-//               NOTES: Default implementation is to simply
-//                      return to source
+//  P2PeerMsg ping handler
+//  NOTES: Default implementation is to simply return to source
 //
 //
 //  Parameters:  P2PeerMsg *pMsg

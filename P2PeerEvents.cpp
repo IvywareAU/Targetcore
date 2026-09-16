@@ -479,7 +479,7 @@ P2PeerEvents::On_SinkLoginAck ( P2PeerCon *pCon
       if ( IsEVTRC )
         EVTRC->Module (L"%hs(%s)", __FUNCTION__
                       , GetP2PaddrHub().c_wstr() )
-             ->Message(_T("Connection [%s] acknowledged")
+             ->Message(L"Connection [%s] acknowledged"
                       , (P2PaddrSTR)pCon->GetP2Paddress() )
              ->Cancel();
 CString csP2PeerID1=strThisP2Paddr;
@@ -499,7 +499,7 @@ CString csP2PeerID1=strThisP2Paddr;
                                                 !pvLoginAck ||
             pCon->GetP2Paddress() != (P2PaddrSTR)pvLoginAck    )
         EVERR->MODULE
-             ->Message(_T("Events sink Login denied, connection destroyed") )
+             ->Message(L"Events sink Login denied, connection destroyed" )
              ->Throw();
 
       // Activate events collection

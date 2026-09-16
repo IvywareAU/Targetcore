@@ -301,7 +301,7 @@ P2PeerCon232::Drop ( P2Pevent *pEVENT )
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
               ->Message (L"closehandle(%s) failed\n"
-                         "ADVICE\t: Bug (SNHappen)"
+                         L"ADVICE\t: Bug (SNHappen)"
                         , (LPCTSTR)m_sFileCOM )
               ->HResult ( GetLastError() );
       m_hFileCOM   = 0;
@@ -394,8 +394,8 @@ P2PeerCon232::Listen ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
-           ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
-                     "ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerCon_STARTUP handler state\n"
+                     L"ADVICE\t: Bug (SNHappen)" )
            ->Throw  ( );
 
     // Open COM port
@@ -413,7 +413,7 @@ P2PeerCon232::Listen ( )
       m_hFileCOM = 0;
       EVERR->MODULE
            ->Message(L"CreateFile(%s) failed\n"
-                     "ADVICE\t: Check assignment for %s"
+                     L"ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sFileCOM, (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
     }
@@ -483,8 +483,8 @@ P2PeerCon232::Accept ( )
       EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
-           ->Message("Duplicate accepts attempted on single connection"
-                    ,"ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Duplicate accepts attempted on single connection"
+                    ,L"ADVICE\t: Bug (SNHappen)" )
            ->Throw();
 
     // Initiate wait for first inbound data
@@ -536,8 +536,8 @@ P2PeerCon232::OnAccept ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
-           ->Message("Requires ON_P2PeerOLD_ACCEPT handler state")
-           ->Advice ("Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerOLD_ACCEPT handler state")
+           ->Advice (L"Bug (SNHappen)" )
            ->Throw  ( );
 
     // Mode confirmation
@@ -545,9 +545,9 @@ P2PeerCon232::OnAccept ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
-           ->Message("Requires P2PeerCon_SERVICE mode not %i"
+           ->Message(L"Requires P2PeerCon_SERVICE mode not %i"
                     , m_eP2PeerConMode )
-           ->Advice ("Bug (SNHappen)" )
+           ->Advice (L"Bug (SNHappen)" )
            ->Throw  ( );
 
     // Spawn replacement service; this object morphs into the session
@@ -591,8 +591,8 @@ P2PeerCon232::Connect ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
-           ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
-                     "ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerCon_STARTUP handler state\n"
+                     L"ADVICE\t: Bug (SNHappen)" )
            ->Throw  ( );
 
     // Open COM port
@@ -610,7 +610,7 @@ P2PeerCon232::Connect ( )
       m_hFileCOM = 0;
       EVERR->MODULE
            ->Message(L"CreateFile(%s) failed\n"
-                     "ADVICE\t: Check assignment for %s"
+                     L"ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sFileCOM, (LPCTSTR)m_sFileCOM )
            ->HResult( GetLastError() )->Throw();
     }
@@ -650,7 +650,7 @@ P2PeerCon232::Connect ( )
       EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                      , GetP2PaddrHub().c_wstr()
                      , m_oThatP2Paddr.c_wstr() )
-           ->Message ("PostQueuedCompletionStatus() failed")
+           ->Message (L"PostQueuedCompletionStatus() failed")
            ->HResult ( GetLastError() )->Throw();
     }
 

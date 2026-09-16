@@ -720,7 +720,7 @@ P2PeerService::PostInstall ( )
       EVERR->MODULE
            ->Message(L"RegCreateKeyEx(HKLM\\%s) failed", (LPCWSTR)strKey )
            ->HResult( lResult )
-           ->Advice_(_T("Run the install elevated to register the event log source.") )
+           ->Advice_(L"Run the install elevated to register the event log source." )
            ->Cancel();
       return;
     }

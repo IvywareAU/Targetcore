@@ -40,8 +40,10 @@
 #if defined (Targetcore_STATIC)
   #define Targetcore_EXT
 #elif defined (Targetcore_EXPORTS)
+  // #pragma message("***** Targetcore_EXPORTS IS DEFINED *****")
   #define Targetcore_EXT __declspec(dllexport)
 #else
+  // #pragma message("***** Targetcore_EXPORTS IS NOT DEFINED *****")
   #define Targetcore_EXT __declspec(dllimport)
 #endif
 

@@ -26,6 +26,7 @@
 //  between them is a login that works only within one operating system, which
 //  is the failure the session-5 cross-backend vectors exist to catch.
 //
+#  include "stdafx.h"
 #ifdef _WIN32
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN

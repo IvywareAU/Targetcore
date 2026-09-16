@@ -311,7 +311,7 @@ P2PeerConPipe::Drop ( P2Pevent *pEVENT )
                         , GetP2PaddrHub().c_wstr()
                         , (P2PaddrSTR)m_oThatP2Paddr )
               ->Message (L"closehandle(%s) failed\n"
-                         "ADVICE\t: Bug (SNHappen)"
+                         L"ADVICE\t: Bug (SNHappen)"
                         , (LPCTSTR)m_sPipename )
               ->HResult ( GetLastError() );
       m_hFile      = 0;
@@ -467,8 +467,8 @@ P2PeerConPipe::CreateListenPipe ( )
                pszSddl, SDDL_REVISION_1, &pSD, NULL ) )
         EVERR->MODULE
              ->Message(L"SDDL(%s) for pipe %s does not parse\n"
-                       "ADVICE\t: Check the string given to SetPipeAccess"
-                       ", or ask for P2PeerConPipeAccess_Owner"
+                       L"ADVICE\t: Check the string given to SetPipeAccess"
+                       L", or ask for P2PeerConPipeAccess_Owner"
                       , pszSddl, (LPCTSTR)m_sPipename )
              ->HResult( GetLastError() )->Throw();
 
@@ -515,19 +515,19 @@ P2PeerConPipe::CreateListenPipe ( )
            ( dwOpenMode & FILE_FLAG_FIRST_PIPE_INSTANCE ) != 0 )
         EVERR->MODULE
              ->Message(L"CreateNamedPipe(%s) refused: the name already has "
-                        "an instance and this service creates the first\n"
-                       "ADVICE\t: Another process holds %s - a server still "
-                       "running, or a squatter.  Refused rather than joined, "
-                       "because a joined pipe keeps the FIRST creator's "
-                       "descriptor, not this one's\n"
-                       "ADVICE\t: Stop the other holder, or choose a name"
+                       L"an instance and this service creates the first\n"
+                       L"ADVICE\t: Another process holds %s - a server still "
+                       L"running, or a squatter.  Refused rather than joined, "
+                       L"because a joined pipe keeps the FIRST creator's "
+                       L"descriptor, not this one's\n"
+                       L"ADVICE\t: Stop the other holder, or choose a name"
                       , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
              ->HResult( dwCreateErr )->Throw();
 #endif
 
       EVERR->MODULE
            ->Message(L"CreateNamePipe(%s) failed\n"
-                     "ADVICE\t: Check assignment for %s"
+                     L"ADVICE\t: Check assignment for %s"
                     , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
            ->HResult( dwCreateErr )->Throw();
     }
@@ -594,13 +594,13 @@ P2PeerConPipe::CreateListenPipe ( )
       m_bPipeLocal = false;
       EVERR->MODULE
            ->Message(L"Pipe %s is trust class %i and its hub holds no link "
-                      "below class %i\n"
-                     "ADVICE\t: 0 wire, 1 kernel-local, 2 in-process\n"
-                     "ADVICE\t: SetPipeAccess() asked for a pipe of a class "
-                     "this hub was fenced to refuse - drop the "
-                     "P2PeerConPipeAccess_Legacy, or widen the fence with "
-                     "RequireTrustAtLeast()\n"
-                     "ADVICE\t: Listener not created"
+                     L"below class %i\n"
+                     L"ADVICE\t: 0 wire, 1 kernel-local, 2 in-process\n"
+                     L"ADVICE\t: SetPipeAccess() asked for a pipe of a class "
+                     L"this hub was fenced to refuse - drop the "
+                     L"P2PeerConPipeAccess_Legacy, or widen the fence with "
+                     L"RequireTrustAtLeast()\n"
+                     L"ADVICE\t: Listener not created"
                     , (LPCTSTR)m_sPipename, (int)eClass, (int)eFloor )
            ->Throw();
     }
@@ -644,7 +644,7 @@ P2PeerConPipe::Accept ( )
         EVERR->Module  (L"%hs(%s-%s)", __FUNCTION__
                        , GetP2PaddrHub().c_wstr()
                        , m_oThatP2Paddr.c_wstr() )
-             ->Message ("ConnectNamePipe() failed")
+             ->Message (L"ConnectNamePipe() failed")
              ->HResult ( hr )->Throw();
 
       // Accept must be simulated whenever client connects between
@@ -686,8 +686,8 @@ P2PeerConPipe::OnAccept ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
-           ->Message("Requires ON_P2PeerOLD_ACCEPT handler state")
-           ->Advice ("Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerOLD_ACCEPT handler state")
+           ->Advice (L"Bug (SNHappen)" )
            ->Throw  ( );
 
     // Mode confirmation
@@ -698,9 +698,9 @@ P2PeerConPipe::OnAccept ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
-           ->Message("Requires P2PeerCon_SERVICE mode not %i"
+           ->Message(L"Requires P2PeerCon_SERVICE mode not %i"
                     , m_eP2PeerConMode )
-           ->Advice ("Bug (SNHappen)" )
+           ->Advice (L"Bug (SNHappen)" )
            ->Throw  ( );
 
     // Spawn accepted P2PeerCon
@@ -757,8 +757,8 @@ P2PeerConPipe::OnAccept ( const P2Paddr oThatP2Paddr )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
-           ->Message("Requires ON_P2PeerOLD_ACCEPT handler state\n"
-                     "ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerOLD_ACCEPT handler state\n"
+                     L"ADVICE\t: Bug (SNHappen)" )
            ->Throw  ( );
 
     // To be sure, to be sure
@@ -826,8 +826,8 @@ P2PeerConPipe::Connect ( )
       EVERR->Module (L"%hs(%s-%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , m_oThatP2Paddr.c_wstr() )
-           ->Message("Requires ON_P2PeerCon_STARTUP handler state\n"
-                     "ADVICE\t: Bug (SNHappen)" )
+           ->Message(L"Requires ON_P2PeerCon_STARTUP handler state\n"
+                     L"ADVICE\t: Bug (SNHappen)" )
            ->Throw  ( );
 
     // Open COM port
@@ -861,9 +861,10 @@ P2PeerConPipe::Connect ( )
     {
       m_hFile = 0;
       EVERR->MODULE
-           ->Message(L"CreateFile(%s) failed\n"
-                     "ADVICE\t: Check assignment for %s"
-                    , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
+           ->Message(L"CreateFile(%s) failed"
+                    , (LPCTSTR)m_sPipename )
+           ->Advice (L"Check assignment for %s"
+                    , (LPCTSTR)m_sPipename )
            ->HResult( GetLastError() )->Throw();
     }
 

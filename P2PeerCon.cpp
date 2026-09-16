@@ -1,4 +1,4 @@
-// Copyright © 2002-2009, 2026 Ivyware Pty Ltd, Khrustal & Mann
+﻿// Copyright © 2002-2009, 2026 Ivyware Pty Ltd, Khrustal & Mann
 //              MELBOURNE, VICTORIA, AUSTRALIA, 3000
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -2080,7 +2080,7 @@ P2PeerCon::OnAccept ( const P2Paddr oThatP2Paddr )
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Accept) )
       EVERR->MODULE->AFPcon(this)
-           ->Message(_T("Requires ON_P2PeerCon_ACCEPT handler state"))
+           ->Message(L"Requires ON_P2PeerCon_ACCEPT handler state")
            ->Throw  ( );
 
     // Mode confirmation
@@ -2089,7 +2089,7 @@ P2PeerCon::OnAccept ( const P2Paddr oThatP2Paddr )
     //      : Low frequency check more than worth the overhead
     if ( m_eP2PeerConMode != P2PeerCon_Accept )
       EVERR->MODULE->AFPcon(this)
-           ->Message(_T("Requires P2PeerCon_Accept mode not"), m_eP2PeerConMode )
+           ->Message(L"Requires P2PeerCon_Accept mode not %i", m_eP2PeerConMode )
            ->Throw  ( );
 
     // To be sure, to be sure
@@ -2143,8 +2143,8 @@ P2PeerCon::Connect ( )
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Startup) )
       EVERR->Module (__FUNCTION__)->AFPcon(this)
-           ->Message(_T("Requires ON_P2PeerCon_STARTUP handler state") )
-           ->Message(_T("Bug (SNHappen)") )
+           ->Message(L"Requires ON_P2PeerCon_STARTUP handler state" )
+           ->Message(L"Bug (SNHappen)" )
            ->Throw  ( );
 
     // Mode confirmation
@@ -2153,7 +2153,7 @@ P2PeerCon::Connect ( )
     //      : Low frequency check more than worth the overhead
     if ( m_eP2PeerConMode != P2PeerCon_CLIENT )
       EVERR->Module (__FUNCTION__)->AFPcon(this)
-           ->Message(_T("Requires connection mode") )
+           ->Message(L"Requires connection mode" )
            ->Throw  ( );
 
     // Done
@@ -2175,7 +2175,7 @@ P2PeerCon::OnConnect ( )
     //      : Low frequency check more than worth the overhead
     if ( !CheckP2PmsgPumpState(CN_P2PeerCon,P2P_Connect) )
       EVERR->Module (__FUNCTION__)->AFPcon(this)
-           ->Message(_T("Requires ON_P2PeerCon_CONNECT handler state") )
+           ->Message(L"Requires ON_P2PeerCon_CONNECT handler state")
            ->Throw  ( );
 
     // Activate P2PeerMsg flow
@@ -4120,7 +4120,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
                                  , m_bKeyXBound ? m_KeyXBind : 0 );
       if ( eAuth != p2pauth::AuthOk )
         EVERR->Module (__FUNCTION__)->AFPcon(this)
-             ->Message(_T("Could not sign the login acknowledgement: %s")
+             ->Message(L"Could not sign the login acknowledgement: %s"
                       , CString(p2pauth::AuthResultText(eAuth)).GetString() )
              ->Advice_T ("Identity key loaded with SetIdentity()?")
              ->Throw();
@@ -5479,14 +5479,14 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
 
     // Append our state to node
     P3PmsgField_SERIALISE ( oNodeVar, L"P2Paddress", GetP2Paddress().c_wstr(), bDsc
-                          , _T("Allocated connection address") );
+                          , L"Allocated connection address" );
     P3PmsgField_SERIALISE ( oNodeVar, L"P2Padomain", GetP2Padomain().c_wstr(), bDsc
-                          , _T("Assigned connection address domain") );
+                          , L"Assigned connection address domain" );
     P3PmsgField_SERIALISE ( oNodeVar, L"ConMode", (int)m_eP2PeerConMode, bDsc
-                          , _T("Connection mode") );
+                          , L"Connection mode" );
     if ( m_eP2PeerConMode != P2PeerCon_Accept )
       P3PmsgField_SERIALISE ( oNodeVar, L"LoginTimerID", m_uLoginTimerID, bDsc
-                            , _T("Restart connection timer identification") );
+                            , L"Restart connection timer identification" );
 
     // Security posture of THIS connection
     // NOTES: F-S6-2, and the reason it is here rather than
@@ -5520,19 +5520,19 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     //        inside the report of the first
     P3PmsgField_SERIALISE ( oNodeVar, L"AuthDone"
                           , (UINT32)( IsAuthenticated ( ) ? 1 : 0 ), bDsc
-                          , _T("Peer login signature verified on this connection") );
+                          , L"Peer login signature verified on this connection" );
     P3PmsgField_SERIALISE ( oNodeVar, L"AuthPeer"
                           , GetAuthPeer ( ).c_wstr ( ), bDsc
-                          , _T("Identity the signature verified as (empty if none)") );
+                          , L"Identity the signature verified as (empty if none)" );
     P3PmsgField_SERIALISE ( oNodeVar, L"KeyXDone"
                           , (UINT32)( IsKeyXDone ( ) ? 1 : 0 ), bDsc
-                          , _T("Session key agreement completed, cypher posted") );
+                          , L"Session key agreement completed, cypher posted" );
     P3PmsgField_SERIALISE ( oNodeVar, L"Cypher"
                           , (UINT32)( IsCypherActive ( ) ? 1 : 0 ), bDsc
-                          , _T("Cypher installed and consulted by this transport") );
+                          , L"Cypher installed and consulted by this transport" );
     P3PmsgField_SERIALISE ( oNodeVar, L"OffProcess"
                           , (UINT32)( LeavesProcess ( ) ? 1 : 0 ), bDsc
-                          , _T("Frames on this transport leave this process") );
+                          , L"Frames on this transport leave this process" );
 
     //  SEVEN since the trust class landed, and the two new ones are what make
     //  Cypher=0 readable as a DECISION rather than only as an exemption.
@@ -5554,10 +5554,10 @@ P2PeerCon::Serialise ( LPCTNAM lpszVar )
     //         down - refer the note on the other four
     P3PmsgField_SERIALISE ( oNodeVar, L"TrustClass"
                           , (UINT32)TrustClass ( ), bDsc
-                          , _T("What this transport vouches for: 0 wire, 1 local, 2 in-process") );
+                          , L"What this transport vouches for: 0 wire, 1 local, 2 in-process" );
     P3PmsgField_SERIALISE ( oNodeVar, L"Trust"
                           , (UINT32)EffectiveTrust ( ), bDsc
-                          , _T("...after the operator's demotion - what the policy reads") );
+                          , L"...after the operator's demotion - what the policy reads" );
 
     // Tidy up and
     return oNodeVar;
