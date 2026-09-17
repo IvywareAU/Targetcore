@@ -21,7 +21,6 @@
 //         on one operating system and never opened on the other
 //
 
-#include "stdafx.h"
 #include "P2PeerSeal.h"
 #include "P2PCngCrypto.h"
 
@@ -943,4 +942,3 @@ SealSelfTest ( )
 }
 
 } // namespace p2pseal
-

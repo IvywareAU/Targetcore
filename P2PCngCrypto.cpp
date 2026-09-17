@@ -710,14 +710,20 @@ namespace p2pcng
         // the thing most likely to drift; the ECDSA maths is the OS's problem.
         //
         // Reproduce with:
-        //   printf 'Targetcore identity KAT' > msg.bin
+        //   printf 'TargetCore identity KAT' > msg.bin
         //   openssl ecparam -name prime256v1 -genkey -noout -out key.pem
         //   openssl dgst -sha256 -sign key.pem -out sig.der msg.bin
         //   openssl ec -in key.pem -text -noout          # pub point, priv scalar
         // then strip the 0x04 prefix from the point and convert the DER
         // SEQUENCE{INTEGER r, INTEGER s} to fixed-width 32-byte r||s.
+        //
+        // The capital C in "TargetCore" is PINNED INPUT, not a stale product
+        // name: the signature below was made over those exact bytes. A rename
+        // sweep already recased it once (a9bc335) and the KAT went red, because
+        // the message moved and the signature did not. Leave it, or regenerate
+        // every vector in this block and the one below it.
         {
-            const char msg[] = "Targetcore identity KAT";
+            const char msg[] = "TargetCore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pub[kEcdsaPubLen] = {
@@ -740,7 +746,7 @@ namespace p2pcng
             if ( !v.Verify ( (const unsigned char *)msg, cbMsg, sig ) ) return false;
 
             // 2. A one-character change in the message must NOT verify.
-            const char msgBad[] = "Targetcore identity KAU";
+            const char msgBad[] = "TargetCore identity KAU";
             if ( v.Verify ( (const unsigned char *)msgBad, sizeof(msgBad) - 1, sig ) )
                 return false;
 
@@ -800,7 +806,7 @@ namespace p2pcng
         // yields a backend disagreement that appears intermittently, depends
         // on the random k, and would be miserable to diagnose in the field.
         {
-            const char msg[] = "Targetcore identity KAT";
+            const char msg[] = "TargetCore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pubShortR[kEcdsaPubLen] = {

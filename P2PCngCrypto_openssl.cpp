@@ -867,8 +867,14 @@ namespace p2pcng
         // conversion is wrong in either direction, this KAT fails here while
         // still passing on Windows, which is exactly the drift it exists to
         // catch. Keep the two blocks in sync.
+        //
+        // The capital C in "TargetCore" is PINNED INPUT, not a stale product
+        // name: the signature below was made over those exact bytes. A rename
+        // sweep already recased it once (a9bc335) and the KAT went red, because
+        // the message moved and the signature did not. Leave it, or regenerate
+        // every vector in this block and the one below it.
         {
-            const char msg[] = "Targetcore identity KAT";
+            const char msg[] = "TargetCore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pub[kEcdsaPubLen] = {
@@ -889,7 +895,7 @@ namespace p2pcng
             if ( !v.ImportPublic ( pub ) ) return false;
             if ( !v.Verify ( (const unsigned char *)msg, cbMsg, sig ) ) return false;
 
-            const char msgBad[] = "Targetcore identity KAU";
+            const char msgBad[] = "TargetCore identity KAU";
             if ( v.Verify ( (const unsigned char *)msgBad, sizeof(msgBad) - 1, sig ) )
                 return false;
 
@@ -933,7 +939,7 @@ namespace p2pcng
         // below 32 bytes, and BN_bn2bin would emit a short buffer, shifting
         // the raw layout. sigShortR carries TWO leading zeros. Keep in sync.
         {
-            const char msg[] = "Targetcore identity KAT";
+            const char msg[] = "TargetCore identity KAT";
             const size_t cbMsg = sizeof(msg) - 1;
 
             const unsigned char pubShortR[kEcdsaPubLen] = {
