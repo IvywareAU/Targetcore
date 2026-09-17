@@ -200,6 +200,13 @@ P2PC_API P2PeerMsgHandle    p2peerconwsa_post_msg         (P2PeerConWsaHandle h,
                                                             P2PeerMsgHandle    msg);
 
 // ── P2PeerHub ─────────────────────────────────────────────────────────────────
+// p2peerhub_destroy closes the hub before it frees it, so a caller that spawned
+// one does NOT have to call p2peerhub_close_hub first. That is this binding
+// doing the job a C++ owner does in its most-derived destructor: a hub freed
+// with its pump thread still running is dispatching virtuals through an object
+// whose vtable pointer the base destructor has already rewritten. Closing first
+// is the only thing that shuts that window, and C has no destructor to put it
+// in. Calling p2peerhub_close_hub yourself beforehand remains correct and free.
 P2PC_API P2PeerHubHandle    p2peerhub_create         (const wchar_t* strAddr);
 P2PC_API void               p2peerhub_destroy        (P2PeerHubHandle h);
 P2PC_API int                p2peerhub_create_hub     (P2PeerHubHandle h,

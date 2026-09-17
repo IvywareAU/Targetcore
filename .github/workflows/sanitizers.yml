@@ -88,9 +88,10 @@
 # Stage 2. Running it found 10 of 38 security tests failing and 27 reports,
 # which reduce to SIX defects. Named here because a name in KNOWN_TSAN with no
 # explanation is an exclusion list of the kind this file already refused once.
-# One of the six is now closed; it is kept on the list, struck through in
+# Two of the six are now closed; both are kept on the list, struck through in
 # words, because a defect that disappears from the record takes its lesson with
-# it. The same ten tests still fail, so KNOWN_TSAN has not moved:
+# it. The run is 27 reports and ten failing tests as written, 17 and nine as of
+# 2026-09-18, and KNOWN_TSAN is one name shorter:
 #
 #   1. AB-BA LOCK-ORDER INVERSION, hub registry against pump registry. Both
 #      sides are plain in the source: CreateP2PmsgHub takes s_oCSectionP2PmsgHub
@@ -100,8 +101,18 @@
 #      one was a transport CS against the pump registry, so only Dmx/Pipe/232
 #      tripped it. This is the two global registries against each other, which
 #      is transport-independent. p2p_expreg, p2p_hubsnap, p2p_backpressure.
-#   2. VPTR RACE, ~P2PeerHub (P2PeerHub.cpp:101) against ProcHub (:499) still
-#      dispatching virtuals through the object. p2p_e2ewaive.
+#   2. FIXED 2026-09-18, and it was a CONTRACT rather than a lock. VPTR RACE,
+#      ~P2PeerHub (P2PeerHub.cpp:101) against ProcHub (:499) still dispatching
+#      virtuals through the object. The vtable pointer is rewritten on ENTRY to
+#      the base destructor, so ~P2PeerHub's own CloseHub() - which is what made
+#      this look closed - runs two steps too late: the derived object is gone
+#      and the pump thread has already been dispatching through both halves.
+#      One of the two reports caught it mid-seal, inside P2PeerCon::GetAuthHub
+#      from SealAppMsgOutbound. No base destructor can close that window; the
+#      owner has to CloseHub() before destruction begins. ~P2PeerHub now says
+#      so out loud when it catches one, p2peerhub_destroy and ~P2PeerService
+#      do it for the owners who have no destructor of their own, and the one
+#      test that violated it does it too. p2p_e2ewaive, now off KNOWN_TSAN.
 #   3. FIXED 2026-09-17, Msgcore, in the event primitive itself. CloseHandle
 #      (p2pfile.h:425, from ~P2PeerHub:120) against SetEvent (p2pthread.h:109,
 #      from SignalHubExit:457) on the hub-exit handle - seven reports, the
@@ -135,14 +146,19 @@
 # The correction that came with it, recorded because the first reading of these
 # stacks grouped 2, 3 and 4 as one defect and only 3 was: fixing the edge left
 # 2 and 4 exactly where they were, which is how it became clear they are not
-# the same thing. 4 is a harness race (see above). 2 IS STILL OPEN and is the
-# one worth reading twice: the vptr write at P2PeerHub.cpp:101 happens on
-# ENTRY to ~P2PeerHub, before the body runs, so CloseHub() - which the body
-# calls, and which now waits properly - cannot help. The hub object is being
-# destroyed while its own pump thread still dispatches virtuals through it
-# (P2PeerCon::GetAuthHub from SealAppMsgOutbound, mid-seal, in the second
-# report). No base-class destructor can close that window; the owner has to
-# CloseHub() before destruction begins, and the library does not say so.
+# the same thing. 4 is a harness race (see above). 2 was a contract nobody had
+# written down, and closing it on 2026-09-18 took the run to 17 reports and
+# nine failing tests.
+#
+# WHAT THE CONTRACT CHECK FOUND, which is the part worth keeping. ~P2PeerHub
+# now detects a hub destroyed with its spawned pump thread still running and
+# reports it by name. Run against the whole suite that check fired in exactly
+# ONE test out of fifty-eight - p2p_e2ewaive, seven times. Every other hub in
+# the tree already closed before it died, and P2PeerEvents has had CloseHub()
+# in its destructor since long before any of this with a comment saying why
+# ("Subordinate threads may have dependencies upon our resources"). So the
+# contract was already the house practice; it had simply never been stated,
+# never been checked, and had one place where it lapsed.
 #
 # WHAT WAS NOT A FINDING, recorded so nobody re-derives it: at -j4 two further
 # tests, p2p_sealbcast and p2p_listenscope, failed with EADDRINUSE (system error
@@ -154,10 +170,10 @@
 #     on 2026-08-15 were live in Release and silent there precisely because they
 #     were outside any ASSERT -- a green Debug sanitizer run says the code paths
 #     TAKEN were clean, not that Release is.
-#   * Less about TSan than it looks. TSan gates 28 of the 38 security tests as
-#     of 2026-09-17; the other ten are named in KNOWN_TSAN and reported without
-#     gating. A green TSan tick means no NEW race on the gated 28, not that the
-#     tree is race-free - see the section below for the six that are open.
+#   * Less about TSan than it looks. TSan gates 29 of the 38 security tests as
+#     of 2026-09-18; the other nine are named in KNOWN_TSAN and reported without
+#     gating. A green TSan tick means no NEW race on the gated 29, not that the
+#     tree is race-free - see the section below for the four still open.
 #   * Nothing about leaks in the fuzz harness -- see MscsUnitTests/CMakeLists.txt
 #     for why detect_leaks is off for that one test, on purpose.
 # =============================================================================
@@ -203,7 +219,7 @@ env:
   # one. Do NOT add a name here to make a red tick go away: a new race is the
   # thing this job exists to catch, and the list is for findings that were
   # already there on the day it was written.
-  KNOWN_TSAN: "p2p_authrelay|p2p_logindeadline|p2p_srcbound|p2p_hubsnap|p2p_conreap|p2p_backpressure|p2p_replayguard|p2p_e2ewaive|p2p_fuzzframe|p2p_expreg"
+  KNOWN_TSAN: "p2p_authrelay|p2p_logindeadline|p2p_srcbound|p2p_hubsnap|p2p_conreap|p2p_backpressure|p2p_replayguard|p2p_fuzzframe|p2p_expreg"
 
 jobs:
   windows-asan:
@@ -625,9 +641,10 @@ jobs:
         run: cmake --build --preset linux-gcc-tsan
         working-directory: mscs
 
-      # THE GATE: the security label minus the ten tests named in KNOWN_TSAN.
-      # 27 tests on this runner, green with zero reports when this job was
-      # written (2026-09-17, g++ 13.3, serial). It is 28 in a full local tree,
+      # THE GATE: the security label minus the nine tests named in KNOWN_TSAN.
+      # 28 tests on this runner, green with zero reports; it was 27 when this
+      # job was written (2026-09-17) and p2p_e2ewaive came off the list the day
+      # after, when the vptr defect behind it closed. It is 29 in a local tree,
       # and the extra one is p2p_fuzzhttp: it carries the p2pweb label and needs
       # P2PeerWeb, which the four checkouts above do not bring. Not a gap in the
       # gate - a test that is not registered here cannot be excluded from here. Serial on purpose: at -j4 two further

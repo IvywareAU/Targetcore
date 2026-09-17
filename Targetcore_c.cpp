@@ -739,6 +739,15 @@ void p2peerhub_destroy(P2PeerHubHandle h)
 {
     P2PeerHub* p = hub(h);
     if (!p || !P2PhandleForget(h, P2PhandleKind_Hub)) return;
+    // CloseHub() BEFORE the delete, and it is not belt and braces. ~P2PeerHub
+    // calls CloseHub() as well, but a base destructor runs after ~CSinkHub and
+    // after the vtable pointer has been rewritten, so a hub still carrying a
+    // spawned pump thread would be dispatching virtuals through a half-dead
+    // object until then - the vptr race TSan reports out of p2p_e2ewaive. The
+    // C caller has no destructor of its own to put this in, so this IS its
+    // most-derived destructor. Refer the note on ~P2PeerHub.
+    try         { p->CloseHub(); }
+    catch (...) { }
     try         { delete p; }
     catch (...) { }
 }

@@ -98,14 +98,96 @@ P2PeerHub::P2PeerHub ( P2PaddrSTR strP2PaddrHub )
     SetP2PaddrHub ( strP2PaddrHub );
 }
 
+//
+//  Reports a hub destroyed with its spawned pump thread still running
+//  NOTES: SEPARATED OUT so the destructor reads as one statement of the
+//         contract rather than four of the mechanism, and so the long note
+//         lives with the check rather than in the middle of the teardown
+//       : TRUE only for the case that is actually unsafe.  m_hHubExit is armed
+//         by SpawnHub and only for the default ProcHub trampoline, so a hub
+//         run by CreateHub() in the caller's own context - which has no second
+//         thread to race - answers FALSE and says nothing.  So does a hub
+//         being destroyed ON its own pump thread, where there is no other
+//         thread to be inside
+//       : A zero-timeout wait, never a blocking one.  The question is "has
+//         ProcHub finished its epilogue", which the manual-reset event already
+//         answers without waiting; blocking here would hide the defect by
+//         fixing it too late instead of reporting it
+//
+bool
+P2PeerHub::HubSpawnedAndRunning ( )
+{
+    HANDLE hExit = 0;
+    {
+      P2PsafeCS oSafeCS = m_oCSectionHub;
+      if ( m_hHubExit && m_nHubThreadID != GetCurrentThreadId ( ) )
+        hExit = m_hHubExit;
+    }
+    return hExit && WaitForSingleObject ( hExit, 0 ) != WAIT_OBJECT_0;
+}
+
 P2PeerHub::~P2PeerHub ( )
 {
+    //  THE CONTRACT, CHECKED RATHER THAN ASSUMED (F-TSAN-2, 2026-09-17).
+    //
+    //  CloseHub() below shuts a spawned hub down completely and correctly. It
+    //  is also, by construction, TOO LATE - and that is not a bug in CloseHub,
+    //  it is where a base destructor sits in the sequence:
+    //
+    //    ~WaiveHub        derived members destroyed, derived object gone
+    //    ~P2PeerHub       THE VTABLE POINTER IS REWRITTEN HERE, on entry
+    //    ~P2PeerHub body  ...and only now does CloseHub() stop the thread
+    //
+    //  Everything above the third line happens while the pump thread is still
+    //  running, still dispatching virtuals through this object and still
+    //  reaching into the derived half that no longer exists. TSan caught it as
+    //  a vptr race in p2p_e2ewaive and the second report is the one that
+    //  settles it: the pump thread was inside P2PeerCon::GetAuthHub() from
+    //  SealAppMsgOutbound - MID-SEAL - as the destructor rewrote the pointer
+    //  it was about to dispatch through.
+    //
+    //  So CloseHub() must COMPLETE BEFORE DESTRUCTION BEGINS, which only the
+    //  owner can arrange: `CloseHub();` as the first statement of the
+    //  most-derived destructor, or an explicit call before the object goes out
+    //  of scope. No base class can do it for them, and this one had been
+    //  quietly pretending otherwise since the destructor first called
+    //  CloseHub().
+    //
+    //  WHY THIS REPORTS INSTEAD OF ASSERTING, given SpawnHub's own contract
+    //  violation two screens down is a plain ASSERT. That one fires on a
+    //  programming error the caller can fix in place. This one fires on a
+    //  race that is already half-run by the time we are here - aborting turns
+    //  a reported defect into a Debug-only crash in every consumer that has
+    //  the bug today, and this library has 87 hub subclasses across seven
+    //  repositories. Report loudly, close as best we can, and let the gate
+    //  measure the rest.
+    //
+    //  AND IT IS SAFE TO REPORT HERE, which a destructor running at process
+    //  teardown would not normally be. The condition is "a pump thread is
+    //  still running" - so the P2Pmsg environment cannot already have been
+    //  through CleanupP2Pmsg(), because a live pump is exactly what that
+    //  refuses to leave behind.
+    if ( HubSpawnedAndRunning ( ) )
+      EVERR->Module (L"P2PeerHub::~P2PeerHub" )
+           ->Message(L"Hub destroyed while its spawned pump thread was still "
+                      "running. Call CloseHub() BEFORE destruction begins - "
+                      "from the most-derived destructor, or at the owner. By "
+                      "the time this base destructor runs the derived object "
+                      "is gone and the vtable pointer has been rewritten, and "
+                      "the pump thread is still dispatching through both." )
+           ->Cancel();
+
     CloseHub ( );
-    //  After CloseHub(): the pumps are down - and since CloseHub() JOINS the
-    //  spawned thread, "down" now means the thread has actually left ProcHub
+    //  After CloseHub(): the pumps are down - and since CloseHub() waits on the
+    //  hub-exit event, "down" now means the thread has actually left ProcHub
     //  rather than merely having flagged its hub id clear. So nothing can be
     //  inside a handshake reaching for the policy while it is being freed, and
     //  nothing is left to enter m_oCSectionHub after it is deleted.
+    //  NOTES: That wait only orders anything at all because the event now
+    //         publishes a happens-before edge. Until Msgcore 6cc6939 a
+    //         manual-reset wait merely poll()ed the eventfd on Linux and
+    //         published nothing, so this sequence was ordered by the Sleep(1)
+    //         in YieldForP2PmsgPump and by nothing else.
     delete m_pAuthPolicy;
     m_pAuthPolicy = 0;
 

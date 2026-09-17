@@ -63,11 +63,27 @@ typedef void (P2PeerHub::*RUN_HUB)(void);
 //  P2PeerHub base class
 //  NOTES: Manages the routing of P2PeerMsg's between hubs and implements
 //         the P2PeerSys_MAP, P2PeerCon_MAP and P2PeerMsg_MAP's
+//       : IF YOU CALLED SpawnHub(), CLOSE THE HUB BEFORE YOU DESTROY IT.
+//         `CloseHub();` as the first statement of your destructor, or an
+//         explicit call before the object leaves scope - either will do, and
+//         one of them is required. ~P2PeerHub calls CloseHub() too, and that
+//         is a safety net rather than the contract: a base destructor runs
+//         AFTER the derived one and after the vtable pointer has been
+//         rewritten, so by then the pump thread has already been dispatching
+//         virtuals through a half-destroyed object. ~P2PeerHub says so out
+//         loud when it catches you - refer the note there.
+//       : A hub run by CreateHub() is exempt. That one pumps on the caller's
+//         own thread, so there is no second thread to race the destructor and
+//         nothing to close first.
 //
 class Targetcore_EXT P2PeerHub : public P2PeerTarget
 {
       void
         RenderHubSafe();
+      //  "SpawnHub() made a pump thread and it has not left yet" - what
+      //  ~P2PeerHub tests before it reports a hub destroyed out from under it
+      bool
+        HubSpawnedAndRunning ( );
 
     // Constructors and destructor
     public:

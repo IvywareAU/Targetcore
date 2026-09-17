@@ -97,8 +97,19 @@ P2PeerService::P2PeerService ( LPCTSTR lpszServiceName
 P2PeerService::~P2PeerService( void )
 {
     // Garbage collection
+    // NOTES: CloseHub() first, and the delete second. Run() already closes the
+    //        hub on the way out, so on the ordinary path this finds nothing to
+    //        do - but a service destroyed without Run() having returned (a
+    //        SpawnHub from SERVICE_CONTROL_CONTINUE, a constructor that throws
+    //        after the spawn) would otherwise delete a hub whose pump thread
+    //        is still dispatching virtuals through it. ~P2PeerHub cannot close
+    //        that window from where it sits; the owner has to, and here the
+    //        owner is us. Refer the note on ~P2PeerHub.
     if ( m_pP2PeerHub )
+    {
+      m_pP2PeerHub -> CloseHub ( );
       delete m_pP2PeerHub;
+    }
 }
 
 void
