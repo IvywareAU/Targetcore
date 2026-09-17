@@ -155,6 +155,12 @@ struct P2P_MSGMAP
 //  P2Peer message map wrappers
 //  NOTES: P2Peer message mapping macros must be encapsulated
 //         by the following two wrappers
+//       : L#theClass IS NOT A WIDE LITERAL, so the class name arrives through
+//         Msgcore.h's _U -- see the comment beside AFP__widen in Msgexception.h.
+//         `#` and `##` are separate operations, so writing L immediately before
+//         #theClass leaves TWO tokens, which MSVC glues back together and GCC
+//         reports as an undeclared `L`.  _U takes the ALREADY-STRINGIFIED name,
+//         so the paste has a real string literal to work on
 #define BEGIN_P2PeerMsg_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_MSGMAP* \
@@ -162,7 +168,7 @@ theClass::GetP2PeerMsgMap() const \
 { return &theClass::P2PeerMsgMap; } \
 LPCTSTR \
 theClass::GetThisClassName() const \
-{ return L#theClass; } \
+{ return _U(#theClass); } \
 AFX_COMDAT const P2P_MSGMAP theClass::P2PeerMsgMap \
    = { &baseClass::P2PeerMsgMap, &theClass::_P2PeerMsgEntries[0] }; \
 AFX_COMDAT const P2P_MSGMAP_ENTRY theClass::_P2PeerMsgEntries[] \

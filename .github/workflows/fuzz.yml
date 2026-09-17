@@ -299,7 +299,7 @@ jobs:
         working-directory: mscs
 
       - name: Build
-        run: cmake --build --preset windows-msvc --config Debug
+        run: cmake --build --preset windows-msvc-debug
         working-directory: mscs
 
       # WINDOWS RUNS THE SAME CAMPAIGN, and that is not symmetry for its own
