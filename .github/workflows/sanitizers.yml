@@ -82,13 +82,56 @@
 #       NOT fail the test. Two tests passed while printing six of them. Every
 #       UBSan invocation here therefore sets halt_on_error=1.
 #
+# TSAN, WIRED IN 2026-09-17, AND WHAT ITS FIRST RUN FOUND
+#
+# The preset had existed unrun since the pump/hub race gate was deferred to
+# Stage 2. Running it found 10 of 38 security tests failing and 27 reports,
+# which reduce to SIX defects. Named here because a name in KNOWN_TSAN with no
+# explanation is an exclusion list of the kind this file already refused once:
+#
+#   1. AB-BA LOCK-ORDER INVERSION, hub registry against pump registry. Both
+#      sides are plain in the source: CreateP2PmsgHub takes s_oCSectionP2PmsgHub
+#      then s_oCSectionP2PmsgPump (P2Pwin32.cpp:2162-2163), and CloseP2PmsgPump
+#      takes them the other way round (P2Pwin32.cpp:3510, 3526). Same CLASS as
+#      the AB-BA fixed in Targetcore 4236949 on 2026-07-10, different pair: that
+#      one was a transport CS against the pump registry, so only Dmx/Pipe/232
+#      tripped it. This is the two global registries against each other, which
+#      is transport-independent. p2p_expreg, p2p_hubsnap, p2p_backpressure.
+#   2. VPTR RACE, ~P2PeerHub (P2PeerHub.cpp:101) against ProcHub (:499) still
+#      dispatching virtuals through the object. p2p_e2ewaive.
+#   3. CloseHandle (p2pfile.h:425, from ~P2PeerHub:120) against SetEvent
+#      (p2pthread.h:109, from SignalHubExit:457) on the hub-exit handle. The
+#      handle body is already race-aware - retired.load(acquire), fd.exchange -
+#      but the struct is freed under a concurrent user. Seven reports, the
+#      largest cluster. p2p_e2ewaive.
+#   4. closesocket (p2psock.h:191) against concurrent use - the socket analogue
+#      of 3. p2p_authrelay.
+#   5. ACCEPT-PATH COUNTERS unsynchronised: AcceptAtCapacity (P2PeerCon.h:253)
+#      and AcceptSpawn (P2PeerCon.cpp:365, :368) read on the pump thread what
+#      SetMaxAccepted (P2PeerCon.cpp:1597) writes on the owner thread.
+#      p2p_srcbound, p2p_conreap, p2p_logindeadline.
+#   6. TEST-HARNESS races, in MscsUnitTests rather than the library:
+#      p2p_replayguard.cpp:367 and :377, p2p_fuzzframe.cpp:490 and :757.
+#
+# 2, 3 and 4 are ONE DEFECT WEARING THREE HATS: hub teardown is ordered by a
+# Sleep in YieldForP2PmsgPump rather than by joining the thread, and TSan says
+# so in as many words - it prints "As if synchronized via sleep" above the
+# stacks. Eleven of the twenty-seven reports hang off that one assumption.
+#
+# WHAT WAS NOT A FINDING, recorded so nobody re-derives it: at -j4 two further
+# tests, p2p_sealbcast and p2p_listenscope, failed with EADDRINUSE (system error
+# 98) rather than with anything TSan said, and both pass serially. That is why
+# the gate runs serially and why those two names are not in KNOWN_TSAN.
+#
 # WHAT A GREEN RUN DOES NOT PROVE
 #   * Nothing about Release. ASan runs Debug here. The four out-of-bounds found
 #     on 2026-08-15 were live in Release and silent there precisely because they
 #     were outside any ASSERT -- a green Debug sanitizer run says the code paths
 #     TAKEN were clean, not that Release is.
-#   * Nothing about TSan. The linux-gcc-tsan preset exists and is not run here;
-#     the pump/hub race gate is Stage 2.
+#   * Less about TSan than it looks. TSan gates 28 of the 38 security tests as
+#     of 2026-09-17; the other ten are named in KNOWN_TSAN and reported without
+#     gating. A green TSan tick means no NEW race on the gated 28, not that the
+#     tree is race-free - see the section below for the six that are open.
 #   * Nothing about leaks in the fuzz harness -- see MscsUnitTests/CMakeLists.txt
 #     for why detect_leaks is off for that one test, on purpose.
 # =============================================================================
@@ -119,6 +162,22 @@ env:
   # It went because a gate should not carry an exclusion mechanism with
   # nothing in it - the next person to need one should have to add it deliberately,
   # and see the banner while doing so, rather than find a variable to fill in.
+  #
+  # That is what happened on 2026-09-17, and the paragraph above is left standing
+  # rather than edited, because it is still true of ASan: the ASan gate excludes
+  # nothing, on either platform. The list below belongs to the TSan job alone,
+  # and was added deliberately, having read the banner.
+  #
+  # TEN TESTS, SIX DEFECTS. The first TSan run of the security label failed 10 of
+  # 38 serially, and every failure is one of the six findings the banner lists.
+  # Three of the six are one defect wearing three hats - hub teardown ordered by
+  # a Sleep rather than by joining the thread - so this list should shorten faster
+  # than its length suggests. Delete a name the moment its finding closes; the
+  # gate widens by itself and the step that prints these disappears with the last
+  # one. Do NOT add a name here to make a red tick go away: a new race is the
+  # thing this job exists to catch, and the list is for findings that were
+  # already there on the day it was written.
+  KNOWN_TSAN: "p2p_authrelay|p2p_logindeadline|p2p_srcbound|p2p_hubsnap|p2p_conreap|p2p_backpressure|p2p_replayguard|p2p_e2ewaive|p2p_fuzzframe|p2p_expreg"
 
 jobs:
   windows-asan:
@@ -414,4 +473,176 @@ jobs:
         with:
           name: asan-linux
           path: mscs/asan-linux.xml
+          if-no-files-found: warn
+
+  linux-tsan:
+    name: Linux / GCC + TSan (pump/hub race gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preflight - can the cross-repository token actually reach the siblings?
+        shell: bash
+        env:
+          TOKEN: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "MSCS_SOLUTION_TOKEN is not set on this repository."
+            echo
+            echo "Every MSCS repository is private, and the automatic GITHUB_TOKEN"
+            echo "cannot read across repositories. The four checkout steps that"
+            echo "follow would fail with a 404 that reads like a deleted repo."
+            echo
+            echo "Fix: create a PAT with read access to MscsSolution,"
+            echo "Msgcore and MscsUnitTests, then:"
+            echo "    gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
+            exit 1
+          fi
+          echo "ok      MSCS_SOLUTION_TOKEN is present. Presence is not reach; checking reach."
+
+          api() {
+            curl -sS -o preflight.json -w '%{http_code}'                  -H "Authorization: Bearer $TOKEN"                  -H "Accept: application/vnd.github+json"                  -H "X-GitHub-Api-Version: 2022-11-28"                  "https://api.github.com/$1"
+          }
+
+          code=$(api user)
+          if [ "$code" = "401" ]; then
+            echo
+            echo "FAIL    GitHub does not recognise this token at all (401 Bad credentials)."
+            echo
+            echo "        This is NOT a permissions problem, so granting the token access"
+            echo "        to more repositories will not change it. The stored string is not"
+            echo "        a usable token: expired, revoked, truncated when it was pasted,"
+            echo "        or never replaced with a real value."
+            echo
+            echo "        Check the token before storing it again -- this prints the account"
+            echo "        it belongs to, and never puts it in a shell history file:"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api user --jq .login"
+            echo "            read -rs TOK && GH_TOKEN=\$TOK gh api repos/IvywareAU/MscsSolution --jq .full_name"
+            echo
+            echo "        Then: gh secret set MSCS_SOLUTION_TOKEN --repo IvywareAU/Targetcore"
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "FAIL    /user answered HTTP $code, which is neither 200 nor 401."
+            exit 1
+          fi
+          echo "ok      the token authenticates, as: $(grep -o '"login"[^,]*' preflight.json | head -1 | cut -d'"' -f4)"
+
+          echo
+          echo "        reach, per repository the checkouts need:"
+          missing=0
+          for r in "$SOLUTION_REPO" "$MSGCORE_REPO" "$UNITTESTS_REPO"; do
+            code=$(api "repos/$r")
+            case "$code" in
+              200) echo "          ok       $r" ;;
+              404) echo "          NO READ  $r   (404 -- the token is valid but cannot see this one)"; missing=1 ;;
+              *)   echo "          HTTP $code  $r"; missing=1 ;;
+            esac
+          done
+          rm -f preflight.json
+          if [ "$missing" != 0 ]; then
+            echo
+            echo "FAIL    the token authenticates but cannot read every sibling."
+            echo "        A fine-grained PAT lists the repositories it may touch one by one;"
+            echo "        add the ones marked NO READ above, with Contents: Read-only."
+            echo "        Do not re-issue the token -- it works, its repository list is short."
+            exit 1
+          fi
+          echo
+          echo "ok      all three siblings are readable; the checkouts below cannot fail for credential reasons."
+
+      - name: Check out the parent solution
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SOLUTION_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs
+      - name: Check out Msgcore
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.MSGCORE_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/Msgcore
+      - name: Check out MscsUnitTests
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.UNITTESTS_REPO }}
+          token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
+          path: mscs/MscsUnitTests
+      - name: Check out Targetcore into the solution
+        uses: actions/checkout@v5
+        with:
+          path: mscs/Targetcore
+
+      - name: Verify the sibling layout
+        shell: bash
+        run: |
+          missing=0
+          for p in CMakeLists.txt CMakePresets.json Msgcore MscsUnitTests; do
+            if [ -e "mscs/$p" ]; then echo "  ok      mscs/$p"
+            else echo "  MISSING mscs/$p"; missing=1; fi
+          done
+          [ "$missing" = "0" ] || { echo "Nothing was built and nothing was verified."; exit 1; }
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends             ninja-build pkg-config liburing-dev libssl-dev
+
+      # linux-gcc-tsan carries -fsanitize=thread, and NOTHING else: TSan and ASan
+      # both take over large parts of the address space, so one binary cannot
+      # carry both. That is the whole reason this is a separate job and a
+      # separate preset rather than another flag on linux-gcc-asan.
+      - name: Configure (linux-gcc-tsan = ThreadSanitizer)
+        run: cmake --preset linux-gcc-tsan
+        working-directory: mscs
+
+      - name: Build
+        run: cmake --build --preset linux-gcc-tsan
+        working-directory: mscs
+
+      # THE GATE: the security label minus the ten tests named in KNOWN_TSAN.
+      # 28 tests, and they were green with zero reports when this job was written
+      # (2026-09-17, g++ 15.2, serial). Serial on purpose: at -j4 two further
+      # tests failed on EADDRINUSE rather than on anything TSan said, and a gate
+      # that is flaky about ports teaches people to re-run it rather than read it.
+      #
+      # halt_on_error=0 collects every report in a run instead of stopping at the
+      # first, and it does NOT do to TSan what it would do to ASan -- the note
+      # beside linux-gcc-asan warns that halt_on_error=0 turns a leak report into
+      # exit 0, which is true there and not here: TSan still exits 66 at the end
+      # if it reported anything. Measured, not assumed: the ten below fail this
+      # way, which is how they came to be named at all.
+      - name: Security label under TSan, minus known findings (THE GATE)
+        shell: bash
+        env:
+          TSAN_OPTIONS: halt_on_error=0:exitcode=66:second_deadlock_stack=1:history_size=4
+        run: |
+          ctest --test-dir build/linux-gcc-tsan -L security                 -E "^(${KNOWN_TSAN})$"                 --output-on-failure --timeout 600                 --output-junit tsan-linux.xml
+        working-directory: mscs
+
+      # NOT A GATE, and deliberately so. Every name in KNOWN_TSAN runs here with
+      # its full report printed, so "known" cannot quietly become "acceptable" --
+      # the same bargain the ASan exclusion list struck before it emptied itself.
+      # When one of these is fixed, delete its name from KNOWN_TSAN and the gate
+      # above widens by itself. When the list is empty, delete this step and the
+      # -E from the gate, and TSan gates the whole label like ASan does.
+      - name: Known TSan findings, reported and not gated
+        if: always()
+        shell: bash
+        env:
+          TSAN_OPTIONS: halt_on_error=0:exitcode=66:second_deadlock_stack=1:history_size=4
+        run: |
+          echo "These are the ten open findings of 2026-09-17. They are NOT gating."
+          echo "Refer to the TSan section of this file's banner for what each one is."
+          echo
+          ctest --test-dir build/linux-gcc-tsan -R "^(${KNOWN_TSAN})$"                 --output-on-failure --timeout 600                 --output-junit tsan-linux-known.xml || true
+        working-directory: mscs
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-linux
+          path: |
+            mscs/tsan-linux.xml
+            mscs/tsan-linux-known.xml
           if-no-files-found: warn
