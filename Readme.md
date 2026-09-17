@@ -770,7 +770,7 @@ Full worked examples for both transports, sub-targets, and teardown ordering are
 
 ### Reporting the version
 
-The current release is **3.1.0** (tag `v3.1.0`), and what the number *promises* is written
+The current release is **3.1.1** (tag `v3.1.1`), and what the number *promises* is written
 down. The short form is that
 the flat C ABI — 101 symbols, enumerated and gated — is the covered surface, the C++ classes
 are not, and each wire format versions on its own byte. The major does **not** cover the packed
@@ -780,6 +780,17 @@ The MINOR is what the security revision earned: that pass **added** eight symbol
 surface — the per-class link policy, the trust fence and the end-to-end waiver, with their
 getters — and changed the meaning of none. Nothing on the covered surface was removed or
 redefined, so a consumer built against `v3.0.0` still links and still behaves the same.
+
+The PATCH is what `v3.1.0` needed. Every workflow that would have caught it was billing-blocked
+on the day it was tagged, so that tag shipped with **no CI run at all** — zero steps executed,
+across all four jobs — and carried three defects the gates exist to stop: the Linux build did not
+compile, the ECDSA P-256 known-answer vectors did not verify, and the DPAPI entropy had been
+recased. The covered surface is untouched, so this is a PATCH and nothing more.
+
+> **One compatibility note, pointing backwards.** The recased entropy is an input to
+> `CryptUnprotectData`, so an identity file written by a **3.1.0** binary — and only by one of
+> those — cannot be read by 3.1.1. 3.1.0 is the build that disagreed with every other; 3.0.0 and
+> 3.1.1 agree.
 
 `Targetcore_version.h` is the single place the version number is written; it feeds the
 DLL's `VERSIONINFO` resource and the macros below, so the two can never disagree. That is
@@ -805,7 +816,7 @@ P3PmsgItem oHub = hub.Serialise(0);      // the {P2PeerHub} node
 wprintf(L"hub is running Targetcore %s (0x%08X)\n",
         oHub.SelectItem(_N("Version")).r_data().c_wstr(),
         oHub.SelectItem(_N("VersionHex")).r_data().c_uint());
-// hub is running Targetcore 3.1.0.0 (0x03010000)
+// hub is running Targetcore 3.1.1.0 (0x03010100)
 ```
 
 `Version` is for display, `VersionHex` packs `MAJOR,MINOR,PATCH,BUILD` for comparison.
@@ -815,7 +826,7 @@ replies, anything that already carries hub state now carries its version too.
 The shipped binary also answers without being run — the resource is on the file itself:
 
 ```powershell
-(Get-Item Targetcore.dll).VersionInfo.FileVersion   # 3.1.0.0
+(Get-Item Targetcore.dll).VersionInfo.FileVersion   # 3.1.1.0
 ```
 
 > **This is a build identity, not a wire version.** Whether two hubs can talk is decided

@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.1.0 is tag
-//         v3.1.0. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.1.1 is tag
+//         v3.1.1. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,10 +58,11 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
-//  3.1.0.0, the second PUBLIC release. The MAJOR was not derived from this
-//  tree's own release history: 3.0.0 was the identity the project chose for
-//  the first public release, and the development identities that preceded it
-//  here were 0.9.0 and then 0.10.0, neither of which was ever published.
+//  3.1.1.0, the third PUBLIC release and a PATCH on 3.1.0. The MAJOR was not
+//  derived from this tree's own release history: 3.0.0 was the identity the
+//  project chose for the first public release, and the development identities
+//  that preceded it here were 0.9.0 and then 0.10.0, neither of which was
+//  ever published.
 //
 //  The MINOR is what the security revision earned. That pass ADDED eight
 //  symbols to the flat C ABI - the per-class link policy, the trust fence and
@@ -69,7 +70,20 @@
 //  none, which is a MINOR under the versioning policy and nothing more. It
 //  was left unbumped while the work sat on master unreleased, because the
 //  number moves when a release is tagged rather than when the surface that
-//  will carry it lands. This is that tag.
+//  will carry it lands. v3.1.0 took it.
+//
+//  The PATCH is what 3.1.0 needed. Every workflow that would have caught it
+//  was billing-blocked on the day it was tagged, so v3.1.0 shipped with no CI
+//  run at all - zero steps executed, across all four jobs - carrying three
+//  defects the gates exist to stop: the Linux build did not compile, the
+//  ECDSA P-256 known-answer vectors did not verify, and the DPAPI entropy had
+//  been recased. The covered surface is untouched - still 101 symbols, none
+//  added, removed or redefined - so this is a PATCH and nothing more.
+//
+//  ONE COMPATIBILITY NOTE, and it points BACKWARDS rather than forwards: an
+//  identity file written by a 3.1.0 binary, and only by one of those, cannot
+//  be read here. The recased entropy is an input to CryptUnprotectData, so
+//  3.1.0 is the build that disagreed with every other; 3.0.0 and 3.1.1 agree.
 //
 //  WHAT THE MAJOR DOES NOT CLAIM, stated plainly because a 3 invites the
 //  assumption. The flat C ABI is the covered surface - 101 symbols,
@@ -77,27 +91,27 @@
 //  surface this number speaks for. The MESSAGE IMAGE is not versioned at
 //  all: that image header has no version field and no spare bit (24 bits
 //  size, 2 addressing, 6 endian sentinel), so a peer meeting a re-laid-out
-//  message does not report a mismatch, it parses garbage. Releasing 3.1.0
+//  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  1
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,1,0,0
+#define TARGETCORE_VERSION_COMMAS 3,1,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.1.0.0"
+#define TARGETCORE_VERSION_STRING "3.1.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03010000 is 3.1.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03010100 is 3.1.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03010000
+#define TARGETCORE_VERSION_HEX    0x03010100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -113,7 +127,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.1.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.1.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
