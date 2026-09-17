@@ -324,6 +324,17 @@ jobs:
           B=build/windows-msvc/MscsUnitTests/Debug
           rc=0
 
+          # The harnesses run OUTSIDE ctest, so the loader path the registered
+          # tests carry -- _mscs_apply_loader_path in MscsUnitTests/CMakeLists.txt,
+          # and the reason solution-build.yml runs ctest on a clean PATH -- never
+          # reaches them. msgcore and targetcore land in their own per-target
+          # directories, never beside the harness, so without this both exes die
+          # at 0xc0000135 STATUS_DLL_NOT_FOUND. That death is SILENT: no stdout,
+          # no banner, just a non-zero exit, which reads in the log like a
+          # campaign that found nothing rather than one that never started.
+          # Debug is spelled out because this job builds windows-msvc-debug.
+          export PATH="$PWD/build/windows-msvc/Targetcore/Debug:$PWD/build/windows-msvc/Msgcore/Debug:$PATH"
+
           echo "=== p2p_fuzzframe ==="
           "$B/p2p_fuzzframe.exe" "$SEED" 200 --seconds "$SECS" \
               --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
@@ -334,6 +345,11 @@ jobs:
               --corpus "$CORPUS" --repro-dir "$REPRO" || rc=1
 
           echo
+          if [ "$rc" != "0" ]; then
+            echo "a harness exited non-zero -- if it printed no banner at all,"
+            echo "suspect the loader path above before suspecting the code."
+            echo
+          fi
           n=$(find "$REPRO" -type f 2>/dev/null | wc -l)
           echo "reproducers written: $n"
           if [ "$n" != "0" ]; then
