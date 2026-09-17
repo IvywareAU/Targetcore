@@ -87,7 +87,10 @@
 # The preset had existed unrun since the pump/hub race gate was deferred to
 # Stage 2. Running it found 10 of 38 security tests failing and 27 reports,
 # which reduce to SIX defects. Named here because a name in KNOWN_TSAN with no
-# explanation is an exclusion list of the kind this file already refused once:
+# explanation is an exclusion list of the kind this file already refused once.
+# One of the six is now closed; it is kept on the list, struck through in
+# words, because a defect that disappears from the record takes its lesson with
+# it. The same ten tests still fail, so KNOWN_TSAN has not moved:
 #
 #   1. AB-BA LOCK-ORDER INVERSION, hub registry against pump registry. Both
 #      sides are plain in the source: CreateP2PmsgHub takes s_oCSectionP2PmsgHub
@@ -99,13 +102,21 @@
 #      is transport-independent. p2p_expreg, p2p_hubsnap, p2p_backpressure.
 #   2. VPTR RACE, ~P2PeerHub (P2PeerHub.cpp:101) against ProcHub (:499) still
 #      dispatching virtuals through the object. p2p_e2ewaive.
-#   3. CloseHandle (p2pfile.h:425, from ~P2PeerHub:120) against SetEvent
-#      (p2pthread.h:109, from SignalHubExit:457) on the hub-exit handle. The
-#      handle body is already race-aware - retired.load(acquire), fd.exchange -
-#      but the struct is freed under a concurrent user. Seven reports, the
-#      largest cluster. p2p_e2ewaive.
-#   4. closesocket (p2psock.h:191) against concurrent use - the socket analogue
-#      of 3. p2p_authrelay.
+#   3. FIXED 2026-09-17, Msgcore, in the event primitive itself. CloseHandle
+#      (p2pfile.h:425, from ~P2PeerHub:120) against SetEvent (p2pthread.h:109,
+#      from SignalHubExit:457) on the hub-exit handle - seven reports, the
+#      largest cluster, plus the two DeleteCriticalSection reports and the one
+#      on m_hHubExit itself. The handle body was already race-aware
+#      (retired.load(acquire), fd.exchange) and that was never the problem: the
+#      MANUAL-RESET wait only poll()ed the eventfd and never read it, so it
+#      published no happens-before edge at all and CloseHub's wait ordered
+#      nothing. A generation counter now carries the edge - refer P2PEventImpl
+#      in Msgcore/Platform/p2pthread.h, which has the long version.
+#   4. closesocket (p2psock.h:191) against concurrent use. NOT the socket
+#      analogue of 3, which is what this line said until it was read properly:
+#      both reports are inside the harness, where main closes the relay sockets
+#      (p2p_authrelay.cpp:518, :519) while RelayC2S and RelayS2C are still in
+#      recv(). It belongs with 6, not with 2 and 3. p2p_authrelay.
 #   5. ACCEPT-PATH COUNTERS unsynchronised: AcceptAtCapacity (P2PeerCon.h:253)
 #      and AcceptSpawn (P2PeerCon.cpp:365, :368) read on the pump thread what
 #      SetMaxAccepted (P2PeerCon.cpp:1597) writes on the owner thread.
@@ -113,10 +124,25 @@
 #   6. TEST-HARNESS races, in MscsUnitTests rather than the library:
 #      p2p_replayguard.cpp:367 and :377, p2p_fuzzframe.cpp:490 and :757.
 #
-# 2, 3 and 4 are ONE DEFECT WEARING THREE HATS: hub teardown is ordered by a
-# Sleep in YieldForP2PmsgPump rather than by joining the thread, and TSan says
-# so in as many words - it prints "As if synchronized via sleep" above the
-# stacks. Eleven of the twenty-seven reports hang off that one assumption.
+# THE SLEEP-ORDERED TEARDOWN, and what fixing it actually took. TSan named the
+# problem itself: above these stacks it prints "As if synchronized via sleep",
+# meaning the only thing sequencing the two threads was the Sleep(1) in
+# YieldForP2PmsgPump. A sleep is a bet on the other thread being quick, not a
+# synchronisation primitive. Closing 3 took the bet away - a local serial run
+# went from 29 reports to 20, ten of them gone, and the whole CloseHandle
+# cluster with them.
+#
+# The correction that came with it, recorded because the first reading of these
+# stacks grouped 2, 3 and 4 as one defect and only 3 was: fixing the edge left
+# 2 and 4 exactly where they were, which is how it became clear they are not
+# the same thing. 4 is a harness race (see above). 2 IS STILL OPEN and is the
+# one worth reading twice: the vptr write at P2PeerHub.cpp:101 happens on
+# ENTRY to ~P2PeerHub, before the body runs, so CloseHub() - which the body
+# calls, and which now waits properly - cannot help. The hub object is being
+# destroyed while its own pump thread still dispatches virtuals through it
+# (P2PeerCon::GetAuthHub from SealAppMsgOutbound, mid-seal, in the second
+# report). No base-class destructor can close that window; the owner has to
+# CloseHub() before destruction begins, and the library does not say so.
 #
 # WHAT WAS NOT A FINDING, recorded so nobody re-derives it: at -j4 two further
 # tests, p2p_sealbcast and p2p_listenscope, failed with EADDRINUSE (system error
