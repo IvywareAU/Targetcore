@@ -873,6 +873,35 @@ static bool             s_bStartupP2PmsgSink   = false;
 //  NOTES: Manages CList of P2PmsgPump's
 //       : Single P2PmsgHub per Win32 thread context
 
+//
+//  THE LOCK ORDER FOR THE TWO GLOBAL REGISTRIES, and it is not a preference.
+//
+//      s_oCSectionP2PmsgHub  BEFORE  s_oCSectionP2PmsgPump
+//
+//  Anything holding both takes them in that order, every time, without
+//  exception. A hub owns pumps, so the containing registry is the outer lock -
+//  and ten of the fifteen sites that hold both already read that way, which is
+//  why this is the order chosen rather than the other one.
+//
+//  Five sites did not, all with the same shape: lock the pump registry, look a
+//  pump up, read its m_nHubID, then lock the hub registry to find the hub.
+//  CreateP2Pexpump, CloseP2Pexpump, PostP2PexpCon, EnumP2PexpCon and
+//  CloseP2PmsgPump. Against CreateP2PmsgHub(), which takes hub then pump, that
+//  is an AB-BA and TSan called it one - six lock-order-inversion reports across
+//  p2p_expreg, p2p_hubsnap and p2p_backpressure, 2026-09-17. They are now all
+//  hub-first. THE LOOKUP DOES NOT NEED TO MOVE and that is the whole trick:
+//  these locks guard the REGISTRIES, not a hub, so the hub lock can be taken
+//  before anybody knows which hub is wanted. It costs a little contention and
+//  nothing else.
+//
+//  Same CLASS as the AB-BA fixed in 4236949 on 2026-07-10, different pair. That
+//  one was a transport CS against the pump registry, so only Dmx/Pipe/232 could
+//  trip it; this is the two global registries against each other, which no
+//  transport can avoid.
+//
+//  A hub's OWN m_oCSection is a third lock and sits under both - several of the
+//  sites above swap the hub registry out for it once the hub is in hand.
+//
 static CMap<DWORD,DWORD,P2PmsgHubMgr*,P2PmsgHubMgr*> s_ThreadID_P2PmsgHub;
 static CRITICAL_SECTION                              s_oCSectionP2PmsgHub;
 static bool m_bP2PmsgExplorer_Hub = false;
@@ -1166,6 +1195,13 @@ CreateP2Pexpump ( P2PmsgHubID nHubID, P2PeerTarget *pTarget )
     // Locals
     // NOTES: P2PmsgPump environment isolation, keep to completion
     //      : Confirm pump not already associated with this thread
+    //  HUB REGISTRY FIRST. It is taken before the pump registry even though the
+    //  hub is not looked up until further down, because the lock is on the
+    //  REGISTRY rather than on any one hub - holding it early costs a little
+    //  contention and is the only order that does not close a cycle against
+    //  CreateP2PmsgHub(). Refer the lock-order note at s_oCSectionP2PmsgHub.
+    P2PmsgHubMgr *pP2PmsgHub  = 0;
+    P2PsafeCS     oSafeCS_Hub = s_oCSectionP2PmsgHub;
     P2PmsgPump *pP2PmsgPump  = 0;
     P2PsafeCS   oSafeCS_Pump = s_oCSectionP2PmsgPump;
     if ( s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
@@ -1177,15 +1213,20 @@ CreateP2Pexpump ( P2PmsgHubID nHubID, P2PeerTarget *pTarget )
 
     // Isolate P2PmsgHub
     // NOTES: P2PmsgHub[] environment isolation, keep to completion
-    P2PmsgHubMgr *pP2PmsgHub  = 0;
-    P2PsafeCS     oSafeCS_Hub = s_oCSectionP2PmsgHub;
+    //      : Its lock was taken at the top of the function - refer there
     if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                        )
       EVERR->Module ("%s(nHubID=%i,pTarget)", __FUNCTION__
                     , nHubID )
            ->Message("Nominated nHubID=%i does not exist", nHubID )
            ->Throw  ( );
-    oSafeCS_Hub = pP2PmsgHub -> m_oCSection;
+    //  A SECOND GUARD, not a swap. Assigning the hub's own CS over oSafeCS_Hub
+    //  would RELEASE the hub registry here - and this function still holds the
+    //  pump registry, so anything below that takes the hub registry again
+    //  (DropP2PmsgCon does) would be taking it pump-first. That is the AB-BA.
+    //  Hold both: the registry CS is recursive, so the re-entry costs nothing,
+    //  and the hub registry is the outermost lock in the documented order.
+    P2PsafeCS     oSafeCS_HubOwn = pP2PmsgHub -> m_oCSection;
 
     // To be sure, to be sure
     if ( pP2PmsgHub->m_pP2Pexplorer )
@@ -1365,6 +1406,13 @@ CloseP2Pexpump ( )
     // Isolate P2PmsgPump environment
     // NOTES: Remove ThreadID-PumpID map entry.  After which the
     //        pump can no longer be addressed.
+    //  HUB REGISTRY FIRST. It is taken before the pump registry even though the
+    //  hub is not looked up until further down, because the lock is on the
+    //  REGISTRY rather than on any one hub - holding it early costs a little
+    //  contention and is the only order that does not close a cycle against
+    //  CreateP2PmsgHub(). Refer the lock-order note at s_oCSectionP2PmsgHub.
+    P2PmsgHubMgr  *pP2PmsgHub = 0;
+    P2PsafeCS oSafeCS_Hub = s_oCSectionP2PmsgHub;
     P2PmsgPump  *pP2PmsgPump = 0;
     P2PsafeCS oSafeCS_Pump = s_oCSectionP2PmsgPump;
     if ( !s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
@@ -1380,13 +1428,18 @@ CloseP2Pexpump ( )
     SP2PmsgPump spP2PmsgPump = pP2PmsgPump;
 
     // Isolate P2PmsgHub
-    // NOTES: Swap to P2PmsgHub environment isolation
-    P2PmsgHubMgr  *pP2PmsgHub = 0;
-    P2PsafeCS oSafeCS_Hub = s_oCSectionP2PmsgHub;
+    // NOTES: Swap to P2PmsgHub environment isolation. The registry lock was
+    //        taken at the top of the function - refer there
     if ( !s_ThreadID_P2PmsgHub.Lookup(pP2PmsgPump->m_nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                                       )
       return FALSE;                    // Nothing to cleanup
-    oSafeCS_Hub = pP2PmsgHub -> m_oCSection;
+    //  A SECOND GUARD, not a swap. Assigning the hub's own CS over oSafeCS_Hub
+    //  would RELEASE the hub registry here - and this function still holds the
+    //  pump registry, so anything below that takes the hub registry again
+    //  (DropP2PmsgCon does) would be taking it pump-first. That is the AB-BA.
+    //  Hold both: the registry CS is recursive, so the re-entry costs nothing,
+    //  and the hub registry is the outermost lock in the documented order.
+    P2PsafeCS oSafeCS_HubOwn = pP2PmsgHub -> m_oCSection;
 
     // Posted P2PeerCon objects
     // NOTES: The explorer's connections live in their OWN list.  PostP2PexpCon
@@ -1609,6 +1662,13 @@ PostP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon *pCon )
     if ( nExpumpID <= 0 )
       nExpumpID = GetCurrentThreadId();
 
+    //  HUB REGISTRY FIRST - refer the lock-order note at s_oCSectionP2PmsgHub.
+    //  The hub is not named until the pump below has been looked up, but the
+    //  lock is on the REGISTRY rather than on a hub, so it can be taken now
+    //  and that is the only order that does not close a cycle.
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCSHub = s_oCSectionP2PmsgHub;
+
     // Isolate the P2PexpPump
     P2PmsgPump *pP2PexpPump = 0;
     P2PsafeCS   oSafeCS     = s_oCSectionP2PmsgPump;
@@ -1623,8 +1683,7 @@ PostP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon *pCon )
     P2PmsgHubID nHubID = pP2PexpPump -> m_nHubID;
 
     // Isolate the hub
-    P2PmsgHubMgr *pP2PmsgHub = 0;
-    P2PsafeCS     oSafeCSHub = s_oCSectionP2PmsgHub;
+    // NOTES: Its registry lock was taken at the top - refer there
     if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                        )
       EVERR->MODULE
@@ -1653,6 +1712,13 @@ EnumP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon **ppCon )
     if ( nExpumpID <= 0 )
       nExpumpID = GetCurrentThreadId();
 
+    //  HUB REGISTRY FIRST - refer the lock-order note at s_oCSectionP2PmsgHub.
+    //  The hub is not named until the pump below has been looked up, but the
+    //  lock is on the REGISTRY rather than on a hub, so it can be taken now
+    //  and that is the only order that does not close a cycle.
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCSHub = s_oCSectionP2PmsgHub;
+
     // Isolate the P2PexpPump
     P2PmsgPump *pP2PexpPump = 0;
     P2PsafeCS   oSafeCS     = s_oCSectionP2PmsgPump;
@@ -1667,8 +1733,7 @@ EnumP2PexpCon ( P2PexpumpID nExpumpID, P2PeerCon **ppCon )
     P2PmsgHubID nHubID = pP2PexpPump -> m_nHubID;
 
     // Isolate the hub
-    P2PmsgHubMgr *pP2PmsgHub = 0;
-    P2PsafeCS     oSafeCSHub = s_oCSectionP2PmsgHub;
+    // NOTES: Its registry lock was taken at the top - refer there
     if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                        )
       EVERR->MODULE
@@ -3506,6 +3571,12 @@ CloseP2PmsgPump ( )
     // Isolate P2PmsgPump environment
     // NOTES: Remove ThreadID-PumpID map entry.  After which the
     //        pump can no longer be addressed.
+    //  HUB REGISTRY FIRST - refer the lock-order note at s_oCSectionP2PmsgHub.
+    //  The hub is not named until the pump below has been looked up, but the
+    //  lock is on the REGISTRY rather than on a hub, so it can be taken now
+    //  and that is the only order that does not close a cycle.
+    P2PmsgHubMgr  *pP2PmsgHub = 0;
+    P2PsafeCS oSafeCS_Hub = s_oCSectionP2PmsgHub;
     P2PmsgPump  *pP2PmsgPump = 0;
     P2PsafeCS oSafeCS_Pump = s_oCSectionP2PmsgPump;
     if ( !s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
@@ -3521,13 +3592,18 @@ CloseP2PmsgPump ( )
     SP2PmsgPump spP2PmsgPump = pP2PmsgPump;
 
     // Isolate P2PmsgHub
-    // NOTES: Swap to P2PmsgHub environment isolation
-    P2PmsgHubMgr  *pP2PmsgHub = 0;
-    P2PsafeCS oSafeCS_Hub = s_oCSectionP2PmsgHub;
+    // NOTES: Swap to P2PmsgHub environment isolation. The registry lock was
+    //        taken at the top of the function - refer there
     if ( !s_ThreadID_P2PmsgHub.Lookup(pP2PmsgPump->m_nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                                       )
       return;                          // Nothing to cleanup
-    oSafeCS_Hub = pP2PmsgHub -> m_oCSection;
+    //  A SECOND GUARD, not a swap. Assigning the hub's own CS over oSafeCS_Hub
+    //  would RELEASE the hub registry here - and this function still holds the
+    //  pump registry, so anything below that takes the hub registry again
+    //  (DropP2PmsgCon does) would be taking it pump-first. That is the AB-BA.
+    //  Hold both: the registry CS is recursive, so the re-entry costs nothing,
+    //  and the hub registry is the outermost lock in the documented order.
+    P2PsafeCS oSafeCS_HubOwn = pP2PmsgHub -> m_oCSection;
 
     // Tidy up, P2PmsgPump table within P2PmsgPump
     pP2PmsgHub   -> RemoveP2PmsgPump ( spP2PmsgPump.p_SafePtr ( ) );

@@ -1459,7 +1459,8 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
         else if ( bServiceFull )
           EVTRC->Module (L"%hs[%s]", __FUNCTION__
                         , GetP2PaddrHub().c_wstr() )
-               ->Message(L"Accept refused, at capacity %i", m_xMaxAccepted )
+               ->Message(L"Accept refused, at capacity %i"
+                        , m_xMaxAccepted.load ( ) )
                ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
                ->Cancel ( );
         else if ( bSourceFull )
@@ -1467,7 +1468,8 @@ P2PeerConWsa::AcceptSpawn ( P2PeerCon *pConSpawn )
                         , GetP2PaddrHub().c_wstr() )
                ->Message(L"Accept refused, source %hs at its share %i of %i"
                         , szSource
-                        , m_xMaxAcceptedPerSource, m_xMaxAccepted )
+                        , m_xMaxAcceptedPerSource.load ( )
+                        , m_xMaxAccepted.load ( ) )
                ->Advice_T("Raise P2PeerCon::SetMaxAcceptedPerSource(), or 0 "
                           "to unbound.  The SERVICE is not full - this one "
                           "source is")

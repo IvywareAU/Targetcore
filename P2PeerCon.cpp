@@ -264,15 +264,26 @@ P2PeerCon::RenderThisSafe ( )
     m_cRecvThrottled     = 0;
 
     // Accept admission control
-    // NOTES: The counter is NOT allocated here. It is allocated by the first
-    //        AcceptSpawn() off a SERVICE and shared with every child from
-    //        there, so a client - which never accepts anything - carries a
-    //        null pointer and no control block
+    // NOTES: THE COUNTER IS ALLOCATED HERE, and it used to be allocated by the
+    //        first AcceptSpawn() off a SERVICE instead. That saved one control
+    //        block on a connection that never accepts anything, and cost a
+    //        data race: the pump thread wrote the pointer inside AcceptSpawn()
+    //        while the owner thread read it through GetAcceptedCount(), which
+    //        is a bare `m_pxAccepted ? ...` test. TSan, p2p_conreap,
+    //        2026-09-17. Allocating in the constructor is the only fix that
+    //        does not put a lock on the accept path: after this the pointer is
+    //        written once, before the object can be reached from anywhere, and
+    //        never again on a service
+    //      : A child still takes its PARENT's block in AcceptSpawn(), so the
+    //        one allocated here is dropped on the spot for an accepted
+    //        connection. One allocation, freed immediately, on a path that is
+    //        already doing a socket accept
+    m_pxAccepted         = std::make_shared<std::atomic<long>> ( 0 );
     m_xMaxAccepted       = DEF_P2PeerConAccept;
     m_xLoginDeadline     = DEF_P2PeerConLogin;
     m_bAcceptCounted     = false;
-    //  Per-source, and the same rule: the tally is allocated by the first
-    //  AcceptSpawn() off a SERVICE, not here
+    //  Per-source, and the same rule for the same reason
+    m_pxSourceTally         = std::make_shared<P2PeerConSourceTally> ( );
     m_xMaxAcceptedPerSource = DEF_P2PeerConAcceptSource;
     m_xAcceptSource         = 0;
 
@@ -356,16 +367,18 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
       //        knows how to discard a half-accepted endpoint, and it has to do
       //        it before allocating the connection this is settling.  Refer
       //        P2PeerConWsa::AcceptSpawn()
-      //      : Allocated lazily, on the first spawn, so a connection that never
-      //        accepts anything carries no control block
+      //      : Allocated in the CONSTRUCTOR, not here.  It was lazy until
+      //        2026-09-17, and the lazy write was on this thread while the
+      //        owner read the same pointer - refer RenderThisSafe()
       //      : The child inherits the login deadline and NOT the cap.  The cap
       //        belongs to whoever accepts; an accepted connection accepts
       //        nothing, and a cap sitting on it would be read by nobody
-      if ( !m_pxAccepted )
-             m_pxAccepted = std::make_shared<std::atomic<long>> ( 0 );
+      //      : The child is not reachable from any other thread yet, so these
+      //        stores need no ordering of their own - they are atomic because
+      //        the members are, not because this moment demands it
            pConSpawn -> m_pxAccepted      = m_pxAccepted;
-           pConSpawn -> m_xMaxAccepted    = 0;
-           pConSpawn -> m_xLoginDeadline  = m_xLoginDeadline;
+           pConSpawn -> m_xMaxAccepted    . store ( 0 );
+           pConSpawn -> m_xLoginDeadline  . store ( m_xLoginDeadline.load ( ) );
            pConSpawn -> m_bAcceptCounted  = true;
            m_pxAccepted -> fetch_add ( 1 );
 
@@ -375,16 +388,15 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
       //         still the service's; the transport hands it to the child on the
       //         next statement after this call returns, and afterwards nothing
       //         can name where it came from
-      //       : Allocated lazily even when no bound is set, because the count
-      //         is worth having either way - GetAcceptedCountFromSource() is
+      //       : Allocated with the connection even when no bound is set,
+      //         because the count is worth having either way -
+      //         GetAcceptedCountFromSource() is
       //         what an operator asks when deciding what to set the bound TO
       //       : A zero key stores nothing.  m_xAcceptSource stays 0, the
       //         destructor gives nothing back, and no map entry is made for a
       //         transport that has no sources to distinguish
-      if ( !m_pxSourceTally )
-             m_pxSourceTally = std::make_shared<P2PeerConSourceTally> ( );
            pConSpawn -> m_pxSourceTally          = m_pxSourceTally;
-           pConSpawn -> m_xMaxAcceptedPerSource  = 0;
+           pConSpawn -> m_xMaxAcceptedPerSource  . store ( 0 );
            pConSpawn -> m_xAcceptSource          = AcceptSourceKey ( );
            m_pxSourceTally -> Add ( pConSpawn->m_xAcceptSource );
     }
@@ -1634,9 +1646,11 @@ P2PeerCon::GetAcceptedCountFromSource ( P2PsourceKey xSource ) const
 bool
 P2PeerCon::SourceAtCapacity ( P2PsourceKey xSource ) const
 {
+    //  One load of the bound, for the reason AcceptAtCapacity() takes one
+    const long xMax = m_xMaxAcceptedPerSource.load ( );
     return xSource                                              &&
-           m_xMaxAcceptedPerSource > 0                          &&
-           GetAcceptedCountFromSource ( xSource ) >= m_xMaxAcceptedPerSource;
+           xMax > 0                                             &&
+           GetAcceptedCountFromSource ( xSource ) >= xMax;
 }
 
 //

@@ -241,17 +241,20 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       void
         SetMaxAccepted   ( long xMax );
       long
-        GetMaxAccepted   ( ) const { return m_xMaxAccepted; }
+        GetMaxAccepted   ( ) const { return m_xMaxAccepted.load ( ); }
       // Live accepted children of this service. Cheap, and exact only in the
       // sense any concurrent counter is - it is read to admit or refuse, and
       // one connection either side of the cap is not a security property
       long
         GetAcceptedCount ( ) const
-        { return m_pxAccepted ? m_pxAccepted->load ( ) : 0; }
+        { return m_pxAccepted->load ( ); }
+      //  ONE load of the bound, not two. Read twice, a SetMaxAccepted landing
+      //  between them could answer "bounded" to the first and compare against
+      //  a different number in the second
       bool
         AcceptAtCapacity ( ) const
-        { return m_xMaxAccepted > 0 &&
-                 GetAcceptedCount ( ) >= m_xMaxAccepted; }
+        { const long xMax = m_xMaxAccepted.load ( );
+          return xMax > 0 && GetAcceptedCount ( ) >= xMax; }
 
       // Per-source bound (Stage 4 step 11)
       // NOTES: The cap above counts a SERVICE's children and cannot tell 1024
@@ -266,7 +269,8 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       void
         SetMaxAcceptedPerSource ( long xMax );
       long
-        GetMaxAcceptedPerSource ( ) const { return m_xMaxAcceptedPerSource; }
+        GetMaxAcceptedPerSource ( ) const
+        { return m_xMaxAcceptedPerSource.load ( ); }
       // Live accepted children of this service FROM one source.  0 for an
       // unknown source, and 0 when nothing has been accepted from it
       long
@@ -290,7 +294,7 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       void
         SetLoginDeadline ( P2Pmsecs_t uMSec );
       P2Pmsecs_t
-        GetLoginDeadline ( ) const { return m_xLoginDeadline; }
+        GetLoginDeadline ( ) const { return m_xLoginDeadline.load ( ); }
       // Arms m_uLoginTimerID for this connection. No-op when the deadline is
       // 0, or when a timer is already running, so calling it twice is safe
       void
@@ -653,13 +657,29 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       //        the only thing either of them needs from the other
       //      : m_xMaxAccepted is read on the SERVICE only.  0 = unlimited,
       //        which is what a client or an accepted connection always is
+      //      : ALLOCATED IN THE CONSTRUCTOR, not on the first AcceptSpawn(),
+      //        and the laziness it replaces was a data race rather than an
+      //        optimisation.  A service allocated its block on the pump thread
+      //        while the owner thread was reading the same pointer through
+      //        GetAcceptedCount() - TSan, p2p_conreap, 2026-09-17.  Nothing
+      //        cheaper than an unconditional allocation fixes that without a
+      //        lock on a path that is meant to be free, and what the laziness
+      //        saved was one 32-byte control block per connection that never
+      //        accepts anything.  Paid, gladly
+      //      : m_xMaxAccepted is ATOMIC because SetMaxAccepted is documented to
+      //        work on a LIVE service - "lowering it below the current count
+      //        refuses the NEXT connection" is a statement about a service
+      //        already accepting - so the owner thread writes it while the pump
+      //        thread reads it in AcceptAtCapacity()
       std::shared_ptr<std::atomic<long>>
                        m_pxAccepted;
-      long             m_xMaxAccepted;
+      std::atomic<long>
+                       m_xMaxAccepted;
       // Per-source accounting.  Shared with every child for exactly the reason
-      // m_pxAccepted is, and allocated on the same first spawn: a service that
-      // never accepts carries no block, and a child that outlives its service
-      // still has somewhere to give its slot back to
+      // m_pxAccepted is, and allocated in the constructor for exactly the
+      // reason it is: a child that outlives its service still has somewhere to
+      // give its slot back to, and a tally pointer written on the pump thread
+      // is a tally pointer somebody else is reading
       // NOTES: m_xMaxAcceptedPerSource is read on the SERVICE only
       //      : m_xAcceptSource is the key THIS connection was counted under -
       //        non-zero exactly when it holds a per-source slot, so it is both
@@ -668,7 +688,8 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       //        the tally pointer cannot be the test
       std::shared_ptr<P2PeerConSourceTally>
                        m_pxSourceTally;
-      long             m_xMaxAcceptedPerSource;
+      std::atomic<long>
+                       m_xMaxAcceptedPerSource;
       P2PsourceKey     m_xAcceptSource;
       // Whether THIS connection is one of the counted children, as opposed to
       // the service holding the counter to read it.  Both hold the pointer, so
@@ -682,7 +703,11 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       //        line that ARMED it sat commented out in P2PeerTarget.cpp, so a
       //        peer that connected and never logged in was never dropped.
       //        Milliseconds; 0 disables
-      P2Pmsecs_t       m_xLoginDeadline;
+      //      : Atomic for the same reason m_xMaxAccepted is - the owner sets it
+      //        on the service, and AcceptSpawn() reads it on the pump thread to
+      //        hand each accepted child the value current at its spawn
+      std::atomic<P2Pmsecs_t>
+                       m_xLoginDeadline;
 
       P2Padomain       m_oP2Padomain;
       P2Paddr          m_oThisP2Paddr_, m_oThisP2Paddr1;

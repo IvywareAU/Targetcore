@@ -82,25 +82,52 @@
 #       NOT fail the test. Two tests passed while printing six of them. Every
 #       UBSan invocation here therefore sets halt_on_error=1.
 #
-# TSAN, WIRED IN 2026-09-17, AND WHAT ITS FIRST RUN FOUND
+# TSAN, WIRED IN 2026-09-17, AND ALL SIX OF ITS FINDINGS CLOSED BY 2026-09-18
 #
 # The preset had existed unrun since the pump/hub race gate was deferred to
 # Stage 2. Running it found 10 of 38 security tests failing and 27 reports,
-# which reduce to SIX defects. Named here because a name in KNOWN_TSAN with no
-# explanation is an exclusion list of the kind this file already refused once.
-# Two of the six are now closed; both are kept on the list, struck through in
-# words, because a defect that disappears from the record takes its lesson with
-# it. The run is 27 reports and ten failing tests as written, 17 and nine as of
-# 2026-09-18, and KNOWN_TSAN is one name shorter:
+# which reduced to SIX defects. The whole label now runs under TSan with ZERO
+# reports and nothing excluded.
 #
-#   1. AB-BA LOCK-ORDER INVERSION, hub registry against pump registry. Both
-#      sides are plain in the source: CreateP2PmsgHub takes s_oCSectionP2PmsgHub
-#      then s_oCSectionP2PmsgPump (P2Pwin32.cpp:2162-2163), and CloseP2PmsgPump
-#      takes them the other way round (P2Pwin32.cpp:3510, 3526). Same CLASS as
-#      the AB-BA fixed in Targetcore 4236949 on 2026-07-10, different pair: that
-#      one was a transport CS against the pump registry, so only Dmx/Pipe/232
-#      tripped it. This is the two global registries against each other, which
-#      is transport-independent. p2p_expreg, p2p_hubsnap, p2p_backpressure.
+# Every one is kept below, closed and written out, because a defect that
+# disappears from the record takes its lesson with it - and four of the six
+# taught something that is not in the diff. The arc, measured serially on
+# gcc 15.2 and confirmed on the runner's 13.3 at each step:
+#
+#     27 reports, 10 failing   the first run
+#     20 reports, 10 failing   the event's happens-before edge (3)
+#     17 reports,  9 failing   close-before-destroy (2)
+#     10 reports,  4 failing   the accept counters (5)
+#      7 reports,  3 failing   the registry lock order (1)
+#      0 reports,  0 failing   the three harness races (4 and 6)
+#
+# THE SIX:
+#
+#   1. CLOSED 2026-09-18. AB-BA LOCK-ORDER INVERSION, hub registry against pump
+#      registry, six reports. Both sides were plain in the source:
+#      CreateP2PmsgHub took s_oCSectionP2PmsgHub then s_oCSectionP2PmsgPump, and
+#      five functions took them the other way round - CreateP2Pexpump,
+#      CloseP2Pexpump, PostP2PexpCon, EnumP2PexpCon, CloseP2PmsgPump. Ten sites
+#      already read hub-first, so hub-first is now THE order and it is written
+#      down at the declaration of s_oCSectionP2PmsgHub.
+#      THE TRICK IT TURNED ON, because it looks impossible at first: all five
+#      inverted sites have to look a pump up before they can name the hub, which
+#      seems to force pump-first. It does not. These locks guard the REGISTRIES,
+#      not a hub, so the hub lock can be taken before anyone knows which hub is
+#      wanted. The lookups did not move at all; only the guards did.
+#      AND A SECOND HALF THAT WAS EASY TO MISS. Three of the five then did
+#      `oSafeCS_Hub = pP2PmsgHub->m_oCSection`, which RELEASES the hub registry
+#      to take the hub's own CS - so a later DropP2PmsgCon re-took the registry
+#      with the pump registry still held, and the cycle was back. They now hold
+#      both in a second guard; the CS is recursive, so the re-entry is free.
+#      Fixing that also closed two DeleteCriticalSection races in p2p_expreg
+#      that had been sitting behind the inversion: CloseP2PmsgHub was deleting
+#      a P2PmsgHubMgr while CloseP2Pexpump still held that hub's CS.
+#      Same CLASS as the AB-BA fixed in 4236949 on 2026-07-10, different pair:
+#      that one was a transport CS against the pump registry, so only
+#      Dmx/Pipe/232 tripped it. This was the two global registries against each
+#      other, which no transport can avoid.
+#      p2p_expreg, p2p_hubsnap, p2p_backpressure.
 #   2. FIXED 2026-09-18, and it was a CONTRACT rather than a lock. VPTR RACE,
 #      ~P2PeerHub (P2PeerHub.cpp:101) against ProcHub (:499) still dispatching
 #      virtuals through the object. The vtable pointer is rewritten on ENTRY to
@@ -112,7 +139,13 @@
 #      owner has to CloseHub() before destruction begins. ~P2PeerHub now says
 #      so out loud when it catches one, p2peerhub_destroy and ~P2PeerService
 #      do it for the owners who have no destructor of their own, and the one
-#      test that violated it does it too. p2p_e2ewaive, now off KNOWN_TSAN.
+#      test that violated it does it too. p2p_e2ewaive.
+#      WHAT THE CHECK FOUND is the part worth keeping: run against all 72 tests
+#      it fired in ONE, seven times, and nowhere else. Every other hub in the
+#      tree already closed before it died, and P2PeerEvents has had CloseHub()
+#      in its destructor since long before any of this with a comment saying
+#      why. The contract was already house practice - never stated, never
+#      checked, and with exactly one place where it lapsed.
 #   3. FIXED 2026-09-17, Msgcore, in the event primitive itself. CloseHandle
 #      (p2pfile.h:425, from ~P2PeerHub:120) against SetEvent (p2pthread.h:109,
 #      from SignalHubExit:457) on the hub-exit handle - seven reports, the
@@ -123,57 +156,77 @@
 #      published no happens-before edge at all and CloseHub's wait ordered
 #      nothing. A generation counter now carries the edge - refer P2PEventImpl
 #      in Msgcore/Platform/p2pthread.h, which has the long version.
-#   4. closesocket (p2psock.h:191) against concurrent use. NOT the socket
-#      analogue of 3, which is what this line said until it was read properly:
-#      both reports are inside the harness, where main closes the relay sockets
-#      (p2p_authrelay.cpp:518, :519) while RelayC2S and RelayS2C are still in
-#      recv(). It belongs with 6, not with 2 and 3. p2p_authrelay.
-#   5. ACCEPT-PATH COUNTERS unsynchronised: AcceptAtCapacity (P2PeerCon.h:253)
-#      and AcceptSpawn (P2PeerCon.cpp:365, :368) read on the pump thread what
-#      SetMaxAccepted (P2PeerCon.cpp:1597) writes on the owner thread.
-#      p2p_srcbound, p2p_conreap, p2p_logindeadline.
-#   6. TEST-HARNESS races, in MscsUnitTests rather than the library:
-#      p2p_replayguard.cpp:367 and :377, p2p_fuzzframe.cpp:490 and :757.
+#   4. CLOSED 2026-09-18. closesocket (p2psock.h:191) against concurrent use.
+#      NOT the socket analogue of 3, which is what this line said until it was
+#      read properly: all three reports are inside the harness. main closed the
+#      relay sockets while RelayC2S and RelayS2C were still blocked in recv() -
+#      closing does break a blocked recv() out, and it also takes the descriptor
+#      away from a thread still inside a call on it. Now: shutdown() all three,
+#      join, THEN close. The third report was g_bRelayStop, a `volatile bool`
+#      that volatile never made safe to share. p2p_authrelay.
+#   5. CLOSED 2026-09-18. ACCEPT-PATH COUNTERS unsynchronised: AcceptAtCapacity
+#      (P2PeerCon.h:253) and AcceptSpawn (P2PeerCon.cpp:365, :368) read on the
+#      pump thread what SetMaxAccepted (:1597) and SetLoginDeadline (:1650)
+#      write on the owner thread. m_xMaxAccepted, m_xMaxAcceptedPerSource and
+#      m_xLoginDeadline are now std::atomic, and the two capacity tests take ONE
+#      load of the bound rather than two - read twice, a setter landing between
+#      them answers "bounded" to the first and compares against a different
+#      number in the second.
+#      THE THIRD FIELD WAS NOT A COUNTER but a lazy allocation: m_pxAccepted and
+#      m_pxSourceTally were built on the first AcceptSpawn(), on the pump thread,
+#      while the owner read the same pointer through GetAcceptedCount()'s bare
+#      `m_pxAccepted ? ...`. They are allocated in the constructor now. That is
+#      one 32-byte control block on a connection that never accepts anything,
+#      against a data race, and nothing cheaper fixes it without putting a lock
+#      on the accept path. p2p_srcbound, p2p_conreap, p2p_logindeadline.
+#   6. CLOSED 2026-09-18. TEST-HARNESS races, in MscsUnitTests rather than the
+#      library, and both the same mistake: a counter incremented atomically and
+#      then read or reset plainly. p2p_replayguard's g_nOpened/g_nReplay/g_nOther
+#      were `volatile LONG` bumped with InterlockedIncrement - the increments
+#      were always atomic, the reads on the main thread never were, and the
+#      InterlockedIncrement beside them made it look handled. p2p_fuzzframe's
+#      g_nProgress was a `volatile unsigned long` shared with the watchdog
+#      thread. All four are std::atomic now. VOLATILE IS NOT A SYNCHRONISATION
+#      PRIMITIVE, which is the only lesson here and is worth the four lines.
 #
-# THE SLEEP-ORDERED TEARDOWN, and what fixing it actually took. TSan named the
-# problem itself: above these stacks it prints "As if synchronized via sleep",
-# meaning the only thing sequencing the two threads was the Sleep(1) in
-# YieldForP2PmsgPump. A sleep is a bet on the other thread being quick, not a
-# synchronisation primitive. Closing 3 took the bet away - a local serial run
-# went from 29 reports to 20, ten of them gone, and the whole CloseHandle
-# cluster with them.
+# TSan NAMED THE FIRST ONE ITSELF, which is the thing to remember about reading
+# these reports. Above the stacks for 2, 3 and 4 it printed "As if synchronized
+# via sleep" - the Sleep(1) in YieldForP2PmsgPump was the only thing sequencing
+# the two threads, and a sleep is a bet on the other thread being quick rather
+# than a synchronisation primitive.
 #
-# The correction that came with it, recorded because the first reading of these
-# stacks grouped 2, 3 and 4 as one defect and only 3 was: fixing the edge left
-# 2 and 4 exactly where they were, which is how it became clear they are not
-# the same thing. 4 is a harness race (see above). 2 was a contract nobody had
-# written down, and closing it on 2026-09-18 took the run to 17 reports and
-# nine failing tests.
+# THE READING THAT WAS WRONG, kept because it cost a day and would cost it
+# again. Those three were first written down here as ONE defect wearing three
+# hats, on the strength of that shared line. They were three. Fixing 3 left 2
+# and 4 standing exactly where they were, which is the only reason anybody
+# looked again: 4 turned out to be in the harness and 2 turned out to be a
+# contract, and neither had anything to do with the sleep. A shared symptom in
+# a sanitizer report is not a shared cause, and the way to tell is to fix one
+# and re-measure rather than to reason about it.
 #
-# WHAT THE CONTRACT CHECK FOUND, which is the part worth keeping. ~P2PeerHub
-# now detects a hub destroyed with its spawned pump thread still running and
-# reports it by name. Run against the whole suite that check fired in exactly
-# ONE test out of fifty-eight - p2p_e2ewaive, seven times. Every other hub in
-# the tree already closed before it died, and P2PeerEvents has had CloseHub()
-# in its destructor since long before any of this with a comment saying why
-# ("Subordinate threads may have dependencies upon our resources"). So the
-# contract was already the house practice; it had simply never been stated,
-# never been checked, and had one place where it lapsed.
+# THE OTHER THREE ALL HAD THE SAME SHAPE, once 1, 5 and 6 were laid side by
+# side: something WAS synchronised, visibly, and the thing beside it was not.
+# InterlockedIncrement on a counter read plainly. An atomic<long> behind a
+# shared_ptr assigned unguarded. A lock order obeyed by ten sites and inverted
+# by five. Every one of them looked handled at a glance, which is exactly why
+# a sanitizer found them and reading did not.
 #
 # WHAT WAS NOT A FINDING, recorded so nobody re-derives it: at -j4 two further
 # tests, p2p_sealbcast and p2p_listenscope, failed with EADDRINUSE (system error
 # 98) rather than with anything TSan said, and both pass serially. That is why
-# the gate runs serially and why those two names are not in KNOWN_TSAN.
+# the gate runs serially, and it is why neither was ever named as a finding.
 #
 # WHAT A GREEN RUN DOES NOT PROVE
 #   * Nothing about Release. ASan runs Debug here. The four out-of-bounds found
 #     on 2026-08-15 were live in Release and silent there precisely because they
 #     were outside any ASSERT -- a green Debug sanitizer run says the code paths
 #     TAKEN were clean, not that Release is.
-#   * Less about TSan than it looks. TSan gates 29 of the 38 security tests as
-#     of 2026-09-18; the other nine are named in KNOWN_TSAN and reported without
-#     gating. A green TSan tick means no NEW race on the gated 29, not that the
-#     tree is race-free - see the section below for the four still open.
+#   * Less about TSan than it looks, even now it gates the whole label with
+#     nothing excluded. A green tick means the code paths these 38 tests TAKE
+#     were race-free on this run. TSan reports races it observes, not races
+#     that exist: a lock order never exercised concurrently is a lock order it
+#     cannot judge, which is how finding 1 sat unreported until the day the
+#     preset was first run.
 #   * Nothing about leaks in the fuzz harness -- see MscsUnitTests/CMakeLists.txt
 #     for why detect_leaks is off for that one test, on purpose.
 # =============================================================================
@@ -213,13 +266,11 @@ env:
   # TEN TESTS, SIX DEFECTS. The first TSan run of the security label failed 10 of
   # 38 serially, and every failure is one of the six findings the banner lists.
   # Three of the six are one defect wearing three hats - hub teardown ordered by
-  # a Sleep rather than by joining the thread - so this list should shorten faster
-  # than its length suggests. Delete a name the moment its finding closes; the
-  # gate widens by itself and the step that prints these disappears with the last
-  # one. Do NOT add a name here to make a red tick go away: a new race is the
-  # thing this job exists to catch, and the list is for findings that were
-  # already there on the day it was written.
-  KNOWN_TSAN: "p2p_authrelay|p2p_logindeadline|p2p_srcbound|p2p_hubsnap|p2p_conreap|p2p_backpressure|p2p_replayguard|p2p_fuzzframe|p2p_expreg"
+  # KNOWN_TSAN IS GONE, and the promise it carried was kept: "delete a name the
+  # moment its finding closes; the gate widens by itself and the step that
+  # prints these disappears with the last one." All six findings closed over
+  # 2026-09-17 and 18, so there is no list, no -E and no reports-only step. If
+  # one is ever needed again, the banner above says what shape to rebuild it in.
 
 jobs:
   windows-asan:
@@ -641,51 +692,35 @@ jobs:
         run: cmake --build --preset linux-gcc-tsan
         working-directory: mscs
 
-      # THE GATE: the security label minus the nine tests named in KNOWN_TSAN.
-      # 28 tests on this runner, green with zero reports; it was 27 when this
-      # job was written (2026-09-17) and p2p_e2ewaive came off the list the day
-      # after, when the vptr defect behind it closed. It is 29 in a local tree,
-      # and the extra one is p2p_fuzzhttp: it carries the p2pweb label and needs
-      # P2PeerWeb, which the four checkouts above do not bring. Not a gap in the
-      # gate - a test that is not registered here cannot be excluded from here. Serial on purpose: at -j4 two further
-      # tests failed on EADDRINUSE rather than on anything TSan said, and a gate
-      # that is flaky about ports teaches people to re-run it rather than read it.
+      # THE GATE, AND IT IS NOW THE WHOLE LABEL. No -E, no KNOWN_TSAN, no
+      # reports-only step: every test in the security label gates on every push,
+      # exactly as the two ASan jobs do. It went 27 -> 28 -> the lot over two
+      # days as the six findings closed, and the list that named them emptied
+      # itself the way this file's ASan exclusion list did before it.
+      #
+      # Serial on purpose: at -j4 two tests failed on EADDRINUSE rather than on
+      # anything TSan said, and a gate that is flaky about ports teaches people
+      # to re-run it rather than read it.
       #
       # halt_on_error=0 collects every report in a run instead of stopping at the
       # first, and it does NOT do to TSan what it would do to ASan -- the note
       # beside linux-gcc-asan warns that halt_on_error=0 turns a leak report into
       # exit 0, which is true there and not here: TSan still exits 66 at the end
-      # if it reported anything. Measured, not assumed: the ten below fail this
-      # way, which is how they came to be named at all.
-      - name: Security label under TSan, minus known findings (THE GATE)
+      # if it reported anything. Measured, not assumed: it is how the six were
+      # enumerated in the first place.
+      #
+      # IF A FINDING IS EVER RAISED AGAIN, restore the pattern rather than
+      # inventing one: a named exclusion in plain sight, plus a non-gating step
+      # that prints its full report, plus a paragraph in the banner saying what
+      # the defect IS. Do not just add a -E and move on.
+      - name: Security label under TSan (THE GATE)
         shell: bash
         env:
           TSAN_OPTIONS: halt_on_error=0:exitcode=66:second_deadlock_stack=1:history_size=4
         run: |
           ctest --test-dir build/linux-gcc-tsan -L security \
-                -E "^(${KNOWN_TSAN})$" \
                 --output-on-failure --timeout 600 \
                 --output-junit "$PWD/tsan-linux.xml"
-        working-directory: mscs
-
-      # NOT A GATE, and deliberately so. Every name in KNOWN_TSAN runs here with
-      # its full report printed, so "known" cannot quietly become "acceptable" --
-      # the same bargain the ASan exclusion list struck before it emptied itself.
-      # When one of these is fixed, delete its name from KNOWN_TSAN and the gate
-      # above widens by itself. When the list is empty, delete this step and the
-      # -E from the gate, and TSan gates the whole label like ASan does.
-      - name: Known TSan findings, reported and not gated
-        if: always()
-        shell: bash
-        env:
-          TSAN_OPTIONS: halt_on_error=0:exitcode=66:second_deadlock_stack=1:history_size=4
-        run: |
-          echo "These are the ten open findings of 2026-09-17. They are NOT gating."
-          echo "Refer to the TSan section of this file's banner for what each one is."
-          echo
-          ctest --test-dir build/linux-gcc-tsan -R "^(${KNOWN_TSAN})$" \
-                --output-on-failure --timeout 600 \
-                --output-junit "$PWD/tsan-linux-known.xml" || true
         working-directory: mscs
 
       - name: Upload results
@@ -695,5 +730,4 @@ jobs:
           name: tsan-linux
           path: |
             mscs/tsan-linux.xml
-            mscs/tsan-linux-known.xml
           if-no-files-found: warn
