@@ -88,8 +88,18 @@ namespace
     //
     // Windows-only: POSIX protects the file with its mode, not with a blob, so
     // off Windows these are dead weight and gcc rightly says so.
-    const char kEntropy[]      = "Targetcore.identity.v1";
-    const char kEntropyAgree[] = "Targetcore.agreement.v1";
+    //
+    // The capital C is LOAD-BEARING, and is why the paragraph above is not just
+    // a wish. a9bc335's rename sweep recased both of these, which is precisely
+    // the silent change it warns of: entropy is an input to CryptUnprotectData,
+    // so every identity file written before that commit would have been
+    // undecryptable afterwards. StoreSelfTest cannot see it - it writes and
+    // reads inside one run, with whatever value it finds. These two strings are
+    // an on-disk format constant that happens to read like a product name. If
+    // the spelling must ever change, it changes with a new .v2 suffix and a
+    // read path that still accepts .v1, not on its own.
+    const char kEntropy[]      = "TargetCore.identity.v1";
+    const char kEntropyAgree[] = "TargetCore.agreement.v1";
 
     // Returns the entropy bytes and, through pcb, their length. Separate values
     // per kind so the DPAPI layer refuses the swap too, not only the header.
