@@ -321,7 +321,7 @@ jobs:
         shell: bash
         run: |
           ctest --test-dir build/windows-msvc-asan -C Debug -L security \
-                --output-on-failure --output-junit asan-windows.xml
+                --output-on-failure --output-junit "$PWD/asan-windows.xml"
         working-directory: mscs
 
       - name: Upload results
@@ -464,7 +464,7 @@ jobs:
         run: |
           ctest --test-dir build/linux-gcc-asan -L security \
                 --output-on-failure --timeout 600 \
-                --output-junit asan-linux.xml
+                --output-junit "$PWD/asan-linux.xml"
         working-directory: mscs
 
       - name: Upload results
@@ -600,8 +600,11 @@ jobs:
         working-directory: mscs
 
       # THE GATE: the security label minus the ten tests named in KNOWN_TSAN.
-      # 28 tests, and they were green with zero reports when this job was written
-      # (2026-09-17, g++ 15.2, serial). Serial on purpose: at -j4 two further
+      # 27 tests on this runner, green with zero reports when this job was
+      # written (2026-09-17, g++ 13.3, serial). It is 28 in a full local tree,
+      # and the extra one is p2p_fuzzhttp: it carries the p2pweb label and needs
+      # P2PeerWeb, which the four checkouts above do not bring. Not a gap in the
+      # gate - a test that is not registered here cannot be excluded from here. Serial on purpose: at -j4 two further
       # tests failed on EADDRINUSE rather than on anything TSan said, and a gate
       # that is flaky about ports teaches people to re-run it rather than read it.
       #
@@ -616,7 +619,10 @@ jobs:
         env:
           TSAN_OPTIONS: halt_on_error=0:exitcode=66:second_deadlock_stack=1:history_size=4
         run: |
-          ctest --test-dir build/linux-gcc-tsan -L security                 -E "^(${KNOWN_TSAN})$"                 --output-on-failure --timeout 600                 --output-junit tsan-linux.xml
+          ctest --test-dir build/linux-gcc-tsan -L security \
+                -E "^(${KNOWN_TSAN})$" \
+                --output-on-failure --timeout 600 \
+                --output-junit "$PWD/tsan-linux.xml"
         working-directory: mscs
 
       # NOT A GATE, and deliberately so. Every name in KNOWN_TSAN runs here with
@@ -634,7 +640,9 @@ jobs:
           echo "These are the ten open findings of 2026-09-17. They are NOT gating."
           echo "Refer to the TSan section of this file's banner for what each one is."
           echo
-          ctest --test-dir build/linux-gcc-tsan -R "^(${KNOWN_TSAN})$"                 --output-on-failure --timeout 600                 --output-junit tsan-linux-known.xml || true
+          ctest --test-dir build/linux-gcc-tsan -R "^(${KNOWN_TSAN})$" \
+                --output-on-failure --timeout 600 \
+                --output-junit "$PWD/tsan-linux-known.xml" || true
         working-directory: mscs
 
       - name: Upload results
