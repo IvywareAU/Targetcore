@@ -38,9 +38,24 @@
 
 //
 //  AES-256-GCM payload cypher
-//  NOTES: One instance per connection per direction of use; the underlying
-//         AesGcm holds a BCrypt key handle and is not internally serialised,
-//         so an instance must not be shared across threads
+//  NOTES: One instance per connection, holding TWO keys - one per direction.
+//         Both ends derive both, and disagree only about which is which, so
+//         the key a peer seals with is never the key it opens with.  That
+//         matters because the nonce is 96 bits and RANDOM: NIST SP 800-38D
+//         section 8.3 bounds a random-IV key at 2^32 invocations, and a
+//         single key used by both ends spends that budget from both ends at
+//         once, with neither able to see the other's draws.  Split, each key
+//         has exactly one writer
+//       : The single-key SetKey() remains and installs the SAME key both
+//         ways.  That is the LOOPBACK shape - one object sealing and opening
+//         its own frames - which the self test below and the unit harnesses
+//         use, and it is NOT what a connection does.  A connection calls
+//         SetKeyPair()
+//       : The underlying AesGcm holds a BCrypt key handle.  Encrypt on one
+//         thread and Decrypt on another is sound - the OpenSSL backend
+//         builds a fresh EVP_CIPHER_CTX per call and the CNG one reuses a
+//         key handle documented as safe for concurrent use - but the two
+//         directions now touch different members anyway
 class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
 {
     // Constructors and destructor
@@ -69,6 +84,17 @@ class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
       virtual UINT
         OpenedSize ( UINT nSealedBytes );
 
+    // Directional keying
+    //  NOTES: pSendKey is the key THIS end seals with and pRecvKey the one it
+    //         opens with.  The caller decides which is which from its role in
+    //         the handshake; this class does not know what a client is.  Both
+    //         lengths must be kAesKeyLen, and installing one key twice is a
+    //         caller error this cannot detect - it is a legitimate loopback
+    public:
+      void
+        SetKeyPair ( const char *pSendKey, int nSendKeySize
+                   , const char *pRecvKey, int nRecvKeySize );
+
     // State
     public:
       bool
@@ -76,7 +102,8 @@ class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
 
     // Implementation
     protected:
-      p2pcng::AesGcm  m_oGcm;
+      p2pcng::AesGcm  m_oGcmSend;      // sealed with, outbound
+      p2pcng::AesGcm  m_oGcmRecv;      // opened with, inbound
       bool            m_bKeyed;
 
     // Not copyable - the key handle underneath has single ownership

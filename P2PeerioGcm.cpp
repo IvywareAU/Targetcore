@@ -36,13 +36,19 @@ P2PeerioGcm::~P2PeerioGcm ( )
 }
 
 //
-//  Install the session key
+//  Install ONE key, used in both directions
 //  NOTES: Exactly 32 bytes - AES-256.  A short key is a programming error in
 //         the key schedule above this class, not a runtime condition to be
 //         absorbed quietly, so it throws rather than leaving the object in an
 //         unkeyed state that would fail obscurely on the first frame
 //       : iParam1/iParam2 are unused.  They exist because the interface was
 //         shaped for a block cipher's mode and IV arguments
+//       : THIS IS THE LOOPBACK FORM and is kept because that is a real use -
+//         one object sealing and opening its own frames, which is what the
+//         self test and the unit harnesses do.  A CONNECTION must not use it:
+//         one key drawn on by both ends halves the random-nonce budget and
+//         leaves neither end able to count what the other spends.  Refer the
+//         class note and SetKeyPair() below
 //
 //  Parameters:  const char *pPKey    Key material
 //               int         nPKeySize Length in bytes, must be 32
@@ -51,17 +57,48 @@ void
 P2PeerioGcm::SetKey ( const char *pPKey, int nPKeySize
                     , int /*iParam1*/, int /*iParam2*/ )
 {
+    SetKeyPair ( pPKey, nPKeySize, pPKey, nPKeySize );
+}
+
+//
+//  Install the two directional keys
+//  NOTES: Both halves are installed or neither is - m_bKeyed is cleared first
+//         and set only once both have taken, so a throw between them cannot
+//         leave an object that seals under a new key and opens under an old
+//       : The two keys are NOT compared.  Passing the same key twice is the
+//         loopback case above and is legitimate; this class cannot tell that
+//         from a caller that has derived one key by mistake, and the place
+//         that knows is the key schedule
+//
+//  Parameters:  const char *pSendKey  Key this end SEALS with
+//               int         nSendKeySize  Length in bytes, must be 32
+//               const char *pRecvKey  Key this end OPENS with
+//               int         nRecvKeySize  Length in bytes, must be 32
+//
+void
+P2PeerioGcm::SetKeyPair ( const char *pSendKey, int nSendKeySize
+                        , const char *pRecvKey, int nRecvKeySize )
+{
     m_bKeyed = false;
 
-    if ( pPKey == 0 || nPKeySize != (int)p2pcng::kAesKeyLen )
+    if ( pSendKey == 0 || nSendKeySize != (int)p2pcng::kAesKeyLen ||
+         pRecvKey == 0 || nRecvKeySize != (int)p2pcng::kAesKeyLen    )
       EVERR->MODULE
-           ->Message ( "AES-256-GCM requires a %u byte key, got %d"
-                     , (unsigned)p2pcng::kAesKeyLen, nPKeySize )
+           ->Message ( "AES-256-GCM requires two %u byte keys, got %d and %d"
+                     , (unsigned)p2pcng::kAesKeyLen
+                     , nSendKeySize, nRecvKeySize )
            ->Throw ( );
 
-    if ( !m_oGcm.SetKey ( (const unsigned char *)pPKey, (size_t)nPKeySize ) )
+    if ( !m_oGcmSend.SetKey ( (const unsigned char *)pSendKey
+                            , (size_t)nSendKeySize ) )
       EVERR->MODULE
-           ->Message_T ( "AES-256-GCM key installation failed" )
+           ->Message_T ( "AES-256-GCM send key installation failed" )
+           ->Throw ( );
+
+    if ( !m_oGcmRecv.SetKey ( (const unsigned char *)pRecvKey
+                            , (size_t)nRecvKeySize ) )
+      EVERR->MODULE
+           ->Message_T ( "AES-256-GCM receive key installation failed" )
            ->Throw ( );
 
     m_bKeyed = true;
@@ -127,11 +164,11 @@ P2PeerioGcm::Encrypt ( const char *pcBufferIn, char *pBufferOut, int nBytes
       return FALSE;
 
     size_t cbOut = 0;
-    if ( !m_oGcm.Seal ( (const unsigned char *)pcBufferIn, (size_t)nBytes
-                      , 0, 0
-                      , (unsigned char *)pBufferOut
-                      , p2pcng::AesGcm::SealedSize ( (size_t)nBytes )
-                      , &cbOut ) )
+    if ( !m_oGcmSend.Seal ( (const unsigned char *)pcBufferIn, (size_t)nBytes
+                          , 0, 0
+                          , (unsigned char *)pBufferOut
+                          , p2pcng::AesGcm::SealedSize ( (size_t)nBytes )
+                          , &cbOut ) )
       return FALSE;
 
     return cbOut == p2pcng::AesGcm::SealedSize ( (size_t)nBytes ) ? TRUE : FALSE;
@@ -161,9 +198,9 @@ P2PeerioGcm::Decrypt ( const char *pcBufferIn, int nBytes, char *pBufferOut
       return FALSE;                    // Shorter than nonce + tag
 
     size_t cbOut = 0;
-    if ( !m_oGcm.Open ( (const unsigned char *)pcBufferIn, (size_t)nBytes
-                      , 0, 0
-                      , (unsigned char *)pBufferOut, cbPlain, &cbOut ) )
+    if ( !m_oGcmRecv.Open ( (const unsigned char *)pcBufferIn, (size_t)nBytes
+                          , 0, 0
+                          , (unsigned char *)pBufferOut, cbPlain, &cbOut ) )
       return FALSE;
 
     return cbOut == cbPlain ? TRUE : FALSE;
@@ -269,5 +306,104 @@ GcmCryptoSelfTest ( )
 
     delete [] pSealed;
     delete [] pOpened;
+
+    // 9. THE DIRECTIONAL SPLIT, and it is built so that a single-key build
+    //    fails it rather than passing quietly.  Two objects keyed as the two
+    //    ends of a connection are: A seals with K1 and opens with K2, B seals
+    //    with K2 and opens with K1
+    if ( bOk )
+    {
+      unsigned char aK1[p2pcng::kAesKeyLen];
+      unsigned char aK2[p2pcng::kAesKeyLen];
+      for ( size_t i = 0; i < sizeof(aK1); ++i )
+      {
+        aK1[i] = (unsigned char)( i * 3 + 5 );
+        aK2[i] = (unsigned char)( i * 11 + 2 );
+      }
+
+      P2PeerioGcm oA, oB;
+      oA.SetKeyPair ( (const char *)aK1, (int)sizeof(aK1)
+                    , (const char *)aK2, (int)sizeof(aK2) );
+      oB.SetKeyPair ( (const char *)aK2, (int)sizeof(aK2)
+                    , (const char *)aK1, (int)sizeof(aK1) );
+
+      const char szDir[] = "directional";
+      const UINT nDir    = (UINT)sizeof(szDir);
+      const UINT nDirSl  = oA.SealedSize ( nDir );
+
+      unsigned char *pAB   = new unsigned char[nDirSl];
+      unsigned char *pPlay = new unsigned char[nDir];
+
+      // A -> B opens
+      if ( !oA.Encrypt ( szDir, (char *)pAB, (int)nDir, 0, 0 ) )
+        bOk = false;
+      if ( bOk && !oB.Decrypt ( (const char *)pAB, (int)nDirSl
+                              , (char *)pPlay, 0, 0 ) )
+        bOk = false;
+      if ( bOk && memcmp ( pPlay, szDir, nDir ) != 0 )
+        bOk = false;
+
+      // A MUST NOT open its own frame.  This is the whole point: with one
+      // key for both directions it would succeed, so a single-key build
+      // fails here.  A green round trip above proves nothing on its own
+      if ( bOk && oA.Decrypt ( (const char *)pAB, (int)nDirSl
+                             , (char *)pPlay, 0, 0 ) )
+        bOk = false;
+
+      // ...and the mirror, so the failure above cannot be a dud key
+      if ( bOk )
+      {
+        unsigned char *pBA = new unsigned char[nDirSl];
+        if ( !oB.Encrypt ( szDir, (char *)pBA, (int)nDir, 0, 0 ) )
+          bOk = false;
+        if ( bOk && !oA.Decrypt ( (const char *)pBA, (int)nDirSl
+                                , (char *)pPlay, 0, 0 ) )
+          bOk = false;
+        if ( bOk && oB.Decrypt ( (const char *)pBA, (int)nDirSl
+                               , (char *)pPlay, 0, 0 ) )
+          bOk = false;
+        delete [] pBA;
+      }
+
+      // A peer that got the ORDER wrong opens nothing - the loud failure the
+      // derivation comment promises
+      if ( bOk )
+      {
+        P2PeerioGcm oWrong;
+        oWrong.SetKeyPair ( (const char *)aK1, (int)sizeof(aK1)
+                          , (const char *)aK2, (int)sizeof(aK2) );
+        if ( oWrong.Decrypt ( (const char *)pAB, (int)nDirSl
+                            , (char *)pPlay, 0, 0 ) )
+          bOk = false;
+      }
+
+      delete [] pAB;
+      delete [] pPlay;
+    }
+
+    // 10. The single-key form is still a working loopback, because the self
+    //     test and the unit harnesses depend on it
+    if ( bOk )
+    {
+      P2PeerioGcm oLoop;
+      oLoop.SetKey ( (const char *)aKey, (int)sizeof(aKey), 0, 0 );
+
+      const char szLoop[] = "loopback";
+      const UINT nLoop    = (UINT)sizeof(szLoop);
+      const UINT nLoopSl  = oLoop.SealedSize ( nLoop );
+
+      unsigned char *pLoopS = new unsigned char[nLoopSl];
+      unsigned char *pLoopO = new unsigned char[nLoop];
+      if ( !oLoop.Encrypt ( szLoop, (char *)pLoopS, (int)nLoop, 0, 0 ) )
+        bOk = false;
+      if ( bOk && !oLoop.Decrypt ( (const char *)pLoopS, (int)nLoopSl
+                                 , (char *)pLoopO, 0, 0 ) )
+        bOk = false;
+      if ( bOk && memcmp ( pLoopO, szLoop, nLoop ) != 0 )
+        bOk = false;
+      delete [] pLoopS;
+      delete [] pLoopO;
+    }
+
     return bOk;
 }

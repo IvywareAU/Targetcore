@@ -2571,12 +2571,15 @@ P2PeerCon::KeyXOnAck ( P2PeerMsg *pMsg )
 }
 
 //
-//  Shared secret -> channel binding -> session key -> cypher
+//  Shared secret -> channel binding -> session keyS -> cypher
 //  NOTES: The raw ECDH output is never used as a key.  It is an X coordinate
 //         with structure, not a uniformly random string, so it goes through
 //         HKDF first
 //       : The channel binding doubles as the HKDF salt.  One value, derived
 //         from both public halves, both naming this connection and keying it
+//       : TWO keys come out, not one - c2s and s2c - and the reason is the
+//         random 96-bit nonce rather than anything about the handshake.  The
+//         block at the derivation below states it in full
 //
 void
 P2PeerCon::KeyXDerive ( )
@@ -2602,31 +2605,69 @@ P2PeerCon::KeyXDerive ( )
     }
     m_bKeyXBound = true;
 
-    static const char szInfo[] = "P2P-session-v1";
-    unsigned char aKey[p2pcng::kAesKeyLen];
+    // TWO keys, one per direction, from the one secret and the one salt
+    // NOTES: The nonce is 96 bits and RANDOM (P2PCngCrypto.cpp, AesGcm::Seal),
+    //        so a key is bounded at 2^32 invocations by NIST SP 800-38D
+    //        section 8.3 - past that a nonce collision stops being negligible,
+    //        and a GCM nonce collision does not degrade gracefully: it leaks
+    //        the XOR of the two plaintexts AND exposes the GHASH subkey, which
+    //        is a forgery primitive.  ONE key for both directions spent that
+    //        budget from both ends of the link at once, and neither end could
+    //        count it, because neither sees the other's draws.  Split by
+    //        direction, each key has exactly one writer and one counter would
+    //        be authoritative - which is what makes bounding it possible at
+    //        all.  The bound itself is NOT yet enforced; refer
+    //        Targetcore_ProdDocs/OpenCodeWork.md item 1 stage 2
+    //      : The info strings are the ONLY difference between the two
+    //        derivations.  Same secret, same salt, same length, so the cost is
+    //        one extra HKDF expand
+    //      : By ROLE, exactly as the channel binding above is.  The connecting
+    //        peer seals with c2s and opens with s2c; the accepting peer does
+    //        the reverse.  Both ends derive BOTH keys and disagree only about
+    //        which is which - get this backwards at one end and nothing opens,
+    //        which is the loud failure and the one worth having
+    static const char szInfoC2S[] = "P2P-session-v1-c2s";
+    static const char szInfoS2C[] = "P2P-session-v1-s2c";
+    unsigned char aKeyC2S[p2pcng::kAesKeyLen];
+    unsigned char aKeyS2C[p2pcng::kAesKeyLen];
     const bool bOk = p2pcng::HkdfSha256 ( aSecret, sizeof(aSecret)
                                         , m_KeyXBind, sizeof(m_KeyXBind)
-                                        , (const unsigned char *)szInfo
-                                        , sizeof(szInfo) - 1
-                                        , aKey, sizeof(aKey) );
+                                        , (const unsigned char *)szInfoC2S
+                                        , sizeof(szInfoC2S) - 1
+                                        , aKeyC2S, sizeof(aKeyC2S) )
+                  && p2pcng::HkdfSha256 ( aSecret, sizeof(aSecret)
+                                        , m_KeyXBind, sizeof(m_KeyXBind)
+                                        , (const unsigned char *)szInfoS2C
+                                        , sizeof(szInfoS2C) - 1
+                                        , aKeyS2C, sizeof(aKeyS2C) );
     SecureZeroMemory ( aSecret, sizeof(aSecret) );
     if ( !bOk )
+    {
+      SecureZeroMemory ( aKeyC2S, sizeof(aKeyC2S) );
+      SecureZeroMemory ( aKeyS2C, sizeof(aKeyS2C) );
       EVERR->Module (__FUNCTION__)->AFPcon(this)
            ->Message_T("Session key derivation failed")
            ->Throw();
+    }
+
+    const unsigned char *pSendKey = m_bKeyXClient ? aKeyC2S : aKeyS2C;
+    const unsigned char *pRecvKey = m_bKeyXClient ? aKeyS2C : aKeyC2S;
 
     P2PeerioGcm *pGcm = new P2PeerioGcm;
     try
     {
-      pGcm -> SetKey ( (const char *)aKey, (int)sizeof(aKey), 0, 0 );
+      pGcm -> SetKeyPair ( (const char *)pSendKey, (int)p2pcng::kAesKeyLen
+                         , (const char *)pRecvKey, (int)p2pcng::kAesKeyLen );
     }
     catch ( ... )
     {
       delete pGcm;
-      SecureZeroMemory ( aKey, sizeof(aKey) );
+      SecureZeroMemory ( aKeyC2S, sizeof(aKeyC2S) );
+      SecureZeroMemory ( aKeyS2C, sizeof(aKeyS2C) );
       throw;
     }
-    SecureZeroMemory ( aKey, sizeof(aKey) );
+    SecureZeroMemory ( aKeyC2S, sizeof(aKeyC2S) );
+    SecureZeroMemory ( aKeyS2C, sizeof(aKeyS2C) );
 
     if ( !m_pP2Peerio )
     {
