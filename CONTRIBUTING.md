@@ -125,14 +125,6 @@ guarantee.
 
 ---
 
-## Code of conduct
-
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — the Contributor Covenant 2.1. Conduct reports go to
-`info@ivyware.com.au`, which is a different question from a bug and a different question again from
-a vulnerability; the file says so at the point it names the address.
-
----
-
 ## Licence
 
 By contributing you agree that your contribution is licensed under the
