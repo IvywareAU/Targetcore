@@ -1,6 +1,8 @@
 # Left TRUE deliberately. CONTRIBUTING.md says "Not a bug and not quite feedback? Open an issue
 # anyway -- the tracker is the front door", and turning blank issues off would contradict the
-# policy this repository publishes.
+# policy this repository publishes. something_else.md gives that case a shape without closing the
+# blank box behind it: a prompt is help, and a required form for a question nobody has named yet
+# is an obstacle.
 blank_issues_enabled: true
 
 contact_links:
