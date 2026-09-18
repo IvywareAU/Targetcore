@@ -36,6 +36,8 @@
 #include "P2Peerio.h"
 #include "P2PCngCrypto.h"
 
+#include <atomic>
+
 //
 //  AES-256-GCM payload cypher
 //  NOTES: One instance per connection, holding TWO keys - one per direction.
@@ -56,6 +58,11 @@
 //         builds a fresh EVP_CIPHER_CTX per call and the CNG one reuses a
 //         key handle documented as safe for concurrent use - but the two
 //         directions now touch different members anyway
+//       : AND THE BUDGET IS ENFORCED, which is the other half of the split.
+//         Sealing REFUSES once the send key has been used kGcmMaxSeals
+//         times.  The split is what makes that possible: a key with one
+//         writer can be counted by that writer, where a key both ends drew
+//         on could not be counted by either
 class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
 {
     // Constructors and destructor
@@ -95,6 +102,38 @@ class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
         SetKeyPair ( const char *pSendKey, int nSendKeySize
                    , const char *pRecvKey, int nRecvKeySize );
 
+    // The nonce budget
+    //  NOTES: The nonce is 96 bits and drawn at RANDOM per seal, so the number
+    //         of seals under one key is bounded: NIST SP 800-38D section 8.3
+    //         limits a random-IV key to 2^32 invocations, past which the
+    //         probability of a collision stops being negligible.  A GCM nonce
+    //         collision is not graceful - it leaks the XOR of the two
+    //         plaintexts AND exposes the GHASH subkey, which is a forgery
+    //         primitive - so this REFUSES rather than continues
+    //       : The count is of SEAL ATTEMPTS ADMITTED, and it is reset by
+    //         SetKey/SetKeyPair because a new key is a new budget.  Only
+    //         Encrypt counts; Decrypt draws no nonce and the sender owns the
+    //         one it used
+    //       : The ceiling is settable so a cautious deployment can sit below
+    //         the standard's figure, and so a test can reach it - 2^32 seals
+    //         is not reachable in a test otherwise.  Setting it does not
+    //         reset the count, and setting it below the current count means
+    //         the next seal is refused, which is the honest behaviour
+    public:
+      void
+        SetSealCeiling ( unsigned long long uSeals );
+
+      unsigned long long
+        GetSealCeiling ( ) const { return m_uSealCeiling.load ( ); }
+
+      unsigned long long
+        GetSealCount ( ) const { return m_uSealCount.load ( ); }
+
+      //  The invocation ceiling for a 96-bit RANDOM nonce - NIST SP 800-38D
+      //  section 8.3.  The default, and what a connection gets unless its
+      //  operator says otherwise
+      static const unsigned long long kGcmMaxSeals = 1ull << 32;
+
     // State
     public:
       bool
@@ -105,6 +144,14 @@ class Targetcore_EXT P2PeerioGcm : public P2PeerioCrypto
       p2pcng::AesGcm  m_oGcmSend;      // sealed with, outbound
       p2pcng::AesGcm  m_oGcmRecv;      // opened with, inbound
       bool            m_bKeyed;
+
+      //  Atomic because the accept-bound work of 2026-09-17 established the
+      //  rule for exactly this shape: a field read on one thread and written
+      //  on another is unsynchronised however benign it looks.  The increment
+      //  is a single fetch_add so two senders cannot both pass the ceiling on
+      //  the same value
+      std::atomic<unsigned long long> m_uSealCount;
+      std::atomic<unsigned long long> m_uSealCeiling;
 
     // Not copyable - the key handle underneath has single ownership
     private:

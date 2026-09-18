@@ -28,6 +28,8 @@
 //
 P2PeerioGcm::P2PeerioGcm ( )
   : m_bKeyed ( false )
+  , m_uSealCount ( 0 )
+  , m_uSealCeiling ( kGcmMaxSeals )
 {
 }
 
@@ -101,7 +103,30 @@ P2PeerioGcm::SetKeyPair ( const char *pSendKey, int nSendKeySize
            ->Message_T ( "AES-256-GCM receive key installation failed" )
            ->Throw ( );
 
+    //  A NEW KEY IS A NEW BUDGET, and this reset is load-bearing rather than
+    //  tidy: the ceiling bounds seals under ONE key, so carrying a count
+    //  across a rekey would refuse traffic the new key is entitled to, and
+    //  failing to reset on a key that is genuinely new would do the same.
+    //  Reset here and not in the constructor alone, because SetKeyPair is
+    //  where a key becomes current.
+    m_uSealCount.store ( 0 );
+
     m_bKeyed = true;
+}
+
+//
+//  Lower the nonce budget below the standard's figure
+//  NOTES: Does NOT reset the count.  Setting a ceiling below the seals
+//         already done means the next seal is refused, which is the honest
+//         reading of "this key has had enough" and the one a test relies on
+//       : Zero is accepted and means "refuse everything", which is a
+//         legitimate thing to ask for and is how the gate proves the refusal
+//         without sealing 2^32 frames first
+//
+void
+P2PeerioGcm::SetSealCeiling ( unsigned long long uSeals )
+{
+    m_uSealCeiling.store ( uSeals );
 }
 
 //
@@ -149,6 +174,12 @@ P2PeerioGcm::OpenedSize ( UINT nSealedBytes )
 //  NOTES: A fresh random nonce is drawn per call by AesGcm::Seal() and written
 //         at the head of the output, so an identical payload never produces an
 //         identical frame - the repetition leak of the original ECB design
+//       : And that randomness is what BOUNDS the key, so this counts.  Past
+//         the ceiling it refuses, and a refusal here becomes "Payload
+//         encryption failed" at P2Peerio.cpp and the connection goes down -
+//         fail-closed, which is the right direction.  The specific reason is
+//         in the event raised below, because "encryption failed" alone would
+//         send an operator looking for a crypto fault that is not there
 //
 //  Parameters:  const char *pcBufferIn   Plaintext
 //               char       *pBufferOut   Output, SealedSize(nBytes) bytes
@@ -162,6 +193,39 @@ P2PeerioGcm::Encrypt ( const char *pcBufferIn, char *pBufferOut, int nBytes
 {
     if ( !m_bKeyed || pcBufferIn == 0 || pBufferOut == 0 || nBytes < 0 )
       return FALSE;
+
+    //  THE NONCE BUDGET.  One fetch_add and one comparison against the value
+    //  it returned, so two senders cannot both read the same count and both
+    //  pass - the same reasoning the accept bounds were fixed under on
+    //  2026-09-17, where reading a bound twice let a setter land between the
+    //  reads.  No more than the ceiling can ever be admitted.
+    //
+    //  The count keeps rising after the ceiling, on refusals as well, and
+    //  that is deliberate: it costs nothing, it cannot wrap in any reachable
+    //  lifetime, and it lets the diagnostic say how far past the line the
+    //  caller has gone rather than only that it crossed it.
+    const unsigned long long uCeiling = m_uSealCeiling.load ( );
+    const unsigned long long uPrev    = m_uSealCount.fetch_add ( 1 );
+    if ( uPrev >= uCeiling )
+    {
+      //  ONCE, at the crossing.  A dropped link retries, and a diagnostic
+      //  per retry would bury the one line that explains the drop.  Cancel
+      //  rather than Display: Display neither disposes the event nor hands
+      //  it to anybody who will, which is the leak recorded against the
+      //  image-generation gate on 2026-08-21.
+      if ( uPrev == uCeiling )
+        EVERR->MODULE
+             ->Message ( "AES-256-GCM send key has reached its %llu seal "
+                         "budget and will not be used again"
+                       , (unsigned long long)uCeiling )
+             ->Advice_T ( "The 96-bit random nonce bounds a key at 2^32 seals "
+                          "(NIST SP 800-38D 8.3); past it a nonce collision "
+                          "is no longer negligible and would expose the GHASH "
+                          "subkey. Re-key the connection - drop it and let it "
+                          "re-establish - rather than raising the ceiling." )
+             ->Cancel ( true );
+      return FALSE;
+    }
 
     size_t cbOut = 0;
     if ( !m_oGcmSend.Seal ( (const unsigned char *)pcBufferIn, (size_t)nBytes
