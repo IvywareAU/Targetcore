@@ -24,7 +24,7 @@ told so and the collision risk gets sorted out before you start.
 
 ## Reporting a bug
 
-[**Open a bug report →**](../../issues/new)
+[**Open a bug report →**](../../issues/new?template=bug_report.yml)
 
 Concurrency and lifetime defects dominate this codebase — [BUGFIXES.md](BUGFIXES.md) is three worked
 examples of exactly that shape. A report that says **which thread** is worth ten that do not.
@@ -55,7 +55,7 @@ the contract is satisfied and it still fails; say which of the four bindings bro
 
 ## Sending feedback
 
-[**Open a feedback issue →**](../../issues/new)
+[**Open a feedback issue →**](../../issues/new?template=feedback.yml)
 
 Especially welcome:
 
@@ -122,6 +122,14 @@ nothing is worse than no job, and it would be a direct violation of the standard
 deletions off `master`. It is a local hook, not branch protection — install it with
 `git config core.hooksPath tools/hooks`, and read that README for what it does and does not
 guarantee.
+
+---
+
+## Code of conduct
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — the Contributor Covenant 2.1. Conduct reports go to
+`info@ivyware.com.au`, which is a different question from a bug and a different question again from
+a vulnerability; the file says so at the point it names the address.
 
 ---
 

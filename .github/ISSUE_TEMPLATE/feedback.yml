@@ -1,0 +1,60 @@
+name: Feedback
+description: The model, the API, the docs, a platform, a use case — anything that is not a defect report.
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Not for security vulnerabilities.** Follow
+        [SECURITY.md](https://github.com/IvywareAU/Targetcore/security/policy) and use the private
+        channel it names.
+
+        Want to change code? [CONTRIBUTING.md](https://github.com/IvywareAU/Targetcore/blob/master/CONTRIBUTING.md)
+        asks you to open an issue first and say what you intend — pull requests are not being
+        accepted unsolicited, because interfaces are still moving and a change is likely to collide
+        with something already in flight.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of feedback is this?
+      options:
+        - Does the model make sense? (addressing, the priority queue, the handler maps)
+        - API friction (the C++ surface, or the flat C surface in Targetcore_c.h)
+        - Docs that lie (a comment, table or grammar describing something the code does not do)
+        - Platform report (built it somewhere the README does not list)
+        - Use case (especially serial or DMX — those are lightly exercised)
+        - I want to change some code, and I am saying what I intend first
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: body
+    attributes:
+      label: Tell us
+      description: |
+        Especially welcome, and why:
+
+        - **Does the model make sense?** If the mental model did not land from the README, that is a
+          documentation defect and we want it.
+        - **API friction.** FFI reports especially — the C surface exists for consumers we cannot
+          see, so friction there is invisible to us until someone says so.
+        - **Docs that lie.** The most valuable report you can send, because it is the one class of
+          defect that can lead someone into a bad deployment decision. The `VNetname:` qualifier was
+          found exactly this way.
+        - **Use cases.** If you are driving hardware with this, your experience shapes where the
+          work goes next.
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: >
+        For a docs report: the file and the line or heading. For API friction: the call or the
+        header. For a platform report: the platform and toolchain.
+      placeholder: Readme.md, "Addressing" table, row 3
+    validations:
+      required: false

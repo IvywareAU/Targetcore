@@ -1,0 +1,22 @@
+# Left TRUE deliberately. CONTRIBUTING.md says "Not a bug and not quite feedback? Open an issue
+# anyway -- the tracker is the front door", and turning blank issues off would contradict the
+# policy this repository publishes.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security vulnerability — do NOT open an issue
+    url: https://github.com/IvywareAU/Targetcore/security/policy
+    about: >
+      The tracker is public, and a report here discloses the flaw before there is a fix. The policy
+      names a private channel, says what to include, and states what to expect back and when.
+
+  - name: Build cannot find Msgcore, Platform or WDMSCS_LIB
+    url: https://github.com/IvywareAU/Targetcore/blob/master/Readme.md#building
+    about: >
+      Msgcore is a sibling directory, not a submodule, and it carries the Platform shim layer.
+      WDMSCS_LIB is an environment variable. The build section documents the contract in full,
+      including which of the four distinct bindings fails in which way — please read it first.
+
+  - name: Documentation
+    url: https://ivyware.com.au/targetcore/
+    about: Architecture, the object model, the security posture and the worked examples.

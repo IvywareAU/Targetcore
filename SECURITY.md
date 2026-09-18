@@ -696,13 +696,15 @@ Use **GitHub's private vulnerability reporting** instead:
 
 > Repository → **Security** tab → **Report a vulnerability**
 
-<!-- OPTIONAL: uncomment and fill in if you want a mail channel as well.
-If GitHub private reporting is not available to you, email:
+If GitHub private reporting is not available to you — or the button is not there — email:
 
-    security@<your-domain>
+> **info@ivyware.com.au**
 
-PGP key: <fingerprint or link>, if you have one.
--->
+with `SECURITY` in the subject line. This is the same address the
+[contact page](https://ivyware.com.au/contact.html) publishes, and it is a general mailbox rather
+than a dedicated security one: say so in the subject or the first line, because that is what routes
+it. There is no PGP key. If you need to send something you would rather not put in cleartext mail,
+say so without the detail and you will be given somewhere to put it.
 
 ### What to include
 
@@ -738,7 +740,7 @@ This is a small, unfunded project. These are honest targets, not a contractual S
 - The end-to-end seal and the identity/allow-list storage
 - Memory-safety defects: overflow, use-after-free, type confusion, integer overflow
 - Concurrency defects with a security consequence
-- The flat C ABI (`Targetcore_c.h` and its `_u8` twins) — **93** entry points exported from the
+- The flat C ABI (`Targetcore_c.h` and its `_u8` twins) — **101** entry points exported from the
   DLL/`.so`, restored to this repository on 2026-08-14, and enumerated since 0.10.0 in
   [`.github/ci/abi-flat.manifest`](.github/ci/abi-flat.manifest) with two checks that keep the
   count honest. This said **74** until 2026-08-20 — the

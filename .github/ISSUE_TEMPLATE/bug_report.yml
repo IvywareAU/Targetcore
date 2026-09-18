@@ -1,0 +1,120 @@
+name: Bug report
+description: Something built, ran or routed in a way it should not have.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Not for security vulnerabilities.** A flaw with a security consequence does not go in a
+        public issue — follow [SECURITY.md](https://github.com/IvywareAU/Targetcore/security/policy)
+        and use the private channel it names.
+
+        Concurrency and lifetime defects dominate this codebase — [BUGFIXES.md](https://github.com/IvywareAU/Targetcore/blob/master/BUGFIXES.md)
+        is three worked examples of exactly that shape. **A report that says which thread is worth
+        ten that do not.**
+
+  - type: checkboxes
+    id: build-contract
+    attributes:
+      label: Before you file a build failure
+      description: >
+        The single most common inbound report is a build that cannot find `Msgcore`, or the
+        `Platform` shim layer inside it. `Msgcore` is a **sibling directory, not a submodule**, and
+        since 2026-09-03 it carries `Platform\`. `WDMSCS_LIB` is an environment variable. The
+        README's build section documents the contract in full, including which of the four distinct
+        bindings fails in which way.
+      options:
+        - label: >
+            This is not a build failure — or it is, and I have read
+            [the build section](https://github.com/IvywareAU/Targetcore/blob/master/Readme.md#building)
+            and the contract is satisfied and it still fails.
+          required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        I called ...
+        I expected ...
+        Instead ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: build-identity
+    attributes:
+      label: Build identity
+      description: >
+        Configuration and platform, toolset, OS version, and whether you built the `.vcxproj` or
+        CMake. A green test run is evidence about a binary, not about a source tree — this is how we
+        find out which binary.
+      value: |
+        - Configuration | platform: Release|x64
+        - Toolset:
+        - OS version:
+        - Built with: .vcxproj / CMake
+        - Commit or version:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - P2PeerConWsa (TCP)
+        - P2PeerConPipe (named pipes)
+        - P2PeerCon232 (RS-232)
+        - P2PeerConDmx (Direct Memory eXchange)
+        - More than one — said below
+        - Not transport-specific / don't know
+    validations:
+      required: true
+
+  - type: textarea
+    id: addresses
+    attributes:
+      label: Addresses and message ids
+      description: >
+        The hub addresses involved and the message ids in play. Routing bugs are almost always an
+        addressing story.
+      placeholder: |
+        Root.Server, Root.Server.Client2
+        MSG_...
+    validations:
+      required: false
+
+  - type: textarea
+    id: handler-trace
+    attributes:
+      label: Handler trace
+      description: If you have it. It pins down where the state machine stopped.
+      placeholder: On_ConStartup → On_ConConnect → …
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: crash-or-leak
+    attributes:
+      label: For a crash, or for a leak
+      description: >
+        **Crash:** the call stack, and whether the pump thread or the caller's thread was on it.
+        **Leak:** the CRT leak dump, and whether teardown ran `CloseHub()` before `CleanupP2Pmsg()`.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Commands you ran, and their output
+      description: >
+        A claim about behaviour backed by a command that was run is worth far more than a diagnosis.
+        You are not being asked to meet this project's own evidence standard in a bug report — but
+        if you send a diagnosis without one, this is what will be asked for.
+      render: text
+    validations:
+      required: false
