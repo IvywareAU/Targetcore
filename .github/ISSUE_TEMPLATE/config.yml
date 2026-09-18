@@ -1,6 +1,27 @@
-# Left TRUE deliberately. CONTRIBUTING.md says "Not a bug and not quite feedback? Open an issue
-# anyway -- the tracker is the front door", and turning blank issues off would contradict the
-# policy this repository publishes. something_else.md gives that case a shape without closing the
+# WHY THERE IS A .md TEMPLATE BESIDE TWO .yml FORMS, and a correction to the commit that added
+# it (aca2e9c), whose message got the reason wrong.
+#
+# something_else.md exists on its merits: CONTRIBUTING.md ends its feedback section with "Not a
+# bug and not quite feedback? Open an issue anyway -- the tracker is the front door", and until
+# it was added that person got a blank box.
+#
+# It ALSO ticks the "Issue templates" row on /community, which two YAML forms alone do not.
+# Measured 2026-09-18, on the rendered page rather than the API: vercel/next.js carries .yml
+# forms and no Markdown, and that row is UNTICKED there; this repository's went ticked when the
+# .md landed.
+#
+# What aca2e9c's message claimed -- that the community HEALTH PERCENTAGE does not count YAML
+# forms, and that a Markdown template is the only thing that moves it -- is WRONG. The metric
+# does not count issue templates in any format. Its eight items are description, README, code of
+# conduct, contributing, license, security policy, pull request template, and "repository admins
+# accept content reports"; the last is a repository SETTING, not a file, and it is what the
+# missing 13% was the whole time. Fits five measured repositories exactly, this one twice.
+#
+# The distinction that matters to a maintainer reading this later: the PAGE ROW and the
+# PERCENTAGE are two different things, and only the page row is evidence about templates.
+#
+# blank_issues_enabled is left TRUE deliberately. Turning it off would contradict the sentence in
+# CONTRIBUTING.md quoted above. something_else.md gives that case a shape without closing the
 # blank box behind it: a prompt is help, and a required form for a question nobody has named yet
 # is an obstacle.
 blank_issues_enabled: true
