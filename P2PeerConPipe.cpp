@@ -811,13 +811,29 @@ P2PeerConPipe::OnAccept ( )
     //        deliberately so - a pipe instance is peer by construction, so a
     //        per-source share would divide a share of one.  Refer
     //        P2PeerCon.h:226-230
+    //      : AND THE HANDLE IS NOT THE ONLY THING THAT GOES WITH IT.  The
+    //        first draft of the Linux drop closed m_hFile and nulled it and
+    //        stopped there, leaving m_hFileCPort holding the association of a
+    //        file that no longer exists.  The re-arm then reached the tail of
+    //        CreateListenPipe(), where CreateIOCP() refuses outright on a
+    //        non-zero m_hFileCPort - "IOCP already created", P2PeerCon.cpp:426
+    //        - and THREW, inside accept processing, so the listener was never
+    //        rebuilt.  That reads exactly like a refusal that works, for as
+    //        long as nobody knocks again, which is the thing p2p_pipecap
+    //        phase 3 exists to tell apart: it saw the third client's open
+    //        refused and the count back at 0, on the Linux gate, 2026-09-21
+    //      : Every other place this transport drops a handle clears all three
+    //        together - Drop() and OnClose() - and the comment there is the
+    //        one that belongs here: the fact goes with the handle
     if ( AcceptAtCapacity ( ) )
     {
 #ifdef _WIN32
       DisconnectNamedPipe ( m_hFile );
 #else
       CloseHandle ( m_hFile );
-      m_hFile = 0;
+      m_hFile      = 0;
+      m_hFileCPort = 0;
+      m_bPipeLocal = false;
 #endif
       if ( IsEVTRC )
         EVTRC->Module (L"%hs[%s]", __FUNCTION__
