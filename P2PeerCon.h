@@ -313,8 +313,14 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       virtual OVERLAPPEDcon*
         DropOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon
                        , bool bNotify = true );
+      // hrPost is the completion's OWN status, and it has to be PASSED
+      // rather than assigned by the caller beforehand: prepareOVERLAPPED()
+      // sets hr = S_OK and PostOVERLAPPED() calls it, so an hr written before
+      // the post is erased by it.  Defaulted, so every caller that posts a
+      // success is unchanged.  Refer P2PeerCon::PostOVERLAPPED
       void
-        PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon );
+        PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon
+                       , HRESULT        hrPost = S_OK );
       void
         prepareOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon );
       void

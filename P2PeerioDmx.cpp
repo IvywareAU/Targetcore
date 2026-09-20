@@ -93,10 +93,19 @@ P2PeerioDmx::SendP2PeerMsg ( HANDLE hFile
     // NOTES: Confirm interface is operational.  Specialisation is
     //        thread safe mechanism to monitor other side.  Must be
     //        protected by above critical section
+    //  A SEND TO A DEPARTED PEER MUST FAIL, and until 2026-09-21 it
+    //  reported success.  GetUDState() is m_pConThat on this transport
+    //  (P2PeerConDmx.cpp:961-963), so zero means the peer is gone.  The
+    //  abort was written into hr and then erased by PostOVERLAPPED, which
+    //  calls prepareOVERLAPPED, which assigns S_OK - so the completion
+    //  arrived as a SUCCESS and the send branch treats a success as
+    //  DELIVERED: it deletes the message (P2PeerCon.cpp:695).  A message
+    //  handed to a peer that no longer exists was therefore destroyed and
+    //  reported sent.  Passing the status routes it to the send failure
+    //  branch instead (:764-770), which drops the connection.
     if ( m_pCon->GetUDState() == 0 )
     {
-      pOVERLAPPEDsend -> hr = ERROR_OPERATION_ABORTED;
-      m_pCon -> PostOVERLAPPED ( pOVERLAPPEDsend );
+      m_pCon -> PostOVERLAPPED ( pOVERLAPPEDsend, ERROR_OPERATION_ABORTED );
       return 0;
     }
 
@@ -174,6 +183,28 @@ P2PeerioDmx::RecvP2PeerMsg ( HANDLE hFile
     // NOTES: Confirm interface is operational.  Specialisation is
     //        thread safe mechanism to monitor other side.  Must be
     //        protected by above critical section
+    //  THIS STILL POSTS A SUCCESS, AND THAT IS DELIBERATE - it is the recv
+    //  half of the defect the send path above had, left in place on a
+    //  measurement rather than on an oversight.
+    //      : The defect is identical.  hr is assigned BEFORE PostOVERLAPPED,
+    //        which calls prepareOVERLAPPED, which assigns hr = S_OK
+    //        (P2PeerCon.cpp:1203) - so the abort is erased by the post it is
+    //        written for, and a read armed against a departed peer completes
+    //        as a SUCCESS carrying zero bytes.  On this transport that is
+    //        indistinguishable from an arming post (P2PeerCon.cpp:502-512),
+    //        so the connection re-arms instead of closing.
+    //      : The fix is one line - PostOVERLAPPED ( p, ERROR_OPERATION_ABORTED )
+    //        the way SendP2PeerMsg above now does it - AND IT BREAKS TEARDOWN.
+    //        Measured 2026-09-21: with this half fixed as well, p2pweb_w6
+    //        SEGFAULTs after its last assertion.  p2pweb wires its hub chain
+    //        with P2PeerConDmx (WebChainBuilder.cpp:477), a recv is re-armed
+    //        constantly while a chain comes down, and turning a silent re-arm
+    //        into a connection drop reorders the whole shutdown.  One failure
+    //        in the first run with both halves fixed; five clean runs with the
+    //        send half alone.
+    //      : So it goes with the teardown work, not with the send fix.
+    //        OpenCodeWork.md item 7.  p2p_dmxdead gates the send half only and
+    //        its header says so.
     if ( m_pCon->GetUDState() == 0 )
     {
       pOVERLAPPEDrecv -> hr = ERROR_OPERATION_ABORTED;

@@ -1141,8 +1141,25 @@ ASSERT(AfxCheckMemory());
 //
 //  Parameters:  OVERLAPPEDcon *pOVERLAPPEDcon
 //               Object to be posted
+//               HRESULT hrPost
+//               Status the completion carries.  S_OK - the default, and every
+//               caller that arms a read or announces data - posts a success.
+//               An error posts a FAILED completion, which routes the
+//               connection through On_QueuedCompletionStatus's failure branch.
+//  NOTES: THE STATUS MUST BE PASSED, NOT PRE-ASSIGNED, and until 2026-09-21
+//         every caller in the tree pre-assigned it.  prepareOVERLAPPED() sets
+//         hr = S_OK unconditionally and runs INSIDE this function, so the four
+//         sites that wrote
+//           pOVERLAPPED -> hr = ERROR_OPERATION_ABORTED;
+//           PostOVERLAPPED ( pOVERLAPPED );
+//         all posted a SUCCESS.  Measured by printing hr at the completion and
+//         reading 0x00000000 where the abort had been written one line above.
+//         All four are DMX; the other transports let the kernel report their
+//         errors, which is why nothing else ever exposed it.
+//         OpenCodeWork.md item 7.
 void
-P2PeerCon::PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon )
+P2PeerCon::PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon
+                          , HRESULT        hrPost )
 {
     // Contract: the buffer must NOT already be in-flight.  A still-queued
     // buffer at this point is a double-post bug upstream, not a timing race:
@@ -1166,7 +1183,9 @@ P2PeerCon::PostOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon )
            ->Throw();
             
     // Implementation
+    // NOTES: hrPost is applied AFTER prepareOVERLAPPED, which resets it
     prepareOVERLAPPED ( pOVERLAPPEDcon );
+    pOVERLAPPEDcon -> hr = hrPost;
 if(pOVERLAPPEDcon!=m_pOVERLAPPEDsend&&
    pOVERLAPPEDcon!=m_pOVERLAPPEDrecv&&
    pOVERLAPPEDcon!=m_pOVERLAPPEDaccept&&
