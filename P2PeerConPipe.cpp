@@ -277,6 +277,46 @@ P2PeerConPipe::AcceptSpawn ( P2PeerCon *pConSpawn )
     pConSpawnPipe -> m_sPipeSddl   = m_sPipeSddl;
     pConSpawnPipe -> m_bPipeRearm  = true;
 
+    // Accept admission control, PUT BACK THE RIGHT WAY ROUND
+    // NOTES: THE BASE'S ASSIGNMENT IS CORRECT FOR EVERY TRANSPORT WHOSE SPAWN
+    //        IS THE CHILD, AND BACKWARDS FOR THIS ONE.  P2PeerCon::AcceptSpawn
+    //        zeroes the spawn's cap and marks the spawn as one of the counted
+    //        children, because on P2PeerConWsa the spawn IS the accepted
+    //        connection and the service is left alone.  Here the roles swap -
+    //        refer the note above - so the base has just zeroed the cap on the
+    //        object that will evaluate it for the NEXT client, and pinned the
+    //        slot to the object that is about to hold the listener.
+    //      : What that cost, measured rather than reasoned about
+    //        (p2p_pipecap, 2026-09-20):
+    //        - the CAP survived exactly one accept.  SetMaxAccepted(n) on a
+    //          pipe service bound the first client and nothing after it,
+    //          because from the second accept onwards AcceptAtCapacity() was
+    //          being asked of a service whose m_xMaxAccepted was 0
+    //        - the COUNT was off by one permanently, and in the direction that
+    //          never frees.  The increment landed on the SERVICE, which is not
+    //          destroyed while it is serving, so the first client's departure
+    //          gave nothing back.  A cap of 1 would have admitted one client
+    //          for the lifetime of the process
+    //      : Only the ATTRIBUTION moves.  The base's fetch_add is right in
+    //        number - one accept, one slot - and is deliberately neither
+    //        repeated nor undone here
+    //      : The per-source pair moves with it although AcceptSourceKey() is 0
+    //        on this transport and the bound therefore applies to nothing
+    //        (P2PeerCon.h:226-230).  Leaving one half of a pair swapped and
+    //        the other not is how the next reader of this function gets it
+    //        wrong.  m_xAcceptSource needs no move for the same reason it
+    //        needs no clear: with a zero key the base stored 0 into it and
+    //        took no per-source slot
+    //      : READ BEFORE ZEROED.  this->m_xMaxAccepted is the source of the
+    //        value being handed on, so the store into THIS has to come second
+    pConSpawnPipe -> m_xMaxAccepted          . store ( m_xMaxAccepted.load ( ) );
+    pConSpawnPipe -> m_xMaxAcceptedPerSource . store ( m_xMaxAcceptedPerSource
+                                                         .load ( ) );
+    pConSpawnPipe -> m_bAcceptCounted        = false;
+             this -> m_xMaxAccepted          . store ( 0 );
+             this -> m_xMaxAcceptedPerSource . store ( 0 );
+             this -> m_bAcceptCounted        = true;
+
     // Done
     // NOTES: Spawned object is free floating
     return pConSpawn;
@@ -488,10 +528,34 @@ P2PeerConPipe::CreateListenPipe ( )
     void                *pSA = NULL;
 #endif
 
+    // Maximum number of instances
+    // NOTES: WAS A LITERAL 2 until 2026-09-20, and that number bounded this
+    //        transport in place of the policy that is supposed to.  It is
+    //        OpenCodeWork.md item 2's "a documented bound that does not
+    //        bound", and what SetMaxAccepted() now does is what it claimed to
+    //        do all along
+    //      : THE LITERAL WAS NOT WORTH 2 CLIENTS, IT WAS WORTH ONE.  This
+    //        transport must hold a spare LISTENING instance at all times: the
+    //        accepted connection keeps the instance it was accepted on, and
+    //        the spawned service re-arms on a fresh one.  So n instances serve
+    //        n-1 clients, and the second client's re-arm failed ERROR_PIPE_BUSY
+    //        (231) out of this very call - inside accept processing, where the
+    //        throw took the process with it.  Measured, not read:
+    //        p2p_pipecap --uncapped, 2026-09-20
+    //      : WHAT THIS WIDENS, stated rather than buried.  A service that sets
+    //        no cap went from one concurrent client to 255.  That is the
+    //        correct direction only because the refusal above it now exists -
+    //        P2PeerConPipe::OnAccept() consults AcceptAtCapacity() and drops
+    //        the client cleanly - and a deployment that wants the old number
+    //        asks for it in the one place that means it: SetMaxAccepted(1)
+    //      : Ignored on the Linux mapping, which has no instance notion and
+    //        listens with a backlog of 8 (Platform/p2psock.h:404).  So this
+    //        line was never the bound there and the two platforms only now
+    //        agree on what bounds them
     m_hFile = CreateNamedPipe ( m_sPipename
                               , dwOpenMode
                               , dwPipeMode
-                              , 2                    // maximum number of instances
+                              , PIPE_UNLIMITED_INSTANCES
                               , 64000              // output buffer size
                               , 64000              // input buffer size
                               , 1000                 // time-out interval
@@ -702,6 +766,68 @@ P2PeerConPipe::OnAccept ( )
                     , m_eP2PeerConMode )
            ->Advice (L"Bug (SNHappen)" )
            ->Throw  ( );
+
+    // Accept admission control (OpenCodeWork.md item 2)
+    // NOTES: SetMaxAccepted() was enforced in P2PeerConWsa alone until
+    //        2026-09-19, so this transport was bounded only by the literal 2
+    //        handed to CreateNamedPipe as nMaxInstances - a number it does not
+    //        own and cannot be asked about.  The DECISION has always been on
+    //        the base (AcceptAtCapacity, P2PeerCon.h:255); what was missing is
+    //        this call.  P2PeerCon.h:237-238 says why it has to be made here
+    //        rather than there: "the refusal itself is transport-specific,
+    //        because only the transport knows how to discard a half-accepted
+    //        endpoint".
+    //      : BEFORE the swap below, deliberately.  AcceptSpawn() is what turns
+    //        THIS into the accepted connection and hands the service role to a
+    //        new instance; refusing afterwards would mean unwinding that.
+    //        Refused here, THIS is still the SERVICE and has simply not
+    //        produced a child.
+    //      : Returning NULL is already handled by the caller and needs no
+    //        change there.  P2PeerTarget::On_ConAccept seeds pConService with
+    //        the listener (:2469) and only swaps if the listener MORPHED
+    //        (:2471) - which it has not - so the accepted-client block at
+    //        :2481 is skipped, no login deadline is armed for a connection
+    //        that does not exist, and :2516 re-arms THIS with Accept().
+    //      : THE DROP IS NOT THE SAME CALL ON BOTH PLATFORMS, and writing it
+    //        as though it were is a bug this comment exists to stop being
+    //        reintroduced.  On Windows m_hFile is the pipe INSTANCE and
+    //        ConnectNamedPipe leaves it alone, so DisconnectNamedPipe returns
+    //        it to the disconnected state and the re-arm's ConnectNamedPipe
+    //        has something to wait on.  On Linux the shim MORPHS the handle:
+    //        ConnectNamedPipe closes the listen socket and puts the accepted
+    //        fd in its place (Platform/p2psock.h:432), and
+    //        DisconnectNamedPipe is a no-op returning TRUE (:434).  So the
+    //        Windows call would leave the client connected AND leave m_hFile
+    //        holding a connected socket that Accept() would then try to
+    //        accept() on.  Closing it and nulling it is the Linux drop, and
+    //        Accept()'s `if (!m_hFile) CreateListenPipe()` rebuilds the
+    //        listener - CreateNamedPipeW unlinks the stale socket path before
+    //        it binds (:412), so the rebind is clean
+    //      : Worth recording while here: that shim ignores nMaxInstances
+    //        entirely and listens with a backlog of 8, so the "cap of 2" this
+    //        transport was said to have is a WINDOWS-only accident.  On Linux
+    //        the pipe transport had no accept bound of any kind before this
+    //      : NOT per-source.  AcceptSourceKey() is 0 for this transport and
+    //        deliberately so - a pipe instance is peer by construction, so a
+    //        per-source share would divide a share of one.  Refer
+    //        P2PeerCon.h:226-230
+    if ( AcceptAtCapacity ( ) )
+    {
+#ifdef _WIN32
+      DisconnectNamedPipe ( m_hFile );
+#else
+      CloseHandle ( m_hFile );
+      m_hFile = 0;
+#endif
+      if ( IsEVTRC )
+        EVTRC->Module (L"%hs[%s]", __FUNCTION__
+                      , GetP2PaddrHub().c_wstr() )
+             ->Message(L"Accept refused, at capacity %i"
+                      , m_xMaxAccepted.load ( ) )
+             ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
+             ->Cancel ( );
+      return NULL;
+    }
 
     // Spawn accepted P2PeerCon
     // NOTES: Effectively the roles are swapped, service becomes
