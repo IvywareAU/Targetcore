@@ -583,6 +583,86 @@ P2PeerConDmx::OnAccept ( )
     if ( m_pConThat == NULL )
       return 0;
 
+    // Accept admission control (OpenCodeWork.md item 2, DMX half)
+    // NOTES: SetMaxAccepted() was enforced in P2PeerConWsa alone until
+    //        2026-09-19 and in P2PeerConPipe from 2026-09-20; this transport
+    //        had no accept bound of any kind, documented or accidental.  The
+    //        DECISION has always been on the base (AcceptAtCapacity,
+    //        P2PeerCon.h:255); what was missing is this call.  P2PeerCon.h:237
+    //        -238 says why it has to be made here rather than there: "the
+    //        refusal itself is transport-specific, because only the transport
+    //        knows how to discard a half-accepted endpoint".
+    //      : AND ON THIS TRANSPORT THERE IS NOTHING TO DECLINE - only
+    //        something to DETACH, which is why this is longer than the Wsa
+    //        and pipe refusals put together.  Wsa is asked before it adopts
+    //        the socket.  Here the CLIENT does the latching: Connect() walks
+    //        g_oCListP2PeerConDmx for a SERVICE whose m_sServiceName matches,
+    //        writes BOTH back-pointers itself, and only then posts this
+    //        object's accept OVERLAPPED (:788-813).  So by the time this runs
+    //        the client is already attached, and a refusal that just returned
+    //        NULL would leave it attached to a service that will never
+    //        complete it - a hang, not a refusal.
+    //      : THE DETACH IS OnClose()'s SEQUENCE AND IS COPIED FROM IT rather
+    //        than reinvented: clear this side's pointers BEFORE the nested
+    //        Drop so it cannot recurse back in, verify the peer still points
+    //        at us, clear its side, then Drop(0) to complete its outstanding
+    //        IO with ERROR_OPERATION_ABORTED and route it through its own
+    //        close handling.  g_oCSectP2PeerConDmx is reentrant, so the
+    //        nested re-acquire inside Drop() is safe - the same note
+    //        OnClose() carries at :862-865.
+    //      : THE CONSUMED ACCEPT MUST BE DROPPED HERE, and forgetting it
+    //        turns a refusal into a dead service.  On the normal path
+    //        AcceptSpawn() does it (:246-247); the tail of
+    //        P2PeerTarget::On_ConAccept then re-arms unconditionally with
+    //        Accept() (:2516-2517), and P2PeerConDmx::Accept() THROWS "Duplicate
+    //        accepts attempted on single connection" if either m_pConThat or
+    //        m_pOVERLAPPEDaccept survived (:546-553).  Refusing without this
+    //        line would refuse the second client and every client after it.
+    //      : NOT per-source.  AcceptSourceKey() is 0 for this transport and
+    //        deliberately so - an in-process link is peer by construction, so
+    //        a per-source share would divide a share of one.  Refer
+    //        P2PeerCon.h:226-230
+    //      : NO ATTRIBUTION FIX IS NEEDED BELOW, unlike the pipe, and this
+    //        was measured rather than reasoned.  P2PeerConPipe morphs - its
+    //        spawn becomes the next SERVICE - so P2PeerCon::AcceptSpawn's
+    //        "zero the spawn's cap, count the slot on the spawn" is backwards
+    //        there.  This AcceptSpawn hands m_pConThat/m_hFile/m_hFileCPort
+    //        TO the spawn (:261-266), so the spawn really is the accepted
+    //        connection, the base's attribution is right, and p2p_dmxcap's
+    //        third phase says so: the slot comes back when the client leaves
+    if ( AcceptAtCapacity ( ) )
+    {
+      // Detach the client the CLIENT attached
+      {
+        P2PsafeCS     oSafeCS  = g_oCSectP2PeerConDmx;
+        P2PeerConDmx *pConThat = m_pConThat;
+                                 m_pConThat   = 0;
+                                 m_hFile      = 0;
+                                 m_hFileCPort = 0;
+        if ( pConThat                     &&
+             pConThat->m_pConThat == this    )
+        {
+          pConThat -> m_pConThat   = 0;
+          pConThat -> m_hFile      = 0;
+          pConThat -> m_hFileCPort = 0;
+          pConThat -> Drop ( 0 );
+        }
+      }
+
+      // Leave the re-arm something to arm
+      if ( m_pOVERLAPPEDaccept )
+        m_pOVERLAPPEDaccept = DropOVERLAPPED ( m_pOVERLAPPEDaccept );
+
+      if ( IsEVTRC )
+        EVTRC->Module (L"%hs[%s]", __FUNCTION__
+                      , GetP2PaddrHub().c_wstr() )
+             ->Message(L"Accept refused, at capacity %i"
+                      , m_xMaxAccepted.load ( ) )
+             ->Advice_T("Raise P2PeerCon::SetMaxAccepted(), or 0 to unbound")
+             ->Cancel ( );
+      return 0;
+    }
+
     // Delegate
     // NOTES: Spawns an object to actually manage the collection which
     //        in turn releases this object to accept additional connections
