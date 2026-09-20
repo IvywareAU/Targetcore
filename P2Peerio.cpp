@@ -1196,12 +1196,22 @@ P2Peerio::SetP2PeventFParams ( LPCTNAM lpszVar )
     if ( m_pCon )
     {
       P3PmsgItem oNodeCon = oNodeVar.r_Desc().PushBack ( P3PmsgItem(L"m_pCon") );
+      //  BOTH of these read GetP2PaddrHub() until 2026-09-19, so the dump
+      //  reported the LOCAL hub address under both names and the peer address
+      //  appeared nowhere in it. GetP2Paddress() is the accessor for the other
+      //  end - it returns m_oThatP2Paddr (P2PeerCon.cpp:5150) - and the peer
+      //  address is the field the source-binding gate keys on, so the one tool
+      //  for debugging that gate could not see the value it turns on.
       oNodeCon += P3PmsgField ( L"m_oThisP2Paddr", DataWSTR16(m_pCon->GetP2PaddrHub().c_wstr()) );
-      oNodeCon += P3PmsgField ( L"m_oThatP2Paddr", DataWSTR16(m_pCon->GetP2PaddrHub().c_wstr()) );
+      oNodeCon += P3PmsgField ( L"m_oThatP2Paddr", DataWSTR16(m_pCon->GetP2Paddress().c_wstr()) );
       oNodeCon += P3PmsgField ( L"m_nP2PconID", P3PmsgData(m_pCon->m_nP2PconID) );
     }
+    //  m_dwMaxSendSize likewise reported m_dwMaxRecvSize. A serialiser whose
+    //  whole job is to report state accurately carried two copy-paste slips
+    //  four lines apart, and neither could ever fail a test: a dump that is
+    //  wrong still parses.
     oNodeVar += P3PmsgField( L"m_dwMaxRecvSize",P3PmsgData(m_dwMaxRecvSize));
-    oNodeVar += P3PmsgField( L"m_dwMaxSendSize",P3PmsgData(m_dwMaxRecvSize));
+    oNodeVar += P3PmsgField( L"m_dwMaxSendSize",P3PmsgData(m_dwMaxSendSize));
     oNodeVar += P3PmsgField( L"m_bEncrypted",P3PmsgData(m_bEncrypted));
 
     // Tidy up and
