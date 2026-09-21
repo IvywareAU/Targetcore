@@ -93,7 +93,10 @@ jobs:
   # ---------------------------------------------------------------------------
   invariants:
     name: repository invariants (no compiler)
-    runs-on: ubuntu-latest
+    # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
+    # (actions/runner-images#14748); a label that changes the image under a
+    # green tick changes what the tick means, without a commit to notice.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -119,7 +122,10 @@ jobs:
   # ---------------------------------------------------------------------------
   crypto-selftest:
     name: crypto core self-test (OpenSSL backend, 4 of 30 TUs)
-    runs-on: ubuntu-latest
+    # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
+    # (actions/runner-images#14748); a label that changes the image under a
+    # green tick changes what the tick means, without a commit to notice.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 

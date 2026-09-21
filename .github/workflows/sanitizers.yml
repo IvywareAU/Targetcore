@@ -427,7 +427,10 @@ jobs:
 
   linux-sanitizers:
     name: Linux / GCC + ASan+UBSan+LSan
-    runs-on: ubuntu-latest
+    # Pinned, for the reason spelled out on the TSan leg below: what a sanitiser
+    # reports is a property of its toolchain, and `ubuntu-latest` migrates to
+    # Ubuntu 26 on 2026-10-19 (actions/runner-images#14748).
+    runs-on: ubuntu-24.04
     steps:
       - name: Preflight - can the cross-repository token actually reach the siblings?
         shell: bash
@@ -570,7 +573,14 @@ jobs:
 
   linux-tsan:
     name: Linux / GCC + TSan (pump/hub race gate)
-    runs-on: ubuntu-latest
+    # Pinned, and this is the pin that matters most. `ubuntu-latest` migrates to
+    # Ubuntu 26 on 2026-10-19 (actions/runner-images#14748). What a sanitiser
+    # reports is a property of the GCC and libstdc++ it was built against, not
+    # of the source alone -- this leg is the one that found the closed pipe
+    # handle whose completion port survived it -- and a leg that goes quiet
+    # after a toolchain change looks exactly like a leg with nothing to report.
+    # Moving to 26 is a decision with a run behind it, not a date that passes.
+    runs-on: ubuntu-24.04
     steps:
       - name: Preflight - can the cross-repository token actually reach the siblings?
         shell: bash

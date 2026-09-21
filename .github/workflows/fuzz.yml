@@ -137,7 +137,10 @@ env:
 jobs:
   linux-fuzz:
     name: Linux / continuous fuzz
-    runs-on: ubuntu-latest
+    # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
+    # (actions/runner-images#14748); a label that changes the image under a
+    # green tick changes what the tick means, without a commit to notice.
+    runs-on: ubuntu-24.04
     steps:
       - name: Preflight - is the cross-repository token present?
         shell: bash

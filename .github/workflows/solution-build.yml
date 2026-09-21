@@ -358,7 +358,10 @@ jobs:
 
   linux:
     name: Linux / GCC (io_uring + OpenSSL)
-    runs-on: ubuntu-latest
+    # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
+    # (actions/runner-images#14748); a label that changes the image under a
+    # green tick changes what the tick means, without a commit to notice.
+    runs-on: ubuntu-24.04
     steps:
       # PRESENCE IS NOT REACH. This step used to test `[ -z "$TOKEN" ]` and
       # nothing else, and on 2026-08-19 it printed "ok  MSCS_SOLUTION_TOKEN
