@@ -249,7 +249,7 @@ jobs:
       # the ones where the step above failed.
       - name: Upload reproducers
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-repro-linux-${{ github.run_number }}
           path: mscs/fuzz-repro
@@ -363,7 +363,7 @@ jobs:
 
       - name: Upload reproducers
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-repro-windows-${{ github.run_number }}
           path: mscs/fuzz-repro

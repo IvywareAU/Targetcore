@@ -350,7 +350,7 @@ jobs:
 
       - name: Upload the ctest report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ctest-windows
           path: mscs/ctest-windows.xml
@@ -571,7 +571,7 @@ jobs:
 
       - name: Upload the ctest report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ctest-linux
           path: mscs/ctest-linux.xml
