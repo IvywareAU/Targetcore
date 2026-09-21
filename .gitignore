@@ -37,3 +37,17 @@ Targetcore Unfinished Work Register_files
 # kind of noise that trains people to ignore `git status`.
 __pycache__/
 *.pyc
+
+# CTest JUnit dumps. `--output-junit` is how both CI workflows record a run --
+# sanitizers.yml writes asan-windows.xml, asan-linux.xml and tsan-linux.xml,
+# solution-build.yml writes ctest-windows.xml and ctest-linux.xml -- and running
+# either command locally leaves the same file in the tree. probe2.xml, a single
+# p2p_armgate run from 2026-09-17, sat untracked in this root for four days and
+# through three pushes to master for exactly that reason. Same argument as the
+# __pycache__ note above. Listed by name rather than as *.xml, because nothing
+# in this repository is a tracked .xml today and a blanket rule would silently
+# swallow the first one that is.
+probe*.xml
+ctest-*.xml
+asan-*.xml
+tsan-*.xml
