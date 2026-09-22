@@ -237,6 +237,20 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      unittests_ref:
+        description: >-
+          Ref of MscsUnitTests (blank = its default branch). solution-build.yml
+          has had this since stage 1 step 3 and this file did not, which meant a
+          cross-repo change was STRUCTURALLY unverifiable under the sanitizers
+          before it merged: the push-triggered run takes MscsUnitTests at its
+          default branch, so a new or corrected test could not meet the library
+          it was written against until it was already on master. A harness data
+          race found by the TSan job on 2026-09-22 could not be shown fixed
+          without it, which is what finally bought the four lines.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -363,6 +377,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.UNITTESTS_REPO }}
+          ref: ${{ inputs.unittests_ref }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
       - name: Check out Targetcore into the solution
@@ -518,6 +533,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.UNITTESTS_REPO }}
+          ref: ${{ inputs.unittests_ref }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
       - name: Check out Targetcore into the solution
@@ -668,6 +684,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: ${{ env.UNITTESTS_REPO }}
+          ref: ${{ inputs.unittests_ref }}
           token: ${{ secrets.MSCS_SOLUTION_TOKEN }}
           path: mscs/MscsUnitTests
       - name: Check out Targetcore into the solution
