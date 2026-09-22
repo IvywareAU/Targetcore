@@ -470,6 +470,27 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
         SetP2Peerio ( P2Peerio *pP2Peerio );
       P2Peerio*
         GetP2Peerio ( );
+      //  STATE, AND WHICH THREAD MAY CALL WHICH. The rule used to be written
+      //  once, on the writer side, inside a function about something else.
+      //  Stated here because that is where a caller looks.
+      //    SetState  -- callable from ANY thread. The clear and the set are
+      //                 ONE transition, so no reader observes the word with
+      //                 dwRemove taken out and dwAdd not yet put in, and two
+      //                 concurrent callers compose instead of overwriting.
+      //                 Returns the value THIS call installed, which is a
+      //                 defined answer where re-reading the member is not.
+      //                 Convention still puts connection-state writes on the
+      //                 owning thread -- refer m_dwState - and that remains
+      //                 the right shape; this makes the exceptions defined
+      //                 rather than undefined.
+      //    GetState  -- ANY thread. A masked snapshot. Do not test it as a
+      //                 bool: it is true when ANY masked bit is set, which is
+      //                 what P2PeerHub's upcast gate got wrong.
+      //    HasState  -- ANY thread. ALL masked bits, which is the test you
+      //                 almost always want.
+      //  A snapshot is a snapshot on every one of them: the state may change
+      //  the instant after it is returned, and no accessor here can or should
+      //  pretend otherwise.
       DWORD
         SetState( DWORD dwAdd, DWORD dwRemove );
       DWORD
@@ -634,7 +655,18 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       OVERLAPPEDcon   *m_pOVERLAPPEDaccept;
       OVERLAPPEDcon   *m_pOVERLAPPEDconnect;
 
-      DWORD            m_dwState;
+      //  ATOMIC, and the reason is a measurement rather than a preference.
+      //  This word is WRITTEN on the IOCP thread that owns the connection --
+      //  the rule stated at P2PeerCon.cpp's P2PsigCon_WAKEUP note, which every
+      //  writer in this library obeys and which P2PeerWeb's WebGateHub cites
+      //  when it signals rather than dropping in place. It is READ from
+      //  anywhere: HasState() and GetState() are public, the relay loops in
+      //  P2PeerHub call them per connection per message, and an application
+      //  that wants to know when a connection is ready has no other way to
+      //  ask. Plain, that pairing is a data race by the memory model, and TSan
+      //  reported it on p2p_ucastgate -- write in SetState from a hub thread
+      //  against a read in HasState from main.
+      std::atomic<DWORD> m_dwState;
 
       PITimerID        m_uRestartTimerID;
       PITimerID        m_uLoginTimerID;

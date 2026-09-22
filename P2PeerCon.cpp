@@ -307,7 +307,7 @@ P2PeerCon::RenderThisSafe ( )
     //m_oThatP2Paddr  = 0; m_nThatP2PeerID1 = 0;
 
     // Control 
-    m_dwState        = 0;
+    m_dwState        . store ( 0 );
     m_eP2PeerConMode = P2PeerCon_Unknown;
     m_pEvent         = 0;
 }
@@ -356,10 +356,10 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
       //         towards the transport's own honest answer rather than past it,
       //         and it is pinned by a gate-test phase rather than left to that
            pConSpawn -> m_eTrustCeiling   = m_eTrustCeiling;
-           pConSpawn -> m_dwState
-                       = m_dwState & ~( ConState_Recv
-                                      | ConState_Send
-                                      | ConState_Login );
+           pConSpawn -> m_dwState . store (
+                         m_dwState.load ( ) & ~( ConState_Recv
+                                               | ConState_Send
+                                               | ConState_Login ) );
 
       // Accept admission control
       // NOTES: Accounting only. The REFUSAL is the transport's, and it has
@@ -754,7 +754,7 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
         if ( m_pP2PeerMsgSend )
           m_pP2Peerio -> SendP2PeerMsg ( m_hFile, m_pP2PeerMsgSend
                                        , pOVERLAPPEDcon );
-        else if ( (m_dwState&ConState_CloseOnIdle) == ConState_CloseOnIdle )
+        else if ( HasState ( ConState_CloseOnIdle ) )
           Drop ( 0 );
       }
 
@@ -963,7 +963,7 @@ ASSERT(m_pOVERLAPPEDrecv);
     {
       releaseOVERLAPPED ( pOVERLAPPEDcon );
       pOVERLAPPEDcon = DropOVERLAPPED ( pOVERLAPPEDcon, false );
-      m_dwState |= ConState_CloseOnIdle;
+      SetState ( ConState_CloseOnIdle, 0 );
       if ( m_pP2PeerMsgSend == 0 )
         Drop ( 0 );
     }
@@ -984,12 +984,19 @@ ASSERT(m_pOVERLAPPEDrecv);
     //        signal, so this is the established pattern rather than a new one.
     //      : m_dwState is written from the IOCP thread that owns this
     //        connection, which is why the bit is cleared here rather than by
-    //        the hub thread reaching into the object.
+    //        the hub thread reaching into the object.  That convention still
+    //        holds and is still the right shape - P2PeerWeb's WebGateHub
+    //        signals rather than dropping in place for exactly this reason -
+    //        but it was the ONLY place the rule was written, it covered
+    //        writers alone, and HasState()/GetState() are public and read
+    //        from any thread that holds the connection.  TSan found the pair
+    //        it left undefined.  The full contract is now at the accessor
+    //        declarations in P2PeerCon.h, where a caller looks for it.
     else if ( pOVERLAPPEDcon->nSigID == P2PsigCon_WAKEUP )
     {
       releaseOVERLAPPED ( pOVERLAPPEDcon );
       pOVERLAPPEDcon = DropOVERLAPPED ( pOVERLAPPEDcon, false );
-      m_dwState &= ~ConState_CloseOnIdle;
+      SetState ( 0, ConState_CloseOnIdle );
     }
 
     // P2PsigID_SHUTDOWN
@@ -2756,7 +2763,7 @@ P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
     //        pre-login is a protocol violation -> discard it and drop the
     //        connection (the message is not posted, so the pump never takes
     //        ownership and we must free it here)
-    if ( !(m_dwState & ConState_Login) )
+    if ( !HasState ( ConState_Login ) )
     {
       delete pMsg;
       EVERR->Module (__FUNCTION__)->AFPcon(this)
@@ -5298,26 +5305,45 @@ P2PeerCon::GetP2Peerio ( )
 DWORD
 P2PeerCon::SetState ( DWORD dwAdd, DWORD dwRemove )
 {
-    // Apply
-    m_dwState &= ~dwRemove;
-    m_dwState |=  dwAdd;
+    // Apply, as ONE transition
+    // NOTES: The obvious spelling is fetch_and(~dwRemove) then fetch_or(dwAdd),
+    //        and it is wrong in the way that matters here: it is two atomic
+    //        operations, so a reader between them sees the word with dwRemove
+    //        already taken out and dwAdd not yet put in. Every caller of this
+    //        function asks for a STATE, not for two edits, and ConBCasts_OK
+    //        and ConUCasts_OK are three-bit tests that would read a torn one
+    //        as a No. The compare-exchange makes the pair indivisible and
+    //        makes two concurrent callers COMPOSE - each retry recomputes
+    //        from the value the other installed - where the plain word simply
+    //        lost one of them.
+    //      : Returns what THIS call installed. The old form returned the
+    //        member, re-read after the write, which is a different value the
+    //        moment anyone else is writing and is not an answer to any
+    //        question the caller asked. No caller in these trees uses it.
+    DWORD dwOld = m_dwState.load ( );
+    DWORD dwNew;
+    do
+    {
+      dwNew = ( dwOld & ~dwRemove ) | dwAdd;
+    }
+    while ( !m_dwState.compare_exchange_weak ( dwOld, dwNew ) );
 
     // Tidy up, and
-    return m_dwState;
+    return dwNew;
 }
 
 DWORD
 P2PeerCon::GetState ( DWORD dwMask )
 {
     // Simply
-    return m_dwState & dwMask;
+    return m_dwState.load ( ) & dwMask;
 }
 
 bool
 P2PeerCon::HasState ( DWORD dwStateMask )
 {
     // Simply
-    return ( (m_dwState & dwStateMask)==dwStateMask )
+    return ( (m_dwState.load ( ) & dwStateMask)==dwStateMask )
            ? true
            : false;
 }
