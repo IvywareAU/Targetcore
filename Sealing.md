@@ -289,7 +289,8 @@ The claim that a fan-out *carries no end-to-end destination* no longer survives 
 that is what `TMsg_Scp` is.
 
 **One smaller fact the same run turned up.** `ConState_BCasts` is set nowhere in the library outside
-the `P2Pexpump` paths (`P2PeerExplorer.cpp:1379`, `P2PeerHub.cpp:1301`), so `On_P2PeerBCast`
+the `P2Pexpump` paths (`P2PeerExplorer.cpp:1382`, in `On_XCidConLogin`'s login grant, and
+`P2PeerHub.cpp:1436`, the `"AcceptWSA"` command handler), so `On_P2PeerBCast`
 enumerates the child connections and matches none of them until the application sets it itself. A
 stock hub tree does not broadcast at all; `p2p_sealbcast` sets the bit in `On_ConLogin`, which is
 what an application would have to do. That is why refusing a broadcast outright costs nothing to
