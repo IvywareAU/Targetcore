@@ -1357,8 +1357,13 @@ P2PeerCon::HasQueuedOVERLAPPED ( ) const
 void
 P2PeerCon::RearmRecv ( )
 {
+    // NOTES: A PARKED read is not withheld, it is waiting on the in-process
+    //        peer, and P2PeerioDmx::UnparkRecv() is the only thing that may
+    //        post it - it owns the reference the park holds.  Posting it from
+    //        here would put it in the port with the park still set
     if ( !m_pOVERLAPPEDrecv           ||
           m_pOVERLAPPEDrecv->bQueued  ||
+          m_pOVERLAPPEDrecv->bParked  ||
           m_pOVERLAPPEDrecv->bDelete  ||
          !m_hCPort                       )
       return;

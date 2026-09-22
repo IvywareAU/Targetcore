@@ -425,43 +425,82 @@ P2PeerConDmx::On_QueuedCompletionStatus ( DWORD dwError
 void
 P2PeerConDmx::Drop ( P2Pevent *pEVENT )
 {
-    // Firstly tidy up other end
-    // NOTES: Cancels all outstanding overlapped IO
-    //if ( m_pConThat )
+    //  Break the pair and tell the other end - on ITS pump, not this one
+    //  NOTES: THE PEER IS TOLD BY HANDING ITS OWN PARKED READ BACK TO ITS OWN
+    //         COMPLETION PORT, ABORTED.  P2PeerioDmx::UnparkRecv() posts the
+    //         buffer the peer parked when it last had nothing to read, so the
+    //         peer's own pump wakes with a failed receive, throws through the
+    //         recv branch's failure arm, and Drop()s itself with the pump's
+    //         reference in hand - which is what makes its P2P_Close post
+    //         reachable at all (P2PeerCon::Drop suppresses it whenever
+    //         PostDestroyState() is true, and an unreferenced idle connection
+    //         is always in that state).  Its own hub then runs On_ConClose,
+    //         conDROPs it, and ~P2PeerCon gives the accept slot back.  Nothing
+    //         is dropped, destroyed, referenced or deleted from this side
+    //       : That is the SEVENTH design for OpenCodeWork.md item 7 and the
+    //         first that adds no notification.  Six were built and measured
+    //         before it - async and synchronous retirement from here, three
+    //         signals, and a P2PsigCon_CLOSE gated on the peer having nothing
+    //         queued - and every one passed p2p_dmxcap_slot and broke p2pweb
+    //         somewhere else.  They all reached for a peer that, by the
+    //         accounting of the time, was owed nothing and referenced by
+    //         nothing.  The park now holds a reference (P2PeerioDmx.cpp, the
+    //         "Nothing waiting" branch), so the peer is provably alive for as
+    //         long as it is parked, and the wake is a post to an object the
+    //         port already knows how to retire
+    //       : WHAT STOOD HERE WAS A DOUBLE POST, AND IT WAS THE w6 SEGFAULT.
+    //         Both the branch for this object's recv and the one for the
+    //         peer's took bQueued as their precondition, releaseOVERLAPPED()d
+    //         the object and posted it again.  bQueued means the object is
+    //         ALREADY IN THE PORT, so that put one OVERLAPPED in the port
+    //         twice with the reference count unchanged; the connection could
+    //         retire after the first completion and the second then loaded
+    //         the vtable of freed memory - PumpP2Pmsg, P2Pwin32.cpp:5531,
+    //         same fault offset on three builds, the OVERLAPPED reading back
+    //         0xDDDDDDDD.  A queued completion needs no help: it arrives, and
+    //         with m_hFileCPort cleared below it lands in the cancellation arm
+    //         and is drained.  So nothing queued is touched here any more
+    //       : This object's own parked read is handed back by
+    //         P2PeerioDmx::Reset(), which P2PeerCon::Drop() calls once this
+    //         has cleared m_hFileCPort - so that completion, too, is a
+    //         cancellation and not a wake
+    //       : m_hFile and m_hFileCPort on the PEER are deliberately left set.
+    //         The failure arm the wake relies on is guarded by m_hFileCPort
+    //         (P2PeerCon.cpp:664-672); clear it and the abort is read as a
+    //         cancellation instead, the peer is quietly drained and not
+    //         closed, and the slot leaks again by a different route.  The
+    //         peer's own Drop() clears both once it runs
+    //       : Best effort, because Drop() is reached from ~P2PeerConDmx
+    //         (:103-106) and a throw there is std::terminate.  UnparkRecv()
+    //         throws only when the peer's port is gone, which is only true of
+    //         a hub already torn down, and it has released the park's
+    //         reference before it does
     {
       // Isolation
       P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
-
-      // Outstanding OVERLAPPED IO for this object
-      if ( m_pOVERLAPPEDrecv          &&
-           m_pOVERLAPPEDrecv->bQueued    )
-      {
-        releaseOVERLAPPED ( m_pOVERLAPPEDrecv );
-        m_pOVERLAPPEDrecv -> hr = ERROR_OPERATION_ABORTED;
-        PostOVERLAPPED ( m_pOVERLAPPEDrecv );
-      }
 
       P2PeerConDmx *pConThat = m_pConThat;
                                m_pConThat   = 0;
                                m_hFile      = 0;
                                m_hFileCPort = 0;
 
-      // Outstanding OVERLAPPED IO for that object
       if ( pConThat                     &&
            pConThat->m_pConThat == this    )
       {
         pConThat -> m_pConThat = 0;
-        if ( pConThat->m_pOVERLAPPEDrecv          &&
-             pConThat->m_pOVERLAPPEDrecv->bQueued    )
-             //was pConThat->m_pOVERLAPPEDconnect->bQueued    )
+        //  NOT A PEER WHOSE OWN HUB ALREADY HAS IT.  CloseP2PmsgHub() Destroy()s
+        //  every connection it owns before it Drop()s them and drains, so a
+        //  peer carrying m_bDestroy is on its own sweep: its own Drop() ->
+        //  Reset() hands its park back to its own port and its own drain
+        //  collects it.  A post from here could land after that drain and be
+        //  collected by nobody, holding a reference nobody would release
+        P2PeerioDmx *pioThat = (P2PeerioDmx *)pConThat->GetP2Peerio ( );
+        if ( pioThat && !pConThat->m_bDestroy )
         {
-          pConThat -> releaseOVERLAPPED( pConThat->m_pOVERLAPPEDrecv );
-          pConThat -> m_pOVERLAPPEDrecv -> hr = ERROR_OPERATION_ABORTED;
-          pConThat -> PostOVERLAPPED ( pConThat->m_pOVERLAPPEDrecv );
+          try                      { pioThat -> UnparkRecv ( ERROR_OPERATION_ABORTED ); }
+          catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( false );             }
+          catch ( ... )            {                                                   }
         }
-        //pConThat -> m_hFile      = 0;
-        //pConThat -> m_hFileCPort = 0;
-        //pConThat -> Drop ( 0 );
       }
     }
 

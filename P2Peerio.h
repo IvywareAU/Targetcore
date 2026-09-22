@@ -115,6 +115,21 @@ typedef struct
                                        // at submission and turns res==0 on a READ into
                                        // ERROR_HANDLE_EOF (Platform/p2piocp.cpp) - which
                                        // is why F-S4-1 was a Windows-only defect.
+    bool         bParked;              // An in-process read is PARKED on this object: the
+                                       // transport has nothing to deliver, so P2PeerioDmx
+                                       // holds the buffer in its own m_pOVERLAPPEDrecv until
+                                       // the peer sends, and ONE REFERENCE ON THE OWNING
+                                       // CONNECTION IS HELD BY THE PARK, exactly as bQueued
+                                       // holds one for an operation in the port.  The two
+                                       // are disjoint and mean different things to a drain:
+                                       // a queued object WILL arrive at the port and is
+                                       // waited for; a parked one never reaches the port and
+                                       // is given back by P2PeerioDmx::UnparkRecv() alone.
+                                       // Until 2026-09-22 the park held no reference, so an
+                                       // idle DMX connection was owed nothing by anyone and
+                                       // could not be told its partner had gone - the accept
+                                       // slot leak, OpenCodeWork.md item 7.  Set and cleared
+                                       // only under g_oCSectP2PeerConDmx.
     DWORD_PTR   dwUserData;
     DWORD       dwBytesMax;
     DWORD       dwBytes;               // Bytes in buffer

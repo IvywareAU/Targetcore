@@ -90,6 +90,24 @@ class Targetcore_EXT P2PeerioDmx : public P2Peerio
       virtual void
         Reset ( );
 
+      //  Hands a PARKED read back to the completion port, carrying hrPost
+      //  NOTES: The one path by which a parked read leaves the park.  RecvP2PeerMsg
+      //         parks a buffer when the peer has nothing to say, and the park holds
+      //         a reference on the owning connection (OVERLAPPEDcon::bParked).  This
+      //         posts the buffer - which takes the port's own reference - and then
+      //         releases the park's, so the owner is never last-released from here
+      //         and the completion arrives on the OWNER'S pump: S_OK from the peer's
+      //         send (data is waiting), ERROR_OPERATION_ABORTED from the peer's
+      //         Drop() or this object's Reset() (the partner is gone, and the
+      //         owner's own hub closes it).  Idempotent: false when nothing is parked
+      //       : Under g_oCSectP2PeerConDmx, because the peer's send and the owner's
+      //         drop can race for the same park from two pumps
+      //       : Refer OpenCodeWork.md item 7 for why the park holds a reference at
+      //         all, and P2PeerConDmx::Drop() for the six designs that failed before
+      //         it did
+      bool
+        UnparkRecv ( HRESULT hrPost );
+
     // Troubleshooting
     public:
       virtual void

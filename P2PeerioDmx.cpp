@@ -37,7 +37,12 @@ P2PeerioDmx::P2PeerioDmx ( )
 }
 
 P2PeerioDmx::~P2PeerioDmx ( )
-{  }
+{
+    // A park holds a reference on the owning connection, and a connection is
+    // only ever deleted by its last Release() - so a parked read here means a
+    // reference was released that nobody took.  Refer UnparkRecv()
+    ASSERT ( !m_pOVERLAPPEDrecv || !m_pOVERLAPPEDrecv->bParked );
+}
 
 void
 P2PeerioDmx::RenderThisSafe()
@@ -125,17 +130,11 @@ P2PeerioDmx::SendP2PeerMsg ( HANDLE hFile
     }
 
     // Notification
-    // NOTES: Handle that P2PeerCon waiting for buffer to be received
-    OVERLAPPEDcon *pOVERLAPPEDrecv = pThat -> m_pOVERLAPPEDrecv;
-    if (  pOVERLAPPEDrecv          &&
-         !pOVERLAPPEDrecv->bQueued    )
-    {
-      // Notification
-      // NOTES: That side suspended for send completion
-      //pThat -> m_pCon -> releaseOVERLAPPED ( pOVERLAPPEDrecv );
-      pThat -> m_pOVERLAPPEDrecv = 0;
-      pThat -> m_pCon -> PostOVERLAPPED ( pOVERLAPPEDrecv );
-    }
+    // NOTES: That side is parked waiting for exactly this.  UnparkRecv() posts
+    //        its read as a success - data is waiting - and gives back the
+    //        reference the park held.  Silent when the peer is not parked: its
+    //        next RecvP2PeerMsg finds m_pOVERLAPPEDsend above and collects
+    pThat -> UnparkRecv ( S_OK );
 
     // Tidy up and
     return 0;
@@ -183,32 +182,22 @@ P2PeerioDmx::RecvP2PeerMsg ( HANDLE hFile
     // NOTES: Confirm interface is operational.  Specialisation is
     //        thread safe mechanism to monitor other side.  Must be
     //        protected by above critical section
-    //  THIS STILL POSTS A SUCCESS, AND THAT IS DELIBERATE - it is the recv
-    //  half of the defect the send path above had, left in place on a
-    //  measurement rather than on an oversight.
-    //      : The defect is identical.  hr is assigned BEFORE PostOVERLAPPED,
-    //        which calls prepareOVERLAPPED, which assigns hr = S_OK
-    //        (P2PeerCon.cpp:1203) - so the abort is erased by the post it is
-    //        written for, and a read armed against a departed peer completes
-    //        as a SUCCESS carrying zero bytes.  On this transport that is
-    //        indistinguishable from an arming post (P2PeerCon.cpp:502-512),
-    //        so the connection re-arms instead of closing.
-    //      : The fix is one line - PostOVERLAPPED ( p, ERROR_OPERATION_ABORTED )
-    //        the way SendP2PeerMsg above now does it - AND IT BREAKS TEARDOWN.
-    //        Measured 2026-09-21: with this half fixed as well, p2pweb_w6
-    //        SEGFAULTs after its last assertion.  p2pweb wires its hub chain
-    //        with P2PeerConDmx (WebChainBuilder.cpp:477), a recv is re-armed
-    //        constantly while a chain comes down, and turning a silent re-arm
-    //        into a connection drop reorders the whole shutdown.  One failure
-    //        in the first run with both halves fixed; five clean runs with the
-    //        send half alone.
-    //      : So it goes with the teardown work, not with the send fix.
-    //        OpenCodeWork.md item 7.  p2p_dmxdead gates the send half only and
-    //        its header says so.
+    //  A READ AGAINST A DEPARTED PEER MUST FAIL, the recv half of the send
+    //  fix above and the same one-line defect: hr was assigned BEFORE
+    //  PostOVERLAPPED, which calls prepareOVERLAPPED, which assigns S_OK - so
+    //  the abort was erased and the read completed as a success carrying zero
+    //  bytes, which on this transport is an arming post, so the connection
+    //  re-armed forever instead of closing.
+    //      : Fixed on 2026-09-21 this half SEGFAULTed p2pweb_w6 at teardown
+    //        and was put back.  The crash was never this line: it was
+    //        P2PeerConDmx::Drop() re-posting a recv that was already in the
+    //        port (OpenCodeWork.md item 7, finding 3 of 2026-09-22), and a
+    //        read that now fails instead of re-arming simply reached that
+    //        double post more often.  With the double post gone this is the
+    //        line it always should have been
     if ( m_pCon->GetUDState() == 0 )
     {
-      pOVERLAPPEDrecv -> hr = ERROR_OPERATION_ABORTED;
-      m_pCon -> PostOVERLAPPED ( pOVERLAPPEDrecv );
+      m_pCon -> PostOVERLAPPED ( pOVERLAPPEDrecv, ERROR_OPERATION_ABORTED );
       return 0;
     }
 
@@ -260,11 +249,31 @@ P2PeerioDmx::RecvP2PeerMsg ( HANDLE hFile
     }
 
     // Nothing waiting
-    // NOTES: Flag ourselves as being queued and passively wait.  Set
-    //        internal to indicate such.
+    // NOTES: PARK the read and passively wait for the peer's send to post it
+    //        back (UnparkRecv, called from SendP2PeerMsg on the other side)
+    //      : AND HOLD A REFERENCE WHILE IT WAITS.  The completion that
+    //        brought us here was releaseOVERLAPPED()d before this function
+    //        was called (P2PeerCon.cpp:546), so at this point the connection
+    //        is owed nothing and referenced by nothing - and a parked read
+    //        is a pending operation in every sense that matters: the read
+    //        has been asked for and has not completed.  On a socket the
+    //        kernel holds that read and the reference stands with it; here
+    //        the io layer holds it, so the io layer takes the reference.
+    //        Without it an idle in-process connection was invisible to
+    //        Drop(), to PostDestroyState() and to CloseP2PmsgHub(), and its
+    //        partner leaving could not be told to it - the accept slot that
+    //        never came back, OpenCodeWork.md item 7.  The reference is
+    //        given back by UnparkRecv() and nowhere else
+    //      : The prepareOVERLAPPED that stood here, commented out, was this
+    //        reference.  It could not be that call because PostOVERLAPPED()
+    //        refuses a queued object; bParked is the same accounting under a
+    //        name that keeps the two states apart for the teardown drain,
+    //        which waits for queued completions and must not wait for parked
+    //        ones
     if ( !pMsg )
     {
-      //pThis -> m_pCon -> prepareOVERLAPPED ( pOVERLAPPEDrecv );
+      pThis -> m_pCon -> AddRef ( );
+      pOVERLAPPEDrecv -> bParked = true;
       pThis -> m_pOVERLAPPEDrecv = pOVERLAPPEDrecv;
       SetLastError ( ERROR_IO_PENDING );
     }
@@ -284,12 +293,67 @@ P2PeerioDmx::Reset ( )
   __super::Reset ( );
 
     // Attributes
-    //if ( m_pOVERLAPPEDsend && m_pCon )
-    //  m_pCon -> releaseOVERLAPPED ( m_pOVERLAPPEDsend );
+    // NOTES: Called from P2PeerCon::Drop().  A parked read is handed back to
+    //        the port as ABORTED rather than forgotten: it holds a reference,
+    //        and forgetting it would leak the connection for good.  Drop()
+    //        has already cleared m_hFileCPort, so the completion lands in the
+    //        recv branch's cancellation arm (P2PeerCon.cpp:674), which frees
+    //        the buffer and releases the port's reference - and the park's
+    //        is released here, after the post has taken its own, so this is
+    //        never the owner's last.  On the teardown sweep the same
+    //        completion is collected by the drain, because the sweep runs
+    //        Drop() before it drains
     m_pOVERLAPPEDsend = 0;
-    //if ( m_pOVERLAPPEDrecv && m_pCon )
-    //  m_pCon -> releaseOVERLAPPED ( m_pOVERLAPPEDrecv );
+    UnparkRecv ( ERROR_OPERATION_ABORTED );
     m_pOVERLAPPEDrecv = 0;
+}
+
+//
+//  Hands a PARKED read back to the completion port
+//  NOTES: Refer the declaration.  The order is the whole function: post
+//         first, which takes the port's reference on the owner, and release
+//         the park's second, so the owner is never last-released on this
+//         thread.  If the post throws - the owner's port has gone, which is
+//         only true of a hub already torn down - the park's reference is
+//         released regardless, and if that IS the last one then this thread
+//         deletes a connection whose hub has already let go of it, which is
+//         the correct end for it
+//
+//
+//  Parameters:  HRESULT hrPost
+//               Status the completion carries: S_OK when the peer has sent,
+//               ERROR_OPERATION_ABORTED when the peer has gone
+//
+//  Returns:     bool
+//               A read was parked and has been posted
+//
+bool
+P2PeerioDmx::UnparkRecv ( HRESULT hrPost )
+{
+    // Isolation
+    P2PsafeCS      oSafeCS = g_oCSectP2PeerConDmx;
+    OVERLAPPEDcon *pParked = m_pOVERLAPPEDrecv;
+    if ( !pParked          ||
+         !pParked->bParked ||
+         !m_pCon              )
+      return false;
+
+    // Leave the park
+    m_pOVERLAPPEDrecv  = 0;
+    pParked -> bParked = false;
+
+    // Post, then give back the park's reference
+    try
+    {
+      m_pCon -> PostOVERLAPPED ( pParked, hrPost );
+    }
+    catch ( ... )
+    {
+      m_pCon -> Release ( );
+      throw;
+    }
+    m_pCon -> Release ( );
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////
