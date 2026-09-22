@@ -1611,8 +1611,27 @@ P2PeerHub::On_P2PeerUCast ( P2PeerMsg *pMsg )
       // Parents
       // NOTES: Only upcast to P2PeerCon network parents for
       //        which upcasts are enabled
+      //      : HasState, NOT GetState, and the difference is the whole
+      //        gate.  GetState returns m_dwState & dwMask, so testing it
+      //        as a bool admits a connection carrying ANY ONE of the
+      //        three bits - and ConState_Send is set on every accepted
+      //        and every connected connection there is, so this read as
+      //        a three-bit bound and bound on nothing.  HasState is
+      //        all-or-nothing and is what On_P2PeerBCast four lines of
+      //        intent away has always used; this was the only place in
+      //        the library that tested state with the masked accessor
+      //      : NOT REACHABLE TODAY, and corrected anyway.  Nothing
+      //        dispatches On_P2PeerUCast - the map above carries
+      //        P2Pmsg_BCast and P2Pmsg_Error only, there is no
+      //        P2Pmsg_UCast ID, and no path calls the virtual - so this
+      //        cannot be gated by a test that drives an upcast, and
+      //        none was written rather than write one that proves
+      //        nothing.  It is corrected because the vtable slot is
+      //        public and derived hubs already override it expecting
+      //        the base to relay: a kernel that wires the dispatch up
+      //        must not inherit a bound that admits everything
       if ( !oP2PaddrCon.IsChild(m_oP2PaddrHub) ||
-           !pCon->GetState(ConUCasts_OK)          )
+           !pCon->HasState(ConUCasts_OK)         )
         continue;
       pMsgUCast = pMsg -> RedirectFactory ( oP2PaddrCon );
       pMsgUCast = pCon -> PostP2PeerMsg   ( pMsgUCast );
