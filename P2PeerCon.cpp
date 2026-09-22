@@ -2956,10 +2956,20 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
 
     // A broadcast, on a tree that does not require broadcasts to be sealed
     // NOTES: HasScope() IS the broadcast test, and it is exact rather than
-    //        approximate. TMsg_Scp is stamped by On_P2PeerBCast and
-    //        On_P2PeerUCast and by nothing else, so a message carrying one is
-    //        a fanned-out copy BY CONSTRUCTION - there is no message name to
-    //        match and no class to get wrong, which is the mistake F-S9-1 was
+    //        approximate. TMsg_Scp is stamped by On_P2PeerBCast and by nothing
+    //        else, so a message carrying one is a fanned-out BROADCAST copy BY
+    //        CONSTRUCTION - there is no message name to match and no class to
+    //        get wrong, which is the mistake F-S9-1 was
+    //      : THIS NOTE USED TO SAY "and On_P2PeerUCast", which was true of the
+    //        code and vacuous in fact: nothing dispatched that handler, so the
+    //        second stamper never ran and the test meant "broadcast" by
+    //        accident rather than by the construction it claimed. Wiring the
+    //        upcast relay up on 2026-09-22 would have made the sentence true
+    //        and this TEST wrong in the same commit - one switch, labelled
+    //        SealBcast, exempting two different audiences on one decision. So
+    //        the upcast stamps TMsg_Ups, the branch below reads it against its
+    //        own switch, and this line means exactly what it meant before
+    //        there was a second relay. Refer TMsg_Ups in P2PeerMsg.h
     //      : DEFAULT IS TRUE, so this branch does nothing at all unless an
     //        operator has written down that their broadcasts are not
     //        confidential. That asymmetry is the point. Before TMsg_Scp the
@@ -2972,6 +2982,26 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     //        carries the origin's signature over its scope, so an exempt
     //        broadcast is unencrypted and still unforgeable
     if ( pMsg->HasScope ( ) && !pHub -> IsSealBroadcastRequired ( ) )
+      return true;
+
+    // An upcast, on a tree that does not require upcasts to be sealed
+    // NOTES: The same branch for the other fan-out, and it is a separate four
+    //        lines rather than an || because the two questions have two
+    //        answers. An upcast climbs to the root and every ancestor on the
+    //        way receives it, so what the origin addressed is a CHAIN - no
+    //        more sealable than a subtree, and refused by default for the same
+    //        reason
+    //      : WRITING THIS AS ONE TEST OVER IsFannedOut() WOULD HAVE BEEN THE
+    //        DEFECT. It reads as tidier and it would have made
+    //        RequireSealBroadcast(false) - a setting deployments have already
+    //        recorded - start exempting traffic on a relay that did not exist
+    //        when they recorded it. Nothing in those deployments would have
+    //        changed, and their posture would have. Refer RequireSealUpcast in
+    //        P2PeerHub.h
+    //      : ATTESTATION IS UNAFFECTED here too, so an exempt upcast is
+    //        unencrypted and still unforgeable - GetScopeOrDestin() below
+    //        returns the upcast scope, which is what the origin signed
+    if ( pMsg->HasUpScope ( ) && !pHub -> IsSealUpcastRequired ( ) )
       return true;
 
     // Is there an intermediate hub at all?
@@ -3005,19 +3035,27 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     //      : OFF BY DEFAULT, so this branch does nothing at all unless an
     //        operator has written the assumption down - the same shape as the
     //        broadcast exemption above it, and for the same reason
-    //      : NOT A BROADCAST, and the test is HasScope() rather than a
-    //        comparison, exactly as the exemption above uses it.  A scope
-    //        names a SUBTREE; a subtree cannot be established to be in this
-    //        process even when its root hub is, because a child hub may sit on
-    //        another host.  Sealing a fan-out is RequireSealBroadcast's
-    //        decision and it is a different one
+    //      : NOT A FAN-OUT, and the test is IsFannedOut() rather than a
+    //        comparison, in the spirit of the exemptions above.  A broadcast
+    //        scope names a SUBTREE and an upcast scope names a CHAIN OF
+    //        ANCESTORS; neither can be established to be in this process even
+    //        when the hub that stamped it is, because a hub on either can sit
+    //        on another host.  Sealing a fan-out is the decision of one of the
+    //        two switches above and it is a different decision from this one
+    //      : IsFannedOut AND NOT HasScope, since 2026-09-22.  This read
+    //        HasScope() while there was one relay, when the two questions had
+    //        one answer.  Wiring the upcast relay up made them differ, and a
+    //        waiver that still asked the narrow question would have started
+    //        waiving the end-to-end protections on upcasts - the one place in
+    //        this change where the OLD line would have become wrong by saying
+    //        nothing new
     //      : THE HUB LOCK IS NOT HELD ACROSS THE LOOKUP.  The accessor takes
     //        and releases P2PeerHub's lock, and IsP2PmsgHubInProcess then
     //        takes the process-wide hub lock on its own - refer the note on
     //        its declaration in P2Pwin32.h.  Written as two statements rather
     //        than one && so that the order is not a matter of how the compiler
     //        sequences it
-    if ( !pMsg->HasScope ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    if ( !pMsg->IsFannedOut ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
     {
       if ( IsP2PmsgHubInProcess ( strScope ) )
         return true;
@@ -3479,8 +3517,10 @@ P2PeerCon::AttestAppMsgOutbound ( P2PeerMsg *pMsg )
     //        different postures, and only one of them is a decision
     //      : Reads strDst - GetScopeOrDestin, the same accessor the signature
     //        covers and the same one SealAppMsgOutbound seals to.  Refusing
-    //        scoped messages here for the reason given there: a subtree is not
-    //        a hub, and this process cannot vouch for one
+    //        FANNED-OUT messages here for the reason given there: a subtree is
+    //        not a hub and a chain of ancestors is not a hub, and this process
+    //        cannot vouch for either.  IsFannedOut rather than HasScope since
+    //        2026-09-22, when the upcast relay became a second way to be one
     //      : AFTER THE FOUR COPIES, and not between them and the accessors
     //        they come from.  The block above is one group for a reason its
     //        own note gives - off Windows those accessors return slots in a
@@ -3492,7 +3532,7 @@ P2PeerCon::AttestAppMsgOutbound ( P2PeerMsg *pMsg )
     //      : SILENT, unlike the "could not sign" ending below.  A waived
     //        message is not a failure to attest, it is a decision not to, and
     //        an operator who wants to see it reads WaiveE2E off TryReadPosture
-    if ( !pMsg->HasScope ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    if ( !pMsg->IsFannedOut ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
     {
       if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strDst ) )
         return;

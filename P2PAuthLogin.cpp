@@ -514,6 +514,7 @@ AuthPolicy::AuthPolicy ( )
     //  than quietly sent in clear. Turning it off is a deployment writing down
     //  that its broadcasts are not confidential - see the header.
     , m_bSealBroadcastRequired ( true )
+    , m_bSealUpcastRequired ( true )
     //  OFF, and it stays off unless an operator writes it down. This is the
     //  one setting whose correctness rests on a deployment assumption rather
     //  than on a mechanism, so its default is the assumption NOT being made.
@@ -850,6 +851,11 @@ void AuthPolicy::SetSealRequired ( bool bRequire ) { m_bSealRequired = bRequire;
 //  this one moot - there is no ordering to get wrong.
 void AuthPolicy::SetSealBroadcastRequired ( bool bRequire )
                                           { m_bSealBroadcastRequired = bRequire; }
+//  The same, for the other fan-out, and independent of it in both directions.
+//  A deployment that has decided about its broadcasts has decided nothing
+//  about its upcasts - refer the header for why that is worth a third member.
+void AuthPolicy::SetSealUpcastRequired ( bool bRequire )
+                                       { m_bSealUpcastRequired = bRequire; }
 //  Intent, like the three above it, and it does not weaken anything on its
 //  own: P2PeerCon consults it ONLY together with a registry lookup that says
 //  the destination is a hub in this process. Setting it on a hub whose peers

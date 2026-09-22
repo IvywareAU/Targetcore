@@ -1305,6 +1305,8 @@ END_P2PeerSys_MAP()
 BEGIN_P2PeerMsg_MAP(P2PeerHub, P2PeerTarget)
     ON_P2PeerMsg(P2Pmsg_BCast, On_P2PeerBCast)
     ON_P2PeerMsg_CATCH(P2Pmsg_BCast, On_MsgCatch)
+    ON_P2PeerMsg(P2Pmsg_UCast, On_P2PeerUCast)
+    ON_P2PeerMsg_CATCH(P2Pmsg_UCast, On_MsgCatch)
     ON_P2PeerMsg(P2Pmsg_Error, On_P2PeerError)
 END_P2PeerMsg_MAP()
 
@@ -1527,7 +1529,13 @@ P2PeerHub::On_P2PeerBCast ( P2PeerMsg *pMsg )
     //         hands back a slot in a ring of 16 thread-local buffers that the
     //         next accessor call on this thread recycles, and SetScope() is an
     //         accessor call
-    if ( pMsg && !pMsg->HasScope ( ) && pMsg->GetDestin ( ) )
+    //       : IsFannedOut AND NOT HasScope, since 2026-09-22.  A message that
+    //         arrived as an upcast copy already carries the ORIGINATOR's
+    //         address in TMsg_Ups, and the rule above is that a relay forwards
+    //         what it was given rather than substituting its own.  Reading
+    //         only HasScope() here would have re-stamped one, which is the
+    //         re-scoping this paragraph exists to forbid
+    if ( pMsg && !pMsg->IsFannedOut ( ) && pMsg->GetDestin ( ) )
     {
       CString strScopeHeld = pMsg->GetDestin ( );
       pMsg -> SetScope ( (P2PaddrSTR)strScopeHeld );
@@ -1541,9 +1549,14 @@ P2PeerHub::On_P2PeerBCast ( P2PeerMsg *pMsg )
     { 
       const P2Paddr& oP2PaddrCon =  pCon->GetP2Paddress();
 
-      // Parents
-      // NOTES: Only broadcast to P2PeerCon network parents
-      //        for which upcasts are enabled
+      // Children
+      // NOTES: Only broadcast to P2PeerCon network children
+      //        for which broadcasts are enabled.  The note that stood
+      //        here said "parents ... upcasts" and named neither the
+      //        direction this loop takes nor the bit it reads; the
+      //        predicate two lines down has always been the other way
+      //        round from the one in On_P2PeerUCast, and now that both
+      //        handlers are live the comment has to say which is which
       if ( pCon->HasState(ConState_BCasts) &&
           !pCon->HasState(ConBCasts_OK)    )
           pCon=pCon;
@@ -1560,14 +1573,22 @@ P2PeerHub::On_P2PeerBCast ( P2PeerMsg *pMsg )
 
 //
 //  MSG_P2PeerUCast handler
-//  NOTES: UCasts messages to P2PeerHub parents through P2PeerCon
-//         connections for which broadcasts are enabled
+//  NOTES: Upcasts messages to P2PeerHub parents through P2PeerCon
+//         connections for which upcasts are enabled
+//       : The mirror of On_P2PeerBCast and routed by DIRECTION rather
+//         than by address - each hub hands the message to its parents,
+//         so it climbs to the root without any hop knowing the way.
+//         A hub with no parent link relays nothing and the message
+//         ends there, which is what arrival at the root looks like
+//       : ConState_UCasts is OPT-IN and nothing in the library sets
+//         it.  An application that wants upcasts relayed says so on
+//         the connection - refer P2PeerCon.h
 //       : Provide implementation in derived class to intercept a
 //         local copy, alternatively specialise PeekP2PeerMsg()
 //
 //
 //  Parameters: P2PeerMsg *pMsg
-//              Broadcast message
+//              Upcast message
 //
 //  Returns:    msgRESULT
 //              Completion summary
@@ -1575,29 +1596,46 @@ P2PeerHub::On_P2PeerBCast ( P2PeerMsg *pMsg )
 msgRESULT
 P2PeerHub::On_P2PeerUCast ( P2PeerMsg *pMsg )
 {
-    //  Stamp the end-to-end scope before the first copy is made
+    //  Stamp the end-to-end upcast scope before the first copy is made
     //  NOTES: Every copy below is re-addressed to its own link peer, which
     //         destroys the only record of what the ORIGIN addressed this
     //         message to - and two protections read that record: the seal
     //         hook's last-hop exemption and the relay attestation's digest.
     //         Refer TMsg_Scp in P2PeerMsg.h for what that cost and how it was
-    //         measured
-    //       : IF ABSENT ONLY, and that is the whole rule.  A copy arriving
-    //         here has already been fanned out once and carries the
+    //         measured on the broadcast side.  An upcast loses the address the
+    //         same way because it fans out the same way, and needs it kept for
+    //         the same two reasons
+    //       : TMsg_Ups AND NOT TMsg_Scp, and that one field is the entire
+    //         security difference between this handler and the broadcast one
+    //         four functions up.  The two are the same KIND of thing: both
+    //         name an AUDIENCE the origin chose, a subtree one way and a chain
+    //         of ancestors the other, and neither can be sealed because no
+    //         single agreement key opens either.  So both are refused on a hub
+    //         that requires sealing, and each has a switch that records a
+    //         deployment deciding otherwise.  TWO switches, because they are
+    //         two decisions - SealAppMsgOutbound reads HasScope() on its own
+    //         to mean "fanned-out broadcast", so stamping a scope here would
+    //         have let RequireSealBroadcast(false) exempt a class of traffic
+    //         its own contract says it leaves alone, chosen by a code path
+    //         rather than by an operator.  Refer TMsg_Ups in P2PeerMsg.h
+    //       : IF NEITHER IS PRESENT, and that is the whole rule.  A copy
+    //         arriving here has already been fanned out once and carries the
     //         ORIGINATOR's scope; this hub forwards that and must not
     //         substitute its own, which is the same discipline - and the same
     //         reason - as AttestAppMsgOutbound leaving an existing attestation
-    //         alone.  Stamping unconditionally would let every relay re-scope
-    //         a broadcast, which is exactly the re-targeting the digest exists
-    //         to prevent
+    //         alone.  Stamping unconditionally would let every relay re-aim an
+    //         upcast, which is exactly the re-targeting the digest exists to
+    //         prevent.  A broadcast scope counts as present too: a message
+    //         that arrived as a fanned-out broadcast and is upcast by the hub
+    //         that received it keeps the address the broadcast origin wrote
     //       : A COPY, not the accessor's pointer.  Off Windows GetDestin()
     //         hands back a slot in a ring of 16 thread-local buffers that the
-    //         next accessor call on this thread recycles, and SetScope() is an
-    //         accessor call
-    if ( pMsg && !pMsg->HasScope ( ) && pMsg->GetDestin ( ) )
+    //         next accessor call on this thread recycles, and SetUpScope() is
+    //         an accessor call
+    if ( pMsg && !pMsg->IsFannedOut ( ) && pMsg->GetDestin ( ) )
     {
       CString strScopeHeld = pMsg->GetDestin ( );
-      pMsg -> SetScope ( (P2PaddrSTR)strScopeHeld );
+      pMsg -> SetUpScope ( (P2PaddrSTR)strScopeHeld );
     }
 
     // P2PeerCon routing
@@ -1620,16 +1658,17 @@ P2PeerHub::On_P2PeerUCast ( P2PeerMsg *pMsg )
       //        all-or-nothing and is what On_P2PeerBCast four lines of
       //        intent away has always used; this was the only place in
       //        the library that tested state with the masked accessor
-      //      : NOT REACHABLE TODAY, and corrected anyway.  Nothing
-      //        dispatches On_P2PeerUCast - the map above carries
-      //        P2Pmsg_BCast and P2Pmsg_Error only, there is no
-      //        P2Pmsg_UCast ID, and no path calls the virtual - so this
-      //        cannot be gated by a test that drives an upcast, and
-      //        none was written rather than write one that proves
-      //        nothing.  It is corrected because the vtable slot is
-      //        public and derived hubs already override it expecting
-      //        the base to relay: a kernel that wires the dispatch up
-      //        must not inherit a bound that admits everything
+      //      : REACHABLE SINCE 2026-09-22, and gated.  The note that
+      //        stood here said this line could not be tested because
+      //        nothing dispatched On_P2PeerUCast - no P2Pmsg_UCast ID,
+      //        no map entry, no caller.  All three now exist, so the
+      //        test that could not be written has been: p2p_ucastgate
+      //        phase 2 offers an upcast to a parent connection that
+      //        does not carry ConState_UCasts and requires that it is
+      //        not selected, with phase 1 as the control that proves
+      //        an upcast reaches a parent at all.  Both were seen red
+      //        on the GetState form of this test before the HasState
+      //        form made them green
       if ( !oP2PaddrCon.IsChild(m_oP2PaddrHub) ||
            !pCon->HasState(ConUCasts_OK)         )
         continue;
@@ -1865,6 +1904,15 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
       P3PmsgField_SERIALISE ( oNodeVar, L"SealBcast"
                             , (UINT32)( oPosture.bSealBcast ? 1 : 0 ), bDsc
                             , L"The seal requirement extends to broadcasts" );
+      //  And reported separately AGAIN, for the upcast relay, because an
+      //  upcast is a second audience and therefore a second decision. One
+      //  field covering both would have meant a deployment that wrote down
+      //  "my broadcasts are not confidential" had also written down something
+      //  it was never asked, and a reader of the posture could not tell which
+      //  of the two had been decided
+      P3PmsgField_SERIALISE ( oNodeVar, L"SealUcast"
+                            , (UINT32)( oPosture.bSealUcast ? 1 : 0 ), bDsc
+                            , L"The seal requirement extends to upcasts" );
       //  The §6.3 waiver, and it is rendered HERE - beside SealReq rather than
       //  beside the link-policy block below - because it is the field that
       //  makes SealReq readable. SealReq=1 WaiveE2E=1 is a hub that requires
@@ -2119,6 +2167,7 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bSealReplay      = false;
       rOut.bSealRequired    = false;
       rOut.bSealBcast       = false;
+      rOut.bSealUcast       = false;
       rOut.bWaiveE2E        = false;
       rOut.bSealCanOpen     = false;
       rOut.bRevocRequired   = false;
@@ -2141,6 +2190,7 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.bSealReplay      = m_pAuthPolicy -> IsSealReplayRefused ( );
       rOut.bSealRequired    = m_pAuthPolicy -> IsSealRequired ( );
       rOut.bSealBcast       = m_pAuthPolicy -> IsSealBroadcastRequired ( );
+      rOut.bSealUcast       = m_pAuthPolicy -> IsSealUpcastRequired ( );
       rOut.bWaiveE2E        = m_pAuthPolicy -> IsEndToEndWaivedInProcess ( );
       rOut.bSealCanOpen     = m_pAuthPolicy -> CanOpen ( );
       rOut.bRevocRequired   = m_pAuthPolicy -> IsRevocationRequired ( );
@@ -2670,6 +2720,27 @@ P2PeerHub::IsSealBroadcastRequired ( )
 {
     P2PsafeCS oSafeCS = m_oCSectionHub;
     return m_pAuthPolicy ? m_pAuthPolicy -> IsSealBroadcastRequired ( ) : false;
+}
+
+//
+//  Does the seal requirement extend to upcasts
+//  NOTES: Hub scope and configure-before-arm, like RequireSeal.  Refer
+//         RequireSealUpcast in the header for why this is a SECOND switch
+//         rather than a second meaning of the first, and
+//         P2PeerCon::SealAppMsgOutbound for where it is applied
+//
+void
+P2PeerHub::RequireSealUpcast ( bool bRequire )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy ) m_pAuthPolicy -> SetSealUpcastRequired ( bRequire );
+}
+
+bool
+P2PeerHub::IsSealUpcastRequired ( )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    return m_pAuthPolicy ? m_pAuthPolicy -> IsSealUpcastRequired ( ) : false;
 }
 
 //

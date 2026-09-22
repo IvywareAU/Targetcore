@@ -179,6 +179,58 @@ typedef struct P2PeerMsgPrefix
 //  live.
 #define TMsg_Scp L"Scp"
 
+//  End-to-end scope of an UPCAST - the same thing TMsg_Scp is, for the relay
+//  that climbs the tree instead of descending it, and a SEPARATE FIELD on
+//  purpose.
+//
+//  On_P2PeerUCast has the same shape as On_P2PeerBCast: a copy per link,
+//  re-addressed to that link's own peer by RedirectFactory. So it destroys the
+//  origin's address in exactly the same way, and the same two protections -
+//  the seal hook's last-hop exemption and the relay attestation's digest -
+//  need it preserved for exactly the same reason. That much is symmetrical,
+//  and this is stamped for it. GetScopeOrDestin() reads Scp, then Ups, then
+//  Dst, so every check that already asks for "the address the ORIGIN wrote"
+//  gets the right answer on an upcast copy without being told about it.
+//
+//  AN UPCAST IS AN AUDIENCE, NOT A DESTINATION - and that is worth stating
+//  because the first guess is the other way. It looks like a unicast that
+//  knows its way: send it up, it reaches the root. It is not. A copy arrives
+//  at a parent addressed to that parent, so the parent DELIVERS it locally and
+//  the base handler then fans it out again; an upcast is therefore received by
+//  every ancestor on the way, and what the origin addressed is a CHAIN. No
+//  single agreement key opens a chain, for the same reason none opens a
+//  subtree. An upcast on a hub that requires sealing is refused, exactly as a
+//  broadcast is.
+//
+//  SO WHY NOT STAMP Scp AND BE DONE. Because the two are the same KIND of
+//  thing and not the same thing, and one line of policy is the difference.
+//  SealAppMsgOutbound reads HasScope() on its own to mean "this is a fanned-out
+//  broadcast" and exempts it when RequireSealBroadcast(false) says the
+//  deployment chose that. Stamping Scp from the upcast handler would have made
+//  one switch, named SealBcast and documented as covering fanned-out copies
+//  only, govern a second class of traffic that no operator had been asked
+//  about. "My broadcasts are not confidential" is not the same sentence as "my
+//  upcasts are not confidential", and a deployment that has never sent an
+//  upcast would have consented to the second by writing the first. That is the
+//  F-S9-1 shape - a protection widened by a code path rather than by a
+//  decision - and the field exists to keep the two decisions apart.
+//  RequireSealUpcast is the other one, it defaults to required, and
+//  TryReadPosture reports both.
+//
+//  The in-process end-to-end waiver is keyed on IsFannedOut() rather than on
+//  HasScope() for the same reason and in the opposite direction: a chain of
+//  ancestors can no more be established to be in this process than a subtree
+//  can, so the waiver must decline an upcast, and reading only HasScope()
+//  would have let it through.
+//
+//  ACROSS VERSIONS this is inert, and not by luck. A hub built before
+//  P2Pmsg_UCast existed has no map entry for it, so it never relays an upcast
+//  and never evaluates a policy over one - it can only be a copy's
+//  destination, where the field is not read. There is no mixed-mesh case in
+//  which an old hub applies the broadcast exemption to an upcast, because
+//  there is no mixed-mesh case in which an old hub forwards one.
+#define TMsg_Ups L"Ups"
+
 //
 //
 //  P2PeerMsg object
@@ -363,6 +415,26 @@ class Targetcore_EXT P2PeerMsg : public P3PmsgBSTR
         HasScope         ( ) const;
       P2PaddrSTR
         GetScopeOrDestin ( ) const;
+      // End-to-end UPCAST scope - refer TMsg_Ups above.
+      // NOTES: A SEPARATE field from the scope, and the header block carries
+      //        the argument: an upcast is a second AUDIENCE, so it needs the
+      //        origin's address preserved the same way and a policy decision
+      //        of its own.
+      //      : GetScopeOrDestin() folds it in and is still what a caller
+      //        wants. These exist for the stamper, for the one exemption that
+      //        must tell the two apart, and for a test that needs to see which
+      //        was written.
+      //      : IsFannedOut() is the question "is this a copy some hub made",
+      //        which is what the in-process waiver has to ask. HasScope() was
+      //        that question while there was only one fan-out.
+      P2PaddrSTR
+        GetUpScope       ( ) const;
+      P2PaddrSTR
+        SetUpScope       ( P2PaddrSTR strScope );
+      bool
+        HasUpScope       ( ) const;
+      bool
+        IsFannedOut      ( ) const;
       // End-to-end seal marker - refer TMsg_Sld above.
       // NOTES: SetSealed is called by the sealing path AFTER SetData has
       //        replaced the payload with the sealed block, and ClearSealed by
@@ -565,6 +637,23 @@ P2PmsgID P2Pmsg_Ping = L"P2PmsgPing";
 //       : P2PeerCon's must enable broadcast propagation
 static
 P2PmsgID P2Pmsg_BCast = L"P2PmsgBCast";
+
+//
+//  P2Pmsg_UCast
+//  NOTES: Upcast wrapped data UP through the heirachical network of
+//         P2PeerHub's - the mirror of P2Pmsg_BCast, routed by DIRECTION
+//         rather than by address.  Each hub hands a copy to its network
+//         parents and each parent delivers it locally before relaying it on,
+//         so it climbs to the root and every ancestor receives it
+//       : P2PeerCon's must enable upcast propagation.  ConState_UCasts is
+//         opt-in and nothing in the library sets it - refer P2PeerCon.h
+//       : AN AUDIENCE, like a broadcast and unlike a unicast.  It carries
+//         TMsg_Ups rather than TMsg_Scp so that the two audiences are two
+//         decisions: RequireSealBroadcast governs the first,
+//         RequireSealUpcast the second, and neither governs the other.
+//         Refer TMsg_Ups above
+static
+P2PmsgID P2Pmsg_UCast = L"P2PmsgUCast";
 
 //
 //  P2Pmsg_Sync

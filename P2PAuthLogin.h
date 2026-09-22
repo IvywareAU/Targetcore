@@ -1116,6 +1116,25 @@ namespace p2pauth
         bool IsSealBroadcastRequired  ( ) const
              { return m_bSealBroadcastRequired; }
 
+        // Does the seal requirement extend to UPCASTS (2026-09-22)? ON by
+        // default, exactly like the broadcast switch above, and separate from
+        // it for the reason that switch is separate from RequireSeal: an
+        // upcast has an audience rather than a destination, so it is another
+        // question, and a different deployment will answer it differently.
+        //
+        // WHY NOT ONE SWITCH FOR BOTH FAN-OUTS. Because a deployment that
+        // wrote down "my broadcasts are not confidential" would then have
+        // written down something nobody asked it, about a relay it may never
+        // use. The upcast relay was dead code until 2026-09-22; wiring it up
+        // under the existing switch would have changed the meaning of a
+        // setting already recorded in deployments, without anything in those
+        // deployments changing. A protection widened by a code path rather
+        // than by a decision is F-S9-1's shape, and this is what keeps it a
+        // decision.
+        void SetSealUpcastRequired ( bool bRequire );
+        bool IsSealUpcastRequired  ( ) const
+             { return m_bSealUpcastRequired; }
+
         // Waive the two END-TO-END protections - relay attestation and the
         // seal - for a destination that is a hub in THIS process. OFF by
         // default, and it is the one setting in this class whose correctness
@@ -1187,6 +1206,12 @@ namespace p2pauth
         //  because a broadcast has an audience rather than a destination, so
         //  it is a different question with a different answer.
         bool               m_bSealBroadcastRequired;
+        //  And the same question for the upcast relay (2026-09-22). A third
+        //  member rather than a wider reading of the second: the two fan-outs
+        //  address two different audiences, so they are two answers, and a
+        //  posture that could not distinguish them would be reporting a
+        //  decision nobody made.
+        bool               m_bSealUpcastRequired;
         //  The end-to-end waiver (securityRevision.md §6.3, 2026-09-04). OFF,
         //  and the default is the whole of its safety: every other member here
         //  fails closed on a mechanism, this one fails closed on being unset.

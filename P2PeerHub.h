@@ -285,6 +285,7 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
         bool      bSealReplay;        // RefuseSealReplay()
         bool      bSealRequired;      // RequireSeal() - INTENT
         bool      bSealBcast;         // RequireSealBroadcast() - INTENT
+        bool      bSealUcast;         // RequireSealUpcast() - INTENT
         bool      bSealCanOpen;       // an agreement key is loaded
         bool      bRevocRequired;     // RequireRevocation() - INTENT
         bool      bRevocConfigured;   // a revocation list is configured
@@ -705,11 +706,12 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
       // sealing is refused, every time. There is nothing to seal it to.
       //
       // RequireSealBroadcast(false) is how a deployment records that its
-      // broadcasts are not confidential. It exempts fanned-out copies ONLY;
-      // relayed unicast is untouched, and the exempt copies still carry the
-      // origin's attestation over their scope - unencrypted, still
-      // unforgeable. For traffic whose audience is positional that is the
-      // honest posture, and this is what lets it be stated rather than assumed.
+      // broadcasts are not confidential. It exempts fanned-out BROADCAST
+      // copies ONLY; relayed unicast is untouched, an upcast is untouched, and
+      // the exempt copies still carry the origin's attestation over their
+      // scope - unencrypted, still unforgeable. For traffic whose audience is
+      // positional that is the honest posture, and this is what lets it be
+      // stated rather than assumed.
       //
       // Confidential broadcast is NOT what this switch provides and is a
       // design question that is still open - three shapes were analysed
@@ -721,6 +723,35 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
         RequireSealBroadcast    ( bool bRequire );
       bool
         IsSealBroadcastRequired ( );
+
+      // And the same question for UPCASTS. On by default, and a SEPARATE
+      // switch rather than a wider reading of the one above.
+      //
+      // An upcast is the mirror of a broadcast: On_P2PeerUCast sends a copy
+      // per parent link, each parent delivers it locally and relays it on, so
+      // it climbs to the root and every ancestor receives it. What the origin
+      // addressed is therefore a CHAIN, and no single agreement key opens a
+      // chain any more than it opens a subtree. An upcast on a hub that
+      // requires sealing is refused, every time, exactly as a broadcast is.
+      //
+      // WHY IT IS NOT THE SAME SWITCH, given the two behave identically. The
+      // upcast relay was dead code until 2026-09-22 - no message ID, no map
+      // entry, nothing dispatched it. Wiring it up under RequireSealBroadcast
+      // would have changed what an already-recorded setting covers, in
+      // deployments where nothing had changed and nobody had been asked. "My
+      // broadcasts are not confidential" is not the same sentence as "my
+      // upcasts are not confidential". The relay is symmetrical and the
+      // decision is not, which is why On_P2PeerUCast stamps TMsg_Ups and not
+      // TMsg_Scp - refer TMsg_Ups in P2PeerMsg.h for the whole argument.
+      //
+      // Configure before CreateHub()/SpawnHub(), like everything else here,
+      // and TryReadPosture reports it as SealUcast. Gated by p2p_sealbcast
+      // phase 6: one keyless carrier, RequireSealBroadcast(false) alone, a
+      // broadcast readable and an upcast still refused.
+      void
+        RequireSealUpcast       ( bool bRequire );
+      bool
+        IsSealUpcastRequired    ( );
 
       // Waive the two END-TO-END protections - relay attestation and the seal
       // - for a destination that is a hub in THIS process. OFF by default.

@@ -891,6 +891,24 @@ class Targetcore_EXT SafeP2PeerCon
 //  Operational states
 //  NOTES: Used to summarise P2PeerCon connection behaviour and
 //         states
+//       : BCasts AND UCasts ARE OPT-IN, AND NOTHING IN THE LIBRARY
+//         SETS THEM ON AN ORDINARY CONNECTION.  The two relay bits
+//         are unlike every other bit here: the rest describe what a
+//         connection IS - it can send, it has logged in, it holds a
+//         key - and these two describe what an application has
+//         DECIDED it may carry.  A connection that has completed a
+//         login is fully operational and still relays neither, so
+//         On_P2PeerBCast and On_P2PeerUCast enumerate it and skip it
+//       : Which is why a relay test that forgets to set one measures
+//         an EMPTY LOOP and passes.  Two tests in this tree say so in
+//         their own words at the line that sets the bit
+//         (p2p_sealbcast.cpp On_ConLogin, p2p_ucastgate.cpp phase 1)
+//         because both were written before the omission was obvious
+//       : The library sets ConState_BCasts in exactly two places and
+//         neither is a general connection path - the login grant in
+//         P2PeerExplorer::On_XCidConLogin and the "AcceptWSA" expump
+//         command handler in P2PeerHub.  It sets ConState_UCasts
+//         nowhere at all
 const DWORD ConState_BCasts      = (1<<0);
 const DWORD ConState_UCasts      = (1<<1);
 const DWORD ConState_Recv        = (1<<2);

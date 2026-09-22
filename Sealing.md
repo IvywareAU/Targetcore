@@ -295,3 +295,57 @@ enumerates the child connections and matches none of them until the application 
 stock hub tree does not broadcast at all; `p2p_sealbcast` sets the bit in `On_ConLogin`, which is
 what an application would have to do. That is why refusing a broadcast outright costs nothing to
 anyone today, and why it is the right time to have done it.
+
+### The second fan-out, 2026-09-22 — and the switch that was not allowed to grow
+
+`On_P2PeerUCast` is the mirror of `On_P2PeerBCast`: a copy per **parent** link, re-addressed to that
+link's own peer. Until 2026-09-22 it was **dead code** — no `P2Pmsg_UCast` ID anywhere in the tree,
+no entry for one in `P2PeerHub`'s message map, no other caller of the virtual — while
+`ConState_UCasts` and `ConUCasts_OK` were declared, three applications set the bit believing it
+routed something, and nine harnesses in this suite overrode the handler as though it fired. It is
+wired up now, and what that cost is worth writing down, because the obvious version of it would have
+widened a protection without anybody deciding to.
+
+**An upcast is an audience, not a destination.** That is the first guess and it is wrong. A copy
+arrives at a parent addressed to that parent, so the parent **delivers it locally** and the base
+handler fans it out again; an upcast therefore climbs to the root and *every ancestor on the way
+receives it*. What the origin addressed is a **chain**, and no single agreement key opens a chain
+for the same reason none opens a subtree. So an upcast on a hub that requires sealing is refused,
+exactly as a broadcast is.
+
+**Which made the symmetrical implementation the dangerous one.** The two relays are the same shape,
+so the natural thing is for both to stamp `TMsg_Scp`. `SealAppMsgOutbound` reads `HasScope()` *on its
+own* to mean "this is a fanned-out broadcast" — and its own comment said so, claiming the field was
+stamped by `On_P2PeerBCast` and `On_P2PeerUCast` "and by nothing else", a sentence that was true of
+the code and vacuous in fact because the second stamper never ran. Wiring the relay up under that
+sentence would have made it true and the **test beneath it wrong in the same commit**:
+`RequireSealBroadcast(false)` — a setting deployments have already recorded — would have begun
+exempting a second class of traffic on a relay that did not exist when they recorded it. Nothing in
+those deployments would have changed, and their posture would have.
+
+So the upcast stamps **`TMsg_Ups`**, a separate field, and **`RequireSealUpcast`** is a separate
+switch defaulting to on. `GetScopeOrDestin()` reads `Scp`, then `Ups`, then `Dst`, so both ends of
+the seal and both ends of the relay attestation get the origin's address on an upcast copy without
+being told about it, and every existing `HasScope()` test keeps meaning exactly what it meant.
+`TryReadPosture` reports the new decision as `SealUcast`. *"My broadcasts are not confidential"* is
+not the same sentence as *"my upcasts are not confidential"*.
+
+**One line did have to change, and it is the one that would have gone quiet.** The in-process
+end-to-end waiver (§6.3) declines a message whose address names something this process cannot vouch
+for, and it asked `HasScope()`. A chain of ancestors is as far outside that as a subtree, so it now
+asks `IsFannedOut()` — `Scp` **or** `Ups`. Left alone it would have started waiving the two
+end-to-end protections on upcasts by saying nothing new.
+
+**Gated, and the negative was run.** `p2p_sealbcast` phase 6a requires `RequireSealBroadcast(false)`
+alone **not** to reach an upcast, with 6b — `RequireSealUpcast(false)` — as its control, because 6a
+on its own is satisfied by an upcast that could not be sent for any reason at all. Widening the
+broadcast exemption to `IsFannedOut()`, which is the tidier-looking form of the line, turns 6a red
+with *"CARRIED - THE EXEMPTION LEAKED"*; measured 2026-09-22 before this was committed. The routing
+half is `p2p_ucastgate`: a control that the upcast climbs at all, the `ConState_UCasts` bound that no
+test could reach before, and a direction check that the relay takes parents rather than every
+connection.
+
+**And `ConState_UCasts` is set nowhere in the library at all** — not even in the `P2Pexpump` paths
+that set `ConState_BCasts`. An application that wants upcasts relayed says so on the connection, and
+a test that forgets measures an empty loop and passes, which is the failure `p2p_ucastgate` phase 1
+exists to stop.

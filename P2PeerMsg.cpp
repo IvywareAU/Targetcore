@@ -1246,18 +1246,123 @@ P2PeerMsg::HasScope ( ) const
 }
 
 //
+//  Manages the end-to-end scope of an UPCAST P2PaddrSTR
+//  NOTES: What the ORIGIN addressed an upcast to, which Dst stops being the
+//         moment On_P2PeerUCast re-addresses a copy to its link peer - the
+//         same loss, and the same two protections, as TMsg_Scp above
+//       : A SEPARATE FIELD FROM THE SCOPE and not a second stamper of it.
+//         Both name an AUDIENCE the origin chose - a subtree one way, a chain
+//         of ancestors the other - and neither can be sealed.  They are kept
+//         apart so that exempting one from the seal requirement is not a way
+//         of exempting the other without having been asked.  Refer TMsg_Ups
+//         in the header, which carries the whole argument
+//       : Stamped once, by the hub that fans an upcast out, and never
+//         rewritten - the identical discipline On_P2PeerBCast applies to the
+//         scope, and for the identical reason
+//
+//  Returns:     P2PaddrSTR
+//               Upcast scope, strP2PaddrNULL when none was stamped
+//
+P2PaddrSTR
+P2PeerMsg::GetUpScope ( ) const
+{
+    // Simply
+    P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
+    if ( oItemAddr.Exists(TMsg_Ups) )
+      return oItemAddr[TMsg_Ups].c_wstr();
+    return strP2PaddrNULL;
+}
+
+//
+//  Stamps the end-to-end scope of an upcast
+//  NOTES: WSTR08 to match Src, Dst and Scp - this holds the same kind of thing
+//         they hold
+//       : The CALLER decides whether stamping is allowed, exactly as SetScope
+//         leaves it to the caller and for the same reason
+//
+//  Parameters:  P2PaddrSTR strScope
+//               Address the origin addressed this upcast to
+//
+P2PaddrSTR
+P2PeerMsg::SetUpScope ( P2PaddrSTR strScope )
+{
+    // Network node may not exist
+    if ( !Exists(VBLockBSTR_NET) )
+      InitItem ( VBLockBSTR_NET, P3PmsgData() );
+
+    // May not exist
+    P3PmsgItem& oNodeAddr = r_item(VBLockBSTR_NET);
+    if ( oNodeAddr.Exists(TMsg_Ups) )
+      oNodeAddr[TMsg_Ups].r_data() = DataWSTR08(strScope);
+    else
+      oNodeAddr += P3PmsgField ( TMsg_Ups, DataWSTR08(strScope) );
+    return oNodeAddr[TMsg_Ups].c_wstr();
+}
+
+//
+//  Reports whether an upcast scope has been stamped
+//  NOTES: Presence only, the same contract HasScope has
+//
+bool
+P2PeerMsg::HasUpScope ( ) const
+{
+    // Simply
+    P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
+    return oItemAddr.Exists(TMsg_Ups) ? true : false;
+}
+
+//
+//  Reports whether this message is a copy some hub fanned out
+//  NOTES: EITHER stamp answers yes, and a caller that wants "is this a
+//         fan-out" must ask this rather than HasScope().  While there was one
+//         relay the two questions had one answer; there are two relays now and
+//         a test written as HasScope() silently means "broadcast only"
+//       : WHICH IS THE POINT OF HAVING IT.  Two call sites want the general
+//         question - the in-process end-to-end waiver, both halves - because
+//         what they decline is a message whose address names something this
+//         process cannot vouch for, and a chain of ancestors is as far outside
+//         that as a subtree.  The two SEAL exemptions want the specific
+//         question and keep asking it, because each is governed by its own
+//         switch.  Every reader here is one or the other on purpose
+//
+//  Returns:     bool
+//               true... a scope or an upcast scope was stamped
+//
+bool
+P2PeerMsg::IsFannedOut ( ) const
+{
+    // Simply
+    P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
+    if ( oItemAddr.Exists(TMsg_Scp) )
+      return true;
+    return oItemAddr.Exists(TMsg_Ups) ? true : false;
+}
+
+//
 //  The address a security check should key on
-//  NOTES: The scope when one was stamped, the destination when none was.  This
-//         is the accessor the seal and attestation paths use at BOTH ends -
-//         refer the header
-//       : ONE lookup and ONE returned pointer, rather than GetScope() falling
+//  NOTES: The scope when one was stamped, the upcast scope when one was, the
+//         destination when neither.  This is the accessor the seal and
+//         attestation paths use at BOTH ends - refer the header
+//       : ONE lookup and ONE returned pointer on whichever branch answers,
+//         rather than GetScope() falling through to GetUpScope() falling
 //         through to GetDestin().  Off Windows c_wstr() widens into a ring of
 //         16 thread-local buffers that the next accessor call recycles, so two
 //         calls to hand back one answer is the shape of a defect that has
 //         already been paid for twice in this file
+//       : THE ORDER IS THE PRECEDENCE, not a preference.  A message carries at
+//         most one of the first two, because one handler stamps each and each
+//         stamps only when neither is there; a reader that saw both would be
+//         looking at an image somebody assembled by hand, and taking the
+//         broadcast scope is the conservative reading because it is the one
+//         whose exemption has been live the longest
+//       : Ups sits BEFORE Dst and not beside it, so an upcast copy is attested
+//         and sealed against what the ORIGIN wrote rather than against the
+//         parent it is about to be handed to.  That is the whole reason the
+//         field exists - refer TMsg_Ups in the header
 //
 //  Returns:     P2PaddrSTR
-//               Scope if present, else destination, else strP2PaddrNULL
+//               Scope, else upcast scope, else destination, else
+//               strP2PaddrNULL
 //
 P2PaddrSTR
 P2PeerMsg::GetScopeOrDestin ( ) const
@@ -1266,6 +1371,8 @@ P2PeerMsg::GetScopeOrDestin ( ) const
     P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
     if ( oItemAddr.Exists(TMsg_Scp) )
       return oItemAddr[TMsg_Scp].c_wstr();
+    if ( oItemAddr.Exists(TMsg_Ups) )
+      return oItemAddr[TMsg_Ups].c_wstr();
     if ( oItemAddr.Exists(TMsg_Dst) )
       return oItemAddr[TMsg_Dst].c_wstr();
     return strP2PaddrNULL;
