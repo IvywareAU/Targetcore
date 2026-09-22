@@ -998,5 +998,12 @@ P2PeerConDmx::Serialise ( LPCTNAM lpszVar )
 DWORD_PTR
 P2PeerConDmx::GetUDState ( )
 {
+    // Under the lock every writer of m_pConThat holds - Connect(),
+    // AcceptSpawn(), Drop() and the accept refusal.  This is read from the
+    // io layer on the pump and by harnesses from other threads, and since
+    // 2026-09-22 a departed peer's Drop() clears it on the PEER'S pump while
+    // the owner may be looking; TSan reported exactly that pair on
+    // p2p_dmxdead the first run it saw the fix
+    P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
     return (DWORD_PTR)m_pConThat;
 }
