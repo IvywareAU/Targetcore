@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.2.0 is tag
-//         v3.2.0. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.2.1 is tag
+//         v3.2.1. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -57,6 +57,25 @@
 
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
+//
+//  3.2.1.0, a PATCH on 3.2.0. The covered surface did not move:
+//  .github/ci/abi-flat.manifest and Targetcore_c.h are byte-identical to
+//  v3.2.0, still 101 symbols, and no behaviour a peer can observe broke.
+//
+//  What it carries is a defect fix and a header. The fix: a DMX connection
+//  dropped its PEER from its own pump -- OnClose() and Close() called
+//  pConThat->Drop(0) from the other hub's thread, which raced that hub's pump
+//  over the peer's recv OVERLAPPED and freed it twice, the intermittent
+//  0xC0000005 at teardown of every DMX harness; and the accept-at-capacity
+//  refusal did the same to a client mid-connect. The peer is now told on its
+//  own pump (P2PeerConDmx_BREAK_PAIR), and a refused client fails its connect
+//  with ERROR_CONNECTION_REFUSED and closes itself. The header is
+//  P2PeerAppFields.hpp -- AppFields(msg), named fields on a P2PeerMsg in the
+//  facade's own wire format, so a direct client and a facade client read each
+//  other's fields. Header-only C++ surface, which the policy does not cover:
+//  it informs a MINOR without compelling one.
+//
+//  BELOW IS THE 3.2.0 RATIONALE.
 //
 //  3.2.0.0, the fourth PUBLIC release and a MINOR on 3.1.1.
 //
@@ -121,23 +140,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  2
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,2,0,0
+#define TARGETCORE_VERSION_COMMAS 3,2,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.2.0.0"
+#define TARGETCORE_VERSION_STRING "3.2.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03020000 is 3.2.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03020100 is 3.2.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03020000
+#define TARGETCORE_VERSION_HEX    0x03020100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -153,7 +172,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.2.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.2.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

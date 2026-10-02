@@ -360,6 +360,11 @@ string(REGEX REPLACE "^.*TARGETCORE_VERSION_MAJOR[ 	]+([0-9]+).*$" "\\1" _pm_ver
 string(REGEX REPLACE "^.*TARGETCORE_VERSION_MINOR[ 	]+([0-9]+).*$" "\\1" _pm_ver_minor "${_pm_ver_minor}")
 string(REGEX REPLACE "^.*TARGETCORE_VERSION_PATCH[ 	]+([0-9]+).*$" "\\1" _pm_ver_patch "${_pm_ver_patch}")
 set(TARGETCORE_VERSION "${_pm_ver_major}.${_pm_ver_minor}.${_pm_ver_patch}")
+# Read at CONFIGURE time, so a bump must re-run configure. Without this an
+# existing build tree kept advertising the old number in TargetcoreConfigVersion
+# and p2p_installtree refused it (3.2.0 -> 3.2.1, measured 2026-10-03).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             ${CMAKE_CURRENT_SOURCE_DIR}/Targetcore_version.h)
 
 install(TARGETS targetcore EXPORT TargetcoreTargets
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}      # .dll  (Windows)
