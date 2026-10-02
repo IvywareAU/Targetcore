@@ -412,6 +412,58 @@ P2PeerConDmx::On_QueuedCompletionStatus ( DWORD dwError
 
 
 //
+//  Break the in-process pair, and tell the other end ON ITS OWN PUMP
+//  NOTES: ONE DEFINITION, used by Drop(), OnClose() and Close().  Until
+//         2026-10-02 only Drop() did this; OnClose() and Close() still did
+//         what Drop() had been redesigned away from - cleared the PEER'S
+//         m_hFile/m_hFileCPort and called pConThat->Drop(0) from THIS thread,
+//         which is the other hub's pump.  That raced the peer's own pump over
+//         the peer's recv OVERLAPPED: Drop() -> Reset() handed the parked read
+//         to the peer's port, the peer's pump completed it and freed it in the
+//         cancellation arm (P2PeerCon.cpp:674), and this thread, still inside
+//         the peer's Drop(), read the stale m_pOVERLAPPEDrecv, saw it unqueued
+//         and freed it again.  Traced (OVERLAPPEDcon make/post/release/drop,
+//         thread by thread) as the intermittent 0xC0000005 at teardown of
+//         every Dmx harness - FacadeExamples DmxMeshTest, RouteLoopbackTest,
+//         FieldViewTest (MsgFieldAccessPlan.md, finding 2)
+//       : So nothing of the peer's is dropped, cleared or freed from here: its
+//         back-pointer is broken under the lock and its parked read, if it has
+//         one, is handed back ABORTED to its own port.  The peer's own pump
+//         then fails the read, drops the peer with its own reference in hand,
+//         and its own hub closes it.  A read that is not parked finds the pair
+//         broken on its next RecvP2PeerMsg (GetUDState() == 0) and fails the
+//         same way.  Refer Drop() for the rest of the reasoning
+//       : A macro rather than a member function so the exported class layout
+//         and symbol set are unchanged by a body-only fix
+//
+#define P2PeerConDmx_BREAK_PAIR()                                              \
+    do {                                                                       \
+      P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;                                \
+      P2PeerConDmx *pConThat = m_pConThat;                                     \
+                               m_pConThat   = 0;                               \
+                               m_hFile      = 0;                               \
+                               m_hFileCPort = 0;                               \
+      if ( pConThat                     &&                                     \
+           pConThat->m_pConThat == this    )                                   \
+      {                                                                        \
+        /*  NOT A PEER WHOSE OWN HUB ALREADY HAS IT.  CloseP2PmsgHub()       */ \
+        /*  Destroy()s every connection it owns before it Drop()s them and   */ \
+        /*  drains, so a peer carrying m_bDestroy is on its own sweep: its   */ \
+        /*  own Drop() -> Reset() hands its park back to its own port and    */ \
+        /*  its own drain collects it.  A post from here could land after    */ \
+        /*  that drain and be collected by nobody                            */ \
+        pConThat -> m_pConThat = 0;                                            \
+        P2PeerioDmx *pioThat = (P2PeerioDmx *)pConThat->GetP2Peerio ( );       \
+        if ( pioThat && !pConThat->m_bDestroy )                                \
+        {                                                                      \
+          try                      { pioThat -> UnparkRecv ( ERROR_OPERATION_ABORTED ); } \
+          catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( false );             } \
+          catch ( ... )            {                                                   } \
+        }                                                                      \
+      }                                                                        \
+    } while ( 0 )
+
+//
 //  Description: Drops the encapsulated connection and performs the
 //               appropriate ON_P2PeerCon_CLOSE() notification
 //               NOTES: Should an EVENT already be attached the passed
@@ -475,34 +527,7 @@ P2PeerConDmx::Drop ( P2Pevent *pEVENT )
     //         throws only when the peer's port is gone, which is only true of
     //         a hub already torn down, and it has released the park's
     //         reference before it does
-    {
-      // Isolation
-      P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
-
-      P2PeerConDmx *pConThat = m_pConThat;
-                               m_pConThat   = 0;
-                               m_hFile      = 0;
-                               m_hFileCPort = 0;
-
-      if ( pConThat                     &&
-           pConThat->m_pConThat == this    )
-      {
-        pConThat -> m_pConThat = 0;
-        //  NOT A PEER WHOSE OWN HUB ALREADY HAS IT.  CloseP2PmsgHub() Destroy()s
-        //  every connection it owns before it Drop()s them and drains, so a
-        //  peer carrying m_bDestroy is on its own sweep: its own Drop() ->
-        //  Reset() hands its park back to its own port and its own drain
-        //  collects it.  A post from here could land after that drain and be
-        //  collected by nobody, holding a reference nobody would release
-        P2PeerioDmx *pioThat = (P2PeerioDmx *)pConThat->GetP2Peerio ( );
-        if ( pioThat && !pConThat->m_bDestroy )
-        {
-          try                      { pioThat -> UnparkRecv ( ERROR_OPERATION_ABORTED ); }
-          catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( false );             }
-          catch ( ... )            {                                                   }
-        }
-      }
-    }
+    P2PeerConDmx_BREAK_PAIR();
 
     // Always delegate
     P2PeerCon::Drop ( pEVENT );
@@ -641,14 +666,13 @@ P2PeerConDmx::OnAccept ( )
     //        the client is already attached, and a refusal that just returned
     //        NULL would leave it attached to a service that will never
     //        complete it - a hang, not a refusal.
-    //      : THE DETACH IS OnClose()'s SEQUENCE AND IS COPIED FROM IT rather
-    //        than reinvented: clear this side's pointers BEFORE the nested
-    //        Drop so it cannot recurse back in, verify the peer still points
-    //        at us, clear its side, then Drop(0) to complete its outstanding
-    //        IO with ERROR_OPERATION_ABORTED and route it through its own
-    //        close handling.  g_oCSectP2PeerConDmx is reentrant, so the
-    //        nested re-acquire inside Drop() is safe - the same note
-    //        OnClose() carries at :862-865.
+    //      : THE DETACH: clear this side's pointers, verify the peer still
+    //        points at us, break its back-pointer, and fail its pending
+    //        connect ON ITS OWN PUMP with ERROR_CONNECTION_REFUSED so it runs
+    //        its own close handling.  It once copied OnClose()'s cross-thread
+    //        pConThat->Drop(0); refer P2PeerConDmx_BREAK_PAIR for why neither
+    //        does that any more, and the block below for why the refusal posts
+    //        the connect rather than unparking a read.
     //      : THE CONSUMED ACCEPT MUST BE DROPPED HERE, and forgetting it
     //        turns a refusal into a dead service.  On the normal path
     //        AcceptSpawn() does it (:246-247); the tail of
@@ -681,10 +705,38 @@ P2PeerConDmx::OnAccept ( )
         if ( pConThat                     &&
              pConThat->m_pConThat == this    )
         {
-          pConThat -> m_pConThat   = 0;
-          pConThat -> m_hFile      = 0;
-          pConThat -> m_hFileCPort = 0;
-          pConThat -> Drop ( 0 );
+          // Refuse the client ON ITS OWN PUMP
+          // NOTES: Until 2026-10-02 this cleared the client's m_hFile and
+          //        m_hFileCPort and called pConThat->Drop(0) from HERE, which
+          //        is the service hub's pump - the same cross-thread drop that
+          //        P2PeerConDmx_BREAK_PAIR took out of OnClose()/Close().  The
+          //        client is not parked on a read at this point, so the pair
+          //        macro's UnparkRecv() would have nothing to hand back: what
+          //        it IS waiting on is its connect OVERLAPPED, which Connect()
+          //        made under this lock before it posted our accept, and which
+          //        nothing else will ever post now (OnAccept(oThatP2Paddr) runs
+          //        on the spawn, and there is no spawn)
+          //      : So that is posted back to the client's own port, FAILED.
+          //        Its m_hFileCPort is deliberately left set: the connect
+          //        branch's failure arm is guarded by it (P2PeerCon.cpp:877),
+          //        and clear it and the refusal reads as a cancellation - the
+          //        client is quietly drained, never closed, and hangs in
+          //        connect.  The failure arm throws, the pump's catch Drop()s
+          //        the client with its own reference in hand, and its Drop()
+          //        clears both handles.  Its m_pConThat is broken here, under
+          //        the lock, so that Drop() reaches nothing of ours
+          //      : A client already on its own hub's teardown sweep is left to
+          //        it, as in P2PeerConDmx_BREAK_PAIR
+          pConThat -> m_pConThat = 0;
+          if (  pConThat->m_pOVERLAPPEDconnect          &&
+               !pConThat->m_pOVERLAPPEDconnect->bQueued &&
+               !pConThat->m_bDestroy                       )
+          {
+            try                      { pConThat -> PostOVERLAPPED ( pConThat->m_pOVERLAPPEDconnect
+                                                                  , ERROR_CONNECTION_REFUSED ); }
+            catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( false );                      }
+            catch ( ... )            {                                                            }
+          }
         }
       }
 
@@ -880,42 +932,10 @@ void
 P2PeerConDmx::Close  ( )
 {
     // Primary resource recovery
-    // NOTES: P2PeerConDmx's are a little different and need to be
-    //        tidied up before delegation to the base class
-    //      : Remember "m_hFileCPort" is actually a pointer to the other
-    //        P2PeerConDmx object
-    //      : Activity requires isolation
-    if ( m_pConThat )                  // Scoping CriticalSection 
-    {
-      P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
-      if ( m_pConThat )
-      {
-        // Notify the other side
-        // NOTES: Mirror OnClose() - waking the paired connection is mandatory,
-        //        otherwise Close() leaves it detached (back-pointer cleared) but
-        //        with its outstanding overlapped recv still pending, so it never
-        //        learns the partner is gone.
-        //      : pConThat->Drop(0) completes that recv with
-        //        ERROR_OPERATION_ABORTED, routing the peer through its own close
-        //        handling (see P2PeerConDmx::Drop).
-        //      : m_pConThat / the peer back-pointer are cleared BEFORE the nested
-        //        Drop so it cannot recurse back into this object.
-        //        g_oCSectP2PeerConDmx is a reentrant CRITICAL_SECTION, so the
-        //        nested re-acquire in Drop() is safe (same pattern as OnClose()).
-        P2PeerConDmx *pConThat = m_pConThat;
-                                 m_pConThat   = 0;
-                                 m_hFile      = 0;   // P2PeerCon attribute
-                                 m_hFileCPort = 0;   // P2PeerCon attribute
-        if ( pConThat                     &&
-             pConThat->m_pConThat == this    )
-        {
-          pConThat -> m_pConThat   = 0;
-          pConThat -> m_hFile      = 0;
-          pConThat -> m_hFileCPort = 0;
-          pConThat -> Drop ( 0 );
-        }
-      }
-    }
+    // NOTES: Break the pair before delegating.  The peer is told on its
+    //        own pump, never dropped from this one - refer
+    //        P2PeerConDmx_BREAK_PAIR for the race that ruled that out
+    P2PeerConDmx_BREAK_PAIR();
 
     // Always delegate
     P2PeerCon::OnClose();
@@ -934,24 +954,9 @@ P2PeerConDmx::Close  ( )
 BOOL
 P2PeerConDmx::OnClose ( )
 {
-    // Firstly tidy up other end
-    // NOTES: Cancels all outstanding overlapped IO
-    if ( m_pConThat )
-    {
-      P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
-      P2PeerConDmx *pConThat = m_pConThat;
-                               m_pConThat   = 0;
-                               m_hFile      = 0;
-                               m_hFileCPort = 0;
-      if ( pConThat                     &&
-           pConThat->m_pConThat == this    )
-      {
-        pConThat -> m_pConThat   = 0;
-        pConThat -> m_hFile      = 0;
-        pConThat -> m_hFileCPort = 0;
-        pConThat -> Drop ( 0 );
-      }
-    }
+    // Firstly break the pair -- the peer is told on its own pump, never
+    // dropped from this one.  Refer P2PeerConDmx_BREAK_PAIR
+    P2PeerConDmx_BREAK_PAIR();
 
     // Always delegate
     return P2PeerCon::OnClose();
