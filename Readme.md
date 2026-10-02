@@ -768,6 +768,41 @@ SERVER: On_P2PeerBCast                                  ⇒ message delivered
 Full worked examples for both transports, sub-targets, and teardown ordering are in
 **[examples.md](examples.md)**.
 
+### Application fields by name: `P2PeerAppFields.hpp`
+
+`P2PeerAppFields.hpp` is header-only and adds no export. It gives a direct-API
+client the same named fields a TargetFacade client sets with `IP2PMessage::SetField`,
+so the two can read each other's fields:
+
+```cpp
+#include "P2PeerAppFields.hpp"           // brings in Msgcore's MsgFieldRef.hpp
+
+P2PeerMsg32 *pMsg = new P2PeerMsg32 ( src, dst, P2Pmsg_BCast, pv, cb );
+AppField ( *pMsg, L"device" ) = L"sensor-04";
+
+MsgViewOf<Telemetry> msg ( AppFields ( *pMsg ) );   // a MSG_FIELD view
+msg->uptime = 86400;
+PostP2Pmsg ( pMsg );                     // finish the fields first: after this it is not yours
+```
+
+- **Never the root.** Every name resolves under the root child `P2PF$Fields`, so
+  `Src`, `Dst`, `Tag`, `Att`, `Sld` and `Scp` cannot be reached by construction. A
+  field called `Dst` is just a field, and routing and the relay digest are untouched.
+- **The facade's wire format.** Each value is a blob (the `Bytes` coding in
+  `MsgFieldRef.hpp`) and the names are listed in insertion order in `P2PF$Names`. A
+  typed `INT32` would be an *absent* field to a facade receiver, because the facade
+  reads with `c_vBlob()`, and that refuses scalar tags.
+- **The facade's limits, enforced at the write:** at most 64 fields, a name of 1–63
+  characters not starting `P2PF`, and a value of at most 8192 bytes. Each one throws
+  `P2Pevent*` rather than producing a message the far end would refuse.
+- `AppFields()` returns an anchor, not a `P3PmsgItem&`, because the fields item is
+  the root's cursor item and updating the index moves that cursor.
+  `HasAppFields()` and `AppFieldNames()` answer the facade's `P2PF_MSG_FIELDS` and
+  `GetFieldName` questions.
+
+The item and index names, and the limits, are copied from TargetFacade's
+`FacadeHub.cpp` and `FacadeMessage.cpp`. If either side changes, change the other.
+
 ### Reporting the version
 
 The current release is **3.1.1** (tag `v3.1.1`), and what the number *promises* is written
