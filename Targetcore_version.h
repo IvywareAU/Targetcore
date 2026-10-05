@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.2.1 is tag
-//         v3.2.1. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.3.0 is tag
+//         v3.3.0. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -57,6 +57,22 @@
 
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
+//
+//  3.3.0.0, a MINOR on 3.2.1, and this time BECAUSE the covered surface grew:
+//  .github/ci/abi-flat.manifest goes 101 -> 103 symbols with
+//  p2peerconwsa_set_family / p2peerconwsa_get_family, and none moved. That
+//  is the policy's definition of a MINOR, not a judgement call.
+//
+//  What it carries is IPv6 for every caller. P2PeerConWsa::SetFamily has
+//  existed since 2026-08-28 but only on the C++ class, so no binding could
+//  reach it; the two entry points expose it (0 IPv4, 1 IPv6, 2 Dual, range
+//  checked at the boundary). And one inference: a CLIENT constructed with an
+//  IPv6 literal starts in IPv6, because under the IPv4 default it could never
+//  resolve its own target. Nothing that connected before changes -- IPv4 is
+//  still the default for every service and every client given a name or a
+//  dotted quad.
+//
+//  BELOW IS THE 3.2.1 RATIONALE.
 //
 //  3.2.1.0, a PATCH on 3.2.0. The covered surface did not move:
 //  .github/ci/abi-flat.manifest and Targetcore_c.h are byte-identical to
@@ -139,24 +155,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  2
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_MINOR  3
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,2,1,0
+#define TARGETCORE_VERSION_COMMAS 3,3,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.2.1.0"
+#define TARGETCORE_VERSION_STRING "3.3.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03020100 is 3.2.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03030000 is 3.3.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03020100
+#define TARGETCORE_VERSION_HEX    0x03030000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -172,7 +188,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.2.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.3.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
