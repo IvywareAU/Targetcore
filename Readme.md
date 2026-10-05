@@ -41,9 +41,9 @@
   - [Windows — Visual Studio](#windows--visual-studio-authoritative)
   - [CMake](#cmake-in-tree)
 - [Usage](#usage)
-  - [Switching to IPv6](#switching-to-ipv6)
   - [Reporting the version](#reporting-the-version)
   - [Hosting a hub where nobody can see a dialog](#hosting-a-hub-where-nobody-can-see-a-dialog)
+- [Switching to IPv6](#switching-to-ipv6)
 - [Documentation](#documentation)
 - [Project status](#project-status)
 - [History](#history)
@@ -769,68 +769,6 @@ SERVER: On_P2PeerBCast                                  ⇒ message delivered
 Full worked examples for both transports, sub-targets, and teardown ordering are in
 **[examples.md](examples.md)**.
 
-### Switching to IPv6
-
-TCP is **IPv4 by default** and stays that way unless you ask, so nothing in an existing
-deployment changes when you upgrade. The family is chosen per connection, on the
-`P2PeerConWsa` object, **before** it is handed to the hub with `PostP2PeerCon` — a socket that is
-already open keeps the family it was opened in.
-
-| Family | `SetFamily(...)` | A service listens on | A client dials |
-|---|---|---|---|
-| IPv4 (default) | `P2PeerConFamily_IPv4` | `0.0.0.0` | A records only |
-| IPv6 only | `P2PeerConFamily_IPv6` | `::` with `IPV6_V6ONLY` on — IPv4 peers are refused | AAAA records only |
-| Both | `P2PeerConFamily_Dual` | **one** `::` socket with `IPV6_V6ONLY` off — IPv6 and IPv4 peers | whichever record the resolver prefers |
-
-**A service** — pick the family explicitly. `_Dual` is the usual choice: one socket, both families.
-
-```cpp
-P2PeerConWsa* pSvc = P2PeerConWsa::ServiceFactory(L"MyApp.Client", 7777);
-pSvc->SetFamily(P2PeerConFamily_Dual);        // IPv6 and IPv4 on port 7777
-hub.PostP2PeerCon(pSvc);
-```
-
-**A client** — an IPv6 **literal** is enough on its own: a client made with `"::1"`,
-`"2001:db8::5"` or `"fe80::1%eth0"` starts in IPv6 (since 3.3.0), because under IPv4 it could never
-resolve. A **name** keeps IPv4 and asks for A records only; say `_IPv6` (AAAA only) or `_Dual`
-(either) to reach a host by name over IPv6.
-
-```cpp
-hub.PostP2PeerCon(P2PeerConWsa::ClientFactory(L"MyApp.Server", L"::1", 7777));   // IPv6, implied
-
-P2PeerConWsa* pCli = P2PeerConWsa::ClientFactory(L"MyApp.Server", L"server.example", 7777);
-pCli->SetFamily(P2PeerConFamily_Dual);        // AAAA or A, the host's preference
-hub.PostP2PeerCon(pCli);
-```
-
-**From C (and anything bound to the flat API)**, the same setting is two entry points, added in
-3.3.0: `p2peerconwsa_set_family(h, family)` with `0` IPv4, `1` IPv6, `2` Dual — it answers `1`
-when recorded and `0` for a refused handle or an out-of-range value — and
-`p2peerconwsa_get_family(h)`. Call it between the factory and `p2peerconwsa_listen` /
-`p2peerconwsa_connect` / `p2peerhub_post_con`.
-
-**Things that behave differently in IPv6:**
-
-- **`_Dual` cannot be combined with `SetListenScope(P2PeerConScope_Loopback)`.** `::1` is not the
-  v4-mapped form of `127.0.0.1`, so one bind cannot cover both loopbacks; `Listen()` refuses the
-  pair rather than quietly narrowing it. Use `_IPv6` + loopback, or two services.
-- **`SetListenScope(P2PeerConScope_Address, ...)` takes an address in the connection's family** —
-  an IPv6 literal for `_IPv6`/`_Dual`. A literal of the other family is refused, never converted.
-- **Accept allow-lists match only their own family.** A list of IPv4 prefixes refuses every IPv6
-  peer; add IPv6 rules (`AllowAcceptFrom("2001:db8::/32")`, `"::1"`) when you turn IPv6 on. An IPv4
-  peer arriving on a dual socket is normalised from `::ffff:a.b.c.d` back to IPv4 first, so your
-  existing IPv4 rules still mean what they did.
-- **Per-source limits key an IPv6 peer on its /64**, the block one subscriber is delegated, so one
-  host cannot mint a fresh source per connection.
-- **A host with IPv6 disabled** fails at `socket()`/`bind()` with the stack's own error; the
-  library does not guess in advance.
-
-Gated by `p2p_ipv6`, `p2p_ipv6dual`, `p2p_ipv6filter` and `p2p_resolve` on Windows and Linux. The
-layers above expose the same switch in their own terms: TargetFacade (and so TargetCom, .NET and
-Panama clients) through the endpoint string — `tcp://[::]:7777`, `tcp6://`, `tcp46://` — the Java
-bindings through `P2PeerConWsa.setFamily()`, and P2PeerWeb through `Server/Listen = [::]:443` or
-`serve --dual-stack`.
-
 ### Application fields by name: `P2PeerAppFields.hpp`
 
 `P2PeerAppFields.hpp` is header-only and adds no export. It gives a direct-API
@@ -1031,6 +969,70 @@ neighbours, **do not throw** — they are read by the code that builds a diagnos
 being torn down has to be reportable rather than a second fault. `GetP2PmsgCount()` (per pump) and
 `P2PeerCon::GetAcceptedCount()` / `GetRecvThrottleCount()` (per connection) remain for attribution.
 Guarded by `p2p_hubsnap`, whose monitor deliberately calls nothing but `Serialise()`.
+
+---
+
+## Switching to IPv6
+
+TCP is **IPv4 by default** and stays that way unless you ask, so nothing in an existing
+deployment changes when you upgrade. The family is chosen per connection, on the
+`P2PeerConWsa` object, **before** it is handed to the hub with `PostP2PeerCon` — a socket that is
+already open keeps the family it was opened in.
+
+| Family | `SetFamily(...)` | A service listens on | A client dials |
+|---|---|---|---|
+| IPv4 (default) | `P2PeerConFamily_IPv4` | `0.0.0.0` | A records only |
+| IPv6 only | `P2PeerConFamily_IPv6` | `::` with `IPV6_V6ONLY` on — IPv4 peers are refused | AAAA records only |
+| Both | `P2PeerConFamily_Dual` | **one** `::` socket with `IPV6_V6ONLY` off — IPv6 and IPv4 peers | whichever record the resolver prefers |
+
+**A service** — pick the family explicitly. `_Dual` is the usual choice: one socket, both families.
+
+```cpp
+P2PeerConWsa* pSvc = P2PeerConWsa::ServiceFactory(L"MyApp.Client", 7777);
+pSvc->SetFamily(P2PeerConFamily_Dual);        // IPv6 and IPv4 on port 7777
+hub.PostP2PeerCon(pSvc);
+```
+
+**A client** — an IPv6 **literal** is enough on its own: a client made with `"::1"`,
+`"2001:db8::5"` or `"fe80::1%eth0"` starts in IPv6 (since 3.3.0), because under IPv4 it could never
+resolve. A **name** keeps IPv4 and asks for A records only; say `_IPv6` (AAAA only) or `_Dual`
+(either) to reach a host by name over IPv6.
+
+```cpp
+hub.PostP2PeerCon(P2PeerConWsa::ClientFactory(L"MyApp.Server", L"::1", 7777));   // IPv6, implied
+
+P2PeerConWsa* pCli = P2PeerConWsa::ClientFactory(L"MyApp.Server", L"server.example", 7777);
+pCli->SetFamily(P2PeerConFamily_Dual);        // AAAA or A, the host's preference
+hub.PostP2PeerCon(pCli);
+```
+
+**From C (and anything bound to the flat API)**, the same setting is two entry points, added in
+3.3.0: `p2peerconwsa_set_family(h, family)` with `0` IPv4, `1` IPv6, `2` Dual — it answers `1`
+when recorded and `0` for a refused handle or an out-of-range value — and
+`p2peerconwsa_get_family(h)`. Call it between the factory and `p2peerconwsa_listen` /
+`p2peerconwsa_connect` / `p2peerhub_post_con`.
+
+**Things that behave differently in IPv6:**
+
+- **`_Dual` cannot be combined with `SetListenScope(P2PeerConScope_Loopback)`.** `::1` is not the
+  v4-mapped form of `127.0.0.1`, so one bind cannot cover both loopbacks; `Listen()` refuses the
+  pair rather than quietly narrowing it. Use `_IPv6` + loopback, or two services.
+- **`SetListenScope(P2PeerConScope_Address, ...)` takes an address in the connection's family** —
+  an IPv6 literal for `_IPv6`/`_Dual`. A literal of the other family is refused, never converted.
+- **Accept allow-lists match only their own family.** A list of IPv4 prefixes refuses every IPv6
+  peer; add IPv6 rules (`AllowAcceptFrom("2001:db8::/32")`, `"::1"`) when you turn IPv6 on. An IPv4
+  peer arriving on a dual socket is normalised from `::ffff:a.b.c.d` back to IPv4 first, so your
+  existing IPv4 rules still mean what they did.
+- **Per-source limits key an IPv6 peer on its /64**, the block one subscriber is delegated, so one
+  host cannot mint a fresh source per connection.
+- **A host with IPv6 disabled** fails at `socket()`/`bind()` with the stack's own error; the
+  library does not guess in advance.
+
+Gated by `p2p_ipv6`, `p2p_ipv6dual`, `p2p_ipv6filter` and `p2p_resolve` on Windows and Linux. The
+layers above expose the same switch in their own terms: TargetFacade (and so TargetCom, .NET and
+Panama clients) through the endpoint string — `tcp://[::]:7777`, `tcp6://`, `tcp46://` — the Java
+bindings through `P2PeerConWsa.setFamily()`, and P2PeerWeb through `Server/Listen = [::]:443` or
+`serve --dual-stack`.
 
 ---
 
