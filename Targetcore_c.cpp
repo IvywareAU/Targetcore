@@ -703,6 +703,27 @@ void p2peerconwsa_demote_trust(P2PeerConWsaHandle h, int trustClass)
     catch (...) { }
 }
 
+// The family is range-checked HERE because the kernel's setter takes the enum
+// on trust, and an int from an FFI caller is not an enum: 7 would reach
+// SocketFamily() as "not IPv6" and open AF_INET with nothing to say why.
+int p2peerconwsa_set_family(P2PeerConWsaHandle h, int family)
+{
+    P2PeerConWsa* p = wsa(h);
+    if (!p) return 0;
+    if (family < (int)P2PeerConFamily_IPv4 || family > (int)P2PeerConFamily_Dual)
+        return 0;
+    try         { p->SetFamily((P2PeerConFamily_e)family); return 1; }
+    catch (...) { return 0; }
+}
+
+int p2peerconwsa_get_family(P2PeerConWsaHandle h)
+{
+    P2PeerConWsa* p = wsa(h);
+    if (!p) return (int)P2PeerConFamily_IPv4;
+    try         { return (int)p->GetFamily(); }
+    catch (...) { return (int)P2PeerConFamily_IPv4; }
+}
+
 P2PeerMsgHandle p2peerconwsa_post_msg(P2PeerConWsaHandle h, P2PeerMsgHandle m)
 {
     // Return contract (unchanged): null means posted, non-null means NOT posted.

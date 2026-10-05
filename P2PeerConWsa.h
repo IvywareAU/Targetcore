@@ -265,6 +265,11 @@ class Targetcore_EXT P2PeerConWsa : public P2PeerCon
     //      : P2PeerConFamily_IPv4 is the default and is what every caller
     //        written before 2026-08-28 gets.  Nothing about an existing
     //        deployment changes unless it asks
+    //      : ONE inference, on a CLIENT only: one constructed with an IPv6
+    //        literal ("::1", "fe80::1%eth0") starts in P2PeerConFamily_IPv6,
+    //        because under IPv4 that client could never resolve its own target.
+    //        A name or a dotted quad keeps IPv4, and SetFamily() still overrides
+    //        (since 2026-10-05)
     //      : On a CLIENT the family also chooses what the RESOLVER is allowed
     //        to answer.  IPv4 asks for A records, IPv6 for AAAA, and Dual for
     //        either - so a name with only one kind of record is reachable under

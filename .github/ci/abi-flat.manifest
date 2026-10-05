@@ -37,6 +37,7 @@ p2peerconwsa_demote_trust
 p2peerconwsa_destroy
 p2peerconwsa_get_address
 p2peerconwsa_get_address_u8
+p2peerconwsa_get_family
 p2peerconwsa_get_mode
 p2peerconwsa_get_state
 p2peerconwsa_get_trust_class
@@ -45,6 +46,7 @@ p2peerconwsa_listen
 p2peerconwsa_post_msg
 p2peerconwsa_service_factory
 p2peerconwsa_service_factory_u8
+p2peerconwsa_set_family
 p2peerhub_add_seal_reader
 p2peerhub_add_seal_reader_u8
 p2peerhub_auth_allow_list_path

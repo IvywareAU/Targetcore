@@ -192,6 +192,23 @@ P2PC_API const wchar_t*     p2peerconwsa_get_address      (P2PeerConWsaHandle h)
 P2PC_API int                p2peerconwsa_get_trust_class  (P2PeerConWsaHandle h);
 P2PC_API void               p2peerconwsa_demote_trust     (P2PeerConWsaHandle h,
                                                             int                trustClass);
+// The address family this connection opens in -- P2PeerConFamily_e:
+//   0 IPv4 (the default)   1 IPv6 only   2 Dual (one AF_INET6 socket, v4 too)
+//
+// Set it on a service before p2peerconwsa_listen / p2peerhub_post_con and on a
+// client before p2peerconwsa_connect / p2peerhub_post_con; a socket already
+// open keeps its family. On a client it also chooses what the resolver may
+// answer: A records for 0, AAAA for 1, either for 2 -- so a name with only AAAA
+// records needs 1 or 2. A client made with a v6 LITERAL ("::1") already starts
+// at 1, since under 0 it could never resolve; a name or dotted quad starts at 0.
+// Dual cannot be combined with a loopback listen scope; the listen refuses it.
+//
+// set_family answers 1 when the family was recorded, 0 for a refused handle or
+// a value outside 0..2 (nothing changes). get_family answers 0 for a refused
+// handle, which is also the default it would have had.
+P2PC_API int                p2peerconwsa_set_family       (P2PeerConWsaHandle h,
+                                                            int                family);
+P2PC_API int                p2peerconwsa_get_family       (P2PeerConWsaHandle h);
 // PostP2PeerMsg takes ownership of msgHandle; do not destroy it after this call.
 // NULL back means delivered to the queue. Non-NULL is msgHandle returned as "not
 // delivered": the message is spent either way, and destroying the handle after

@@ -319,6 +319,40 @@ ParseP2PeerConAddr6 ( const char *pszAddr, UCHAR *pucAddr )
 }
 
 //
+//  Description: The family a CLIENT starts in, read off the address it dials
+//               NOTES: An IPv6 LITERAL can only ever be dialled over IPv6.  Left
+//                      at the IPv4 default it fails every attempt at the
+//                      resolver - AF_INET will not answer "::1" - so starting
+//                      such a client in IPv6 changes nothing that used to work.
+//                      A name or a dotted quad keeps the default; a name says
+//                      nothing about the family, and asking for AAAA on its
+//                      behalf is the widening SetFamily() exists to keep explicit
+//                    : A zone index - "fe80::1%eth0" - is accepted HERE, unlike
+//                      the allow-list's parser above, because getaddrinfo()
+//                      takes one and a link-local peer is unreachable without it
+//                    : SetFamily() after construction still decides; Dual on a
+//                      v6 literal is legal and dials the same address
+//
+//  Returns:     P2PeerConFamily_e
+//
+static P2PeerConFamily_e
+ClientFamilyForAddress ( LPCTSTR lpszIPaddress )
+{
+    if ( lpszIPaddress == 0 )
+      return P2PeerConFamily_IPv4;
+    //  std::string for the search: the Linux CStringA shim carries the
+    //  conversions and not Find()/Left()
+    const CStringA    csAddr ( lpszIPaddress );
+    std::string       sAddr  ( (LPCSTR)csAddr );
+    const size_t      nZone = sAddr.find ( '%' );
+    if ( nZone != std::string::npos && nZone > 0 )
+      sAddr.resize ( nZone );
+    UCHAR aucAddr[16];
+    return ParseP2PeerConAddr6 ( sAddr.c_str ( ), aucAddr )
+         ? P2PeerConFamily_IPv6 : P2PeerConFamily_IPv4;
+}
+
+//
 //  Description: Parses one allow-list rule of either family
 //
 //               NOTES: A ':' anywhere decides IPv6 and its absence IPv4.  It is
@@ -742,6 +776,7 @@ P2PeerConWsa::P2PeerConWsa ( P2PaddrSTR pThatP2PaddrSTR
     m_sIPaddress     = lpszIPaddress;
     m_nIPort         =    nIPort;
     m_eP2PeerConMode = P2PeerCon_CLIENT;
+    m_eFamily        = ClientFamilyForAddress ( lpszIPaddress );
 }
 
 //
@@ -1196,6 +1231,7 @@ P2PeerConWsa::ClientFactory ( P2PaddrSTR strP2PaddrThat
     pCon -> m_eP2PeerConMode = P2PeerCon_CLIENT;
     pCon -> m_sIPaddress     = lpszIPaddress;
     pCon -> m_nIPort         = nIPort;
+    pCon -> m_eFamily        = ClientFamilyForAddress ( lpszIPaddress );
 
     // Protocol
     pCon -> SetP2Peerio ( new P2Peerio( ) );
