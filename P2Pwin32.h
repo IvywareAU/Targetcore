@@ -144,9 +144,42 @@ EnumP2PmsgCon    ( P2PmsgHubID nHubID, P2PeerCon **pCon );
 // on what it finds: the hub's m_oCSectionHub does NOT keep a connection alive
 // (Release() and DropP2PmsgCon() never take it), and a raw pointer from
 // EnumP2PmsgCon can be deleted by the hub's pump between the walk and its use.
-// Returns how many were retained; a hub with no context retains none.
-size_t
+// Returns how many were retained. Hub resolution and its EVERRs are
+// EnumP2PmsgCon's: nHubID <= 0 is this thread's pump's hub.
+Targetcore_EXT size_t
 RetainP2PmsgCons ( P2PmsgHubID nHubID, std::vector<P2PeerCon *>& vCons );
+
+// RetainP2PmsgCons as a scope: the hub's connections, retained on
+// construction and released as the scope unwinds, an escaping P2Pevent
+// included. The walk for any caller that is not certain it runs on the hub's
+// own pump - ConQuery, ConExists, ConSignal and every component's own walk:
+//
+//     P2PretainedCons oCons ( GetHubID ( ) );
+//     for ( P2PeerCon *pCon : oCons.v ) ...
+//
+// The last Release() may delete a connection on this thread rather than the
+// pump's, which any poster's Release() already could.
+class P2PretainedCons
+{
+    public:
+        std::vector<P2PeerCon *> v;
+        explicit P2PretainedCons ( P2PmsgHubID nHubID ) { RetainP2PmsgCons ( nHubID, v ); }
+       ~P2PretainedCons ( )
+        {
+          // A destructor is implicitly noexcept, and a last Release()
+          // deletes: cancel a P2Pevent rather than terminate, as
+          // P2PsafeP2Pmsg does, and keep releasing the rest.
+          for ( P2PeerCon *pCon : v )
+          {
+            try                      { pCon -> Release ( ); }
+            catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( ); }
+            catch ( ... )            { }
+          }
+        }
+        P2PretainedCons ( const P2PretainedCons& ) = delete;
+      P2PretainedCons&
+        operator = ( const P2PretainedCons& ) = delete;
+};
 P2PeerCon*
 NextP2PmsgCon    ( DWORD eMsgCon );
 

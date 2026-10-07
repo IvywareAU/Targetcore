@@ -2997,13 +2997,31 @@ RetainP2PmsgCons ( P2PmsgHubID nHubID, std::vector<P2PeerCon *>& vCons )
     //        claimed (TryAddRef refuses, and its memory is safe to look at
     //        because its deleter is waiting on this lock to unlink it) or not
     //        (TryAddRef takes a reference, and the claim then fails).
+    //      : THE SAME HUB RESOLUTION AS EnumP2PmsgCon, throws included, so a
+    //        walk that moves from one to the other behaves the same: an
+    //        unspecified hub is this thread's pump's, and a hub with no context
+    //        is an EVERR rather than an empty list.
     vCons.clear ( );
+    if ( nHubID <= 0 )
+    {
+      P2PmsgPump *pP2PmsgPump = 0;
+      P2PsafeCS   oSafeCS     = s_oCSectionP2PmsgPump;
+      if ( !s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
+           !pP2PmsgPump                                                       )
+        EVERR->MODULE
+             ->Message("ThreadID=%i has no P2PmsgPump context"
+                      , GetCurrentThreadId() )
+             ->Throw  ( );
+      nHubID = pP2PmsgPump -> m_nHubID;
+    }
     P2PmsgHubMgr *pP2PmsgHub = 0;
     P2PsafeCS     oSafeCS    = s_oCSectionP2PmsgHub;
-    if ( nHubID <= 0                                    ||
-         !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
+    if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
          !pP2PmsgHub                                        )
-      return 0;
+      EVERR->MODULE
+           ->Message("nHubID=%i has no P2PmsgHub context"
+                    , nHubID )
+           ->Throw  ( );
     POSITION pos = pP2PmsgHub->m_oCListP2PmsgCon.GetHeadPosition();
     while ( pos )
     {

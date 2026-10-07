@@ -67,8 +67,13 @@
 //  or a use-after-free, intermittent on Linux. Release() now claims a dying
 //  connection before unlinking it, and ConSignal signals only connections it
 //  retained under the lock the delete path unlinks under (TryAddRef,
-//  RetainP2PmsgCons). One public C++ method was added, P2PeerConPlc::TryAddRef;
-//  the class layout did not change.
+//  RetainP2PmsgCons). ConQuery, ConExists and PostP2PeerCon's duplicate check
+//  walked the same raw pointers from callers' threads and now retain too --
+//  ConQuery's SafeP2PeerCon assignment was the very same revive-a-dying-object
+//  AddRef. Added to the C++ surface, which the policy does not cover:
+//  P2PeerConPlc::TryAddRef, the exported RetainP2PmsgCons, and the
+//  header-only P2PretainedCons scope that P2PeerWeb and TargetFacade now walk
+//  with. The class layout did not change.
 //  BELOW IS THE 3.3.0 RATIONALE.
 //  3.3.0.0, a MINOR on 3.2.1, and this time BECAUSE the covered surface grew:
 //  .github/ci/abi-flat.manifest goes 101 -> 103 symbols with

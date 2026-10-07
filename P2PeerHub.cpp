@@ -807,8 +807,9 @@ P2PeerHub::PostP2PeerCon ( P2PeerCon *pCon, P2PumpID nPumpID )
     // Iterate through P2PeerCon list
     // NOTES: Trap duplicates.  Null identification addresses
     //        are special
-    P2PeerCon *pConEnum = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pConEnum) )
+    //      : Retained: this runs on the POSTER's thread, not the hub's pump
+    P2PretainedCons oCons ( m_nHubID );
+    for ( P2PeerCon *pConEnum : oCons.v )
     {
       if ( pConEnum->GetP2Paddress() != oP2PaddrCon )
         continue;
@@ -859,48 +860,12 @@ P2PeerHub::PostP2PeerCon ( P2PeerCon *pCon, P2PumpID nPumpID )
 //              Signalled event summary
 //                TRUE... Located
 //                FALSE.. Do not exist
-//  The connections ConSignal acts on, each RETAINED for the walk and released as
-//  the scope unwinds - an escaping P2Pevent included.
-//  NOTES: ConSignal is called off the hub's pump (P2PeerWeb's close worker,
-//         TargetFacade's teardown), and m_oCSectionHub does not keep a
-//         connection alive: the pump's Release() can delete one between an
-//         EnumP2PmsgCon walk and the Signal() on it. W4 hit exactly that on
-//         Linux, as an m_cRef==0 abort in ~P2PeerConPlc. RetainP2PmsgCons
-//         takes the references under the lock the delete path unlinks under.
-//       : The last Release() here may be the one that deletes a connection,
-//         on this thread rather than the pump's - which every poster's
-//         Release() already could.
-namespace
-{
-struct RetainedCons
-{
-    std::vector<P2PeerCon *> v;
-    explicit RetainedCons ( P2PmsgHubID nHubID ) { RetainP2PmsgCons ( nHubID, v ); }
-   ~RetainedCons ( )
-    {
-      // A destructor is implicitly noexcept, and a last Release() deletes:
-      // cancel a P2Pevent rather than terminate, as P2PsafeP2Pmsg does, and
-      // keep releasing the rest.
-      for ( P2PeerCon *pCon : v )
-      {
-        try
-        {
-          pCon -> Release ( );
-        }
-        catch ( P2Pevent *pEVT )
-        {
-          if ( pEVT )
-            pEVT -> Cancel ( );
-        }
-        catch ( ... )
-        {
-        }
-      }
-    }
-    RetainedCons ( const RetainedCons& ) = delete;
-    RetainedCons& operator= ( const RetainedCons& ) = delete;
-};
-}
+//  NOTES: Called off the hub's pump (P2PeerWeb's close worker, TargetFacade's
+//         teardown), and m_oCSectionHub does not keep a connection alive: the
+//         pump's Release() could delete one between an EnumP2PmsgCon walk and
+//         the Signal() on it - W4's m_cRef==0 abort on Linux. So the walk is
+//         P2PretainedCons, which takes its references under the lock the
+//         delete path unlinks under.
 
 BOOL
 P2PeerHub::ConSignal ( P2PaddrSTR strP2PaddrTP
@@ -913,7 +878,7 @@ P2PeerHub::ConSignal ( P2PaddrSTR strP2PaddrTP
     ASSERT(m_nHubID>0);
 
     // Iterate through P2PeerCon'nections list, each one retained
-    RetainedCons oCons ( m_nHubID );
+    P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pCon : oCons.v )
     {
       if ( !oP2Paddr.IsMapped(pCon->GetP2Paddress()) )
@@ -936,7 +901,7 @@ P2PeerHub::ConSignal ( P2PconID nConID
     ASSERT(m_nHubID>0);
 
     // Iterate through P2PeerCon'nections list, each one retained
-    RetainedCons oCons ( m_nHubID );
+    P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pCon : oCons.v )
     {
       if ( nConID                       &&
@@ -969,9 +934,14 @@ P2PeerHub::ConExists  ( P2PaddrSTR strP2Paddr )
     // Locals
     P2PsafeCS oSafeCS = m_oCSectionHub;
 
-    // Iterate through P2PeerCon list
-    P2PeerCon *pCon = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pCon) )
+    // Iterate through P2PeerCon list, each one retained
+    // NOTES: Callers poll this from their own threads while a connection is
+    //        being torn down (TargetFacade's CloseCon and drain), which is
+    //        exactly when the pump deletes it - so not a raw EnumP2PmsgCon walk.
+    //        A connection already claimed for deletion is not listed, which is
+    //        also the right answer: it does not exist any more.
+    P2PretainedCons oCons ( m_nHubID );
+    for ( P2PeerCon *pCon : oCons.v )
     {
       if ( pCon->GetP2Paddress() == strP2Paddr )
         return TRUE;
@@ -1006,9 +976,13 @@ P2PeerHub::ConQuery ( P2PaddrSTR strP2Paddress, SafeP2PeerCon& rSafeCon )
     // Locals
     P2PsafeCS oSafeCS = m_oCSectionHub;
 
-    // Iterate through P2PeerCon list
-    P2PeerCon *pCon = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pCon) )
+    // Iterate through P2PeerCon list, each one retained
+    // NOTES: rSafeCon = pCon is an AddRef, and an AddRef on a raw pointer from
+    //        EnumP2PmsgCon is the resurrection behind W4's m_cRef==0 abort when
+    //        the pump's last Release() is deleting that connection. Retained
+    //        first, the AddRef is on a reference this walk already holds.
+    P2PretainedCons oCons ( m_nHubID );
+    for ( P2PeerCon *pCon : oCons.v )
     {
       if ( pCon->GetP2Paddress() == strP2Paddress )
       {
