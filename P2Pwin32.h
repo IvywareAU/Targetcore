@@ -22,6 +22,8 @@
 #include "Targetcore.h"
 #include "P2PeerHub.h"
 
+#include <vector>   // RetainP2PmsgCons
+
 //
 //  P2Pmsg environment
 //  NOTES: Manage P2Pmsg environment.  Allocates and recovers
@@ -136,6 +138,15 @@ DropP2PmsgCon    ( P2PeerCon *pCon );
 // m_oCSectionHub across the walk, exactly as ConQuery does.
 Targetcore_EXT BOOL
 EnumP2PmsgCon    ( P2PmsgHubID nHubID, P2PeerCon **pCon );
+// The hub's connections, each with a reference TAKEN FOR THE CALLER, who must
+// Release() every one. A connection whose last Release() is already deleting it
+// is left out. This, not EnumP2PmsgCon, is the walk for a caller that will act
+// on what it finds: the hub's m_oCSectionHub does NOT keep a connection alive
+// (Release() and DropP2PmsgCon() never take it), and a raw pointer from
+// EnumP2PmsgCon can be deleted by the hub's pump between the walk and its use.
+// Returns how many were retained; a hub with no context retains none.
+size_t
+RetainP2PmsgCons ( P2PmsgHubID nHubID, std::vector<P2PeerCon *>& vCons );
 P2PeerCon*
 NextP2PmsgCon    ( DWORD eMsgCon );
 

@@ -859,6 +859,49 @@ P2PeerHub::PostP2PeerCon ( P2PeerCon *pCon, P2PumpID nPumpID )
 //              Signalled event summary
 //                TRUE... Located
 //                FALSE.. Do not exist
+//  The connections ConSignal acts on, each RETAINED for the walk and released as
+//  the scope unwinds - an escaping P2Pevent included.
+//  NOTES: ConSignal is called off the hub's pump (P2PeerWeb's close worker,
+//         TargetFacade's teardown), and m_oCSectionHub does not keep a
+//         connection alive: the pump's Release() can delete one between an
+//         EnumP2PmsgCon walk and the Signal() on it. W4 hit exactly that on
+//         Linux, as an m_cRef==0 abort in ~P2PeerConPlc. RetainP2PmsgCons
+//         takes the references under the lock the delete path unlinks under.
+//       : The last Release() here may be the one that deletes a connection,
+//         on this thread rather than the pump's - which every poster's
+//         Release() already could.
+namespace
+{
+struct RetainedCons
+{
+    std::vector<P2PeerCon *> v;
+    explicit RetainedCons ( P2PmsgHubID nHubID ) { RetainP2PmsgCons ( nHubID, v ); }
+   ~RetainedCons ( )
+    {
+      // A destructor is implicitly noexcept, and a last Release() deletes:
+      // cancel a P2Pevent rather than terminate, as P2PsafeP2Pmsg does, and
+      // keep releasing the rest.
+      for ( P2PeerCon *pCon : v )
+      {
+        try
+        {
+          pCon -> Release ( );
+        }
+        catch ( P2Pevent *pEVT )
+        {
+          if ( pEVT )
+            pEVT -> Cancel ( );
+        }
+        catch ( ... )
+        {
+        }
+      }
+    }
+    RetainedCons ( const RetainedCons& ) = delete;
+    RetainedCons& operator= ( const RetainedCons& ) = delete;
+};
+}
+
 BOOL
 P2PeerHub::ConSignal ( P2PaddrSTR strP2PaddrTP
                      , P2PsigID nSigID, void *pvData, int iDataSize  )
@@ -869,14 +912,14 @@ P2PeerHub::ConSignal ( P2PaddrSTR strP2PaddrTP
     P2PsafeCS oSafeCS  = m_oCSectionHub;
     ASSERT(m_nHubID>0);
 
-    // Iterate through P2PeerCon'nections list
-    P2PeerCon *pConEnum = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pConEnum) )
+    // Iterate through P2PeerCon'nections list, each one retained
+    RetainedCons oCons ( m_nHubID );
+    for ( P2PeerCon *pCon : oCons.v )
     {
-      if ( !oP2Paddr.IsMapped(pConEnum->GetP2Paddress()) )
+      if ( !oP2Paddr.IsMapped(pCon->GetP2Paddress()) )
         continue;
       bResult = TRUE;
-      pConEnum -> Signal ( nSigID, pvData, iDataSize );
+      pCon -> Signal ( nSigID, pvData, iDataSize );
       SwitchToThread ( );
     }
 
@@ -892,15 +935,15 @@ P2PeerHub::ConSignal ( P2PconID nConID
     P2PsafeCS oSafeCS  = m_oCSectionHub;
     ASSERT(m_nHubID>0);
 
-    // Iterate through P2PeerCon'nections list
-    P2PeerCon *pConEnum = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pConEnum) )
+    // Iterate through P2PeerCon'nections list, each one retained
+    RetainedCons oCons ( m_nHubID );
+    for ( P2PeerCon *pCon : oCons.v )
     {
-      if ( nConID                          &&
-           nConID != pConEnum->m_nP2PconID    )
+      if ( nConID                       &&
+           nConID != pCon->m_nP2PconID     )
         continue;
       bResult = TRUE;
-      pConEnum -> Signal ( nSigID, pvData, iDataSize );
+      pCon -> Signal ( nSigID, pvData, iDataSize );
       SwitchToThread ( );
     }
 

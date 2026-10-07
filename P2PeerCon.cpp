@@ -5727,7 +5727,10 @@ P2PeerConPlc::P2PeerConPlc ( )
 
 P2PeerConPlc::~P2PeerConPlc ( )
 {
-    ASSERT(m_cRef==0);
+    // kDyingRef is how Release() leaves it; 0 is an object deleted directly,
+    // never having been referenced. Anything else is a reference taken on a
+    // dying object - a caller holding a pointer it never retained.
+    ASSERT(m_cRef==0 || m_cRef==kDyingRef);
     delete m_pP2Props;
 }
 
@@ -5735,6 +5738,22 @@ UINT
 P2PeerConPlc::AddRef ( )
 {
     return ++m_cRef;
+}
+
+bool
+P2PeerConPlc::TryAddRef ( )
+{
+    // Implementation
+    // NOTES: A connection RESTS at a count of zero while it is listed - the
+    //        list holds no reference - so zero cannot mean dying. Only the
+    //        claim Release() makes can, and a compare-exchange against it is
+    //        the whole of the check: the count cannot become kDyingRef between
+    //        the read and the increment.
+    int cRef = m_cRef.load ( );
+    while ( cRef >= 0 )
+      if ( m_cRef.compare_exchange_weak ( cRef, cRef + 1 ) )
+        return true;
+    return false;
 }
 
 UINT
@@ -5751,6 +5770,17 @@ ASSERT(cRef>=0);
       Destroy ( );
     if ( cRef <= 0 && m_bDestroy )
     {
+      // CLAIM IT BEFORE UNLINKING IT. Between the decrement above and
+      // DropP2PmsgCon() the object is still listed, and a thread walking the
+      // list (P2PeerHub::ConSignal) could take a reference to it here - then
+      // this thread deleted it under that reference: W4's m_cRef==0 abort on
+      // Linux, or a use-after-free when the timing fell the other way. The
+      // claim and TryAddRef() are one compare-exchange each on the same word,
+      // so exactly one wins. If a reference got in first, its Release() is the
+      // one that will delete.
+      int expected = cRef;
+      if ( !m_cRef.compare_exchange_strong ( expected, kDyingRef ) )
+        return cRef;
       DropP2PmsgCon ( (P2PeerCon *)this );
       delete this;
     }
@@ -5776,7 +5806,7 @@ void
 P2PeerConPlc::AssertValid ( ) const
 {
     // Validation
-    ASSERT(m_cRef>=0);
+    ASSERT(m_cRef>=0 || m_cRef==kDyingRef);
 }
 
 //  Properties

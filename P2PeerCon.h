@@ -132,6 +132,13 @@ class Targetcore_EXT P2PeerConPlc : public CObject
     public:
       UINT
         AddRef ( );
+      // A reference for a caller that found this object in a LIST rather than
+      // being handed one: false, and nothing taken, once the last Release() has
+      // claimed it for deletion. Call it only while holding the lock that
+      // DropP2PmsgCon() unlinks under (s_oCSectionP2PmsgHub) - that lock is
+      // what keeps a claimed object's memory alive until this has looked.
+      bool
+        TryAddRef ( );
       UINT
         Release ( );
       UINT
@@ -159,6 +166,11 @@ class Targetcore_EXT P2PeerConPlc : public CObject
       // TSan-reported data race (Risk #3). Layout/size unchanged (4/1 bytes).
       std::atomic<int>  m_cRef;
       std::atomic<bool> m_bDestroy;
+
+      // m_cRef's value once Release() has claimed the object for deletion. Far
+      // below zero, so a stray AddRef() on a dying object still reads as dying
+      // to TryAddRef() and still trips the destructor's check.
+      static constexpr int kDyingRef = -0x40000000;
 };
 
 //

@@ -2987,6 +2987,33 @@ EnumP2PmsgCon    ( P2PmsgHubID nHubID, P2PeerCon **ppCon )
     return FALSE;
 }
 
+size_t
+RetainP2PmsgCons ( P2PmsgHubID nHubID, std::vector<P2PeerCon *>& vCons )
+{
+    // Implementation
+    // NOTES: THE WHOLE WALK IS UNDER s_oCSectionP2PmsgHub, the lock
+    //        DropP2PmsgCon() unlinks under. Release() claims a dying object
+    //        BEFORE it unlinks it, so anything still listed here is either
+    //        claimed (TryAddRef refuses, and its memory is safe to look at
+    //        because its deleter is waiting on this lock to unlink it) or not
+    //        (TryAddRef takes a reference, and the claim then fails).
+    vCons.clear ( );
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCS    = s_oCSectionP2PmsgHub;
+    if ( nHubID <= 0                                    ||
+         !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
+         !pP2PmsgHub                                        )
+      return 0;
+    POSITION pos = pP2PmsgHub->m_oCListP2PmsgCon.GetHeadPosition();
+    while ( pos )
+    {
+      P2PeerCon *pCon = pP2PmsgHub->m_oCListP2PmsgCon.GetNext(pos);
+      if ( pCon && pCon->TryAddRef ( ) )
+        vCons.push_back ( pCon );
+    }
+    return vCons.size ( );
+}
+
 P2PeerCon*
 NextP2PmsgCon    ( DWORD eMsgCon );
 
