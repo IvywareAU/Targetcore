@@ -472,6 +472,12 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
         GetP2Padomain ( ) const;
       const P2Paddr&
         GetP2Paddress ( );
+      //  CopyP2Paddress -- ANY thread. GetP2Paddress() is a reference, good
+      //  only on the connection's own pump: login rewrites the address there,
+      //  and a reader elsewhere would read the string while it is rewritten.
+      //  This copies it under the lock those writes take.  3.3.2
+      P2Paddr
+        CopyP2Paddress ( );
       BOOL
         SetP2Paddr ( P2PaddrSTR strP2Paddress );
       const P2Paddr

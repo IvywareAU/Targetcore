@@ -31,6 +31,20 @@
 CListP2PeerConDmx g_oCListP2PeerConDmx;
 CRITICAL_SECTION  g_oCSectP2PeerConDmx;
 
+//  Initialised ONCE, at load, before anything can construct a connection.
+//  NOTES: It was lazy until 3.3.2 - the first constructor ran
+//         InitializeCriticalSection behind an unguarded static bool, and two
+//         threads constructing their first DMX connections at once (a site
+//         worker's ClientFactory and a pump's AcceptSpawn, in P2PeerWeb W4)
+//         could both initialise it - on Linux, rebuilding a recursive_mutex
+//         another thread might already hold.  TSan, 2026-10-08
+//       : Same translation unit as the definition, so it is constructed
+//         after it; P2PeerioDmx.cpp only names it, and so pulls this unit in
+static struct P2PeerConDmxSectInit
+{
+    P2PeerConDmxSectInit ( ) { InitializeCriticalSection ( &g_oCSectP2PeerConDmx ); }
+} s_oP2PeerConDmxSectInit;
+
 P2PeerConDmx::P2PeerConDmx ( )
 {
     // Firstly
@@ -128,10 +142,7 @@ P2PeerConDmx::RenderThisSafe()
     m_pConThat   = 0;
 
     // Resources
-    static bool s_bInitialised = false;
-    if ( !s_bInitialised )
-      InitializeCriticalSection ( &g_oCSectP2PeerConDmx );
-    s_bInitialised = true;
+    // NOTES: g_oCSectP2PeerConDmx is initialised at load - see its definition
 }
 
 //
@@ -860,8 +871,14 @@ P2PeerConDmx::Connect ( )
 
     // Search for listening connection
     // NOTES: Single entries only
+    //      : m_pConThat is read under g_oCSectP2PeerConDmx, here and below.
+    //        The service's AcceptSpawn rewires it to the spawned child on the
+    //        pump's thread, under that lock, while this thread waits.  TSan,
+    //        3.3.2
+  auto     ConThat  = [this] ( ) { P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
+                                   return m_pConThat; };
   __time64_t uTimeout = _time64(0)*1000 + 100;
-TOP:if ( !m_pConThat ) 
+TOP:if ( !ConThat() )
     {
       SwitchToThread ( );
       P2PeerConDmx *pCon    = 0;
@@ -911,7 +928,7 @@ TOP:if ( !m_pConThat )
     }
 
     // To be sure, to be sure
-    if ( !m_pConThat )
+    if ( !ConThat() )
       EVERR->Module (L"%hs(%s)", __FUNCTION__
                     , GetP2PaddrHub().c_wstr() )
            ->Message(L"Connection %s to %s failed"

@@ -20,6 +20,7 @@
 #include "P2PeerCon.h"
 #include "P2Pwin32.h"
 #include "P2PeerExplorer.h"
+#include <shared_mutex>
 
 ///////////////////////////////////////////////////////////////////////
 //  Private P2Peer definitions
@@ -322,7 +323,38 @@ bool             m_bP2PmsgExplorer_Pump = false;
 
 class  P2PmsgHubMgr;
 class  P2PmsgPump;
-static CMap<DWORD_PTR, DWORD_PTR, P2PmsgPump*, P2PmsgPump*> s_ThreadID_P2PmsgPump;
+//  The thread-id -> pump registry, with a lock of its OWN.
+//  NOTES: Looked up from every thread - each post, timer and signal resolves
+//         its pump here - and written by pump construction and destruction on
+//         others.  The ~90 lookups held whichever lock their caller happened
+//         to hold (s_oCSectionP2PmsgPump, the hub lock, a timer lock, none),
+//         so nothing ordered a lookup against a SetAt rehashing the table.
+//         TSan, P2PeerWeb W4, 2026-10-08: SetP2PmsgTimer's lookup against
+//         CreateP2PmsgHub's insert.  3.3.2
+//       : A LEAF lock: nothing is called while it is held, so it cannot join
+//         a lock-order cycle.  Shared for lookups, which are nearly all of it
+//       : It orders the TABLE only.  A pump found here can still be going
+//         away; that lifetime is the callers' business, as it always was
+class P2PmsgPumpRegistry
+{
+  public:
+    BOOL
+      Lookup ( DWORD_PTR nKey, P2PmsgPump*& rpPump ) const
+      { std::shared_lock<std::shared_mutex> oLock ( m_oLock );
+        return m_oMap.Lookup ( nKey, rpPump ); }
+    void
+      SetAt ( DWORD_PTR nKey, P2PmsgPump* pPump )
+      { std::unique_lock<std::shared_mutex> oLock ( m_oLock );
+        m_oMap.SetAt ( nKey, pPump ); }
+    BOOL
+      RemoveKey ( DWORD_PTR nKey )
+      { std::unique_lock<std::shared_mutex> oLock ( m_oLock );
+        return m_oMap.RemoveKey ( nKey ); }
+  private:
+    mutable std::shared_mutex                              m_oLock;
+    CMap<DWORD_PTR, DWORD_PTR, P2PmsgPump*, P2PmsgPump*>   m_oMap;
+};
+static P2PmsgPumpRegistry                                   s_ThreadID_P2PmsgPump;
 static CRITICAL_SECTION                                     s_oCSectionP2PmsgPump;
 
 CMap<DWORD_PTR,DWORD_PTR,P2PmsgHubID,P2PmsgHubID> s_P2PmsgCon_HubID;

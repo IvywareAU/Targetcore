@@ -27,6 +27,9 @@
 #include "P2PeerioGcm.h"       // the session cypher installed on agreement
 
 #include <map>                 // P2PeerConSourceTally
+#include <mutex>               // ThatAddrLock
+
+static std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddress()
 
 ///////////////////////////////////////////////////////////////////////
 //  Per-source accept accounting (Stage 4 step 11)
@@ -316,16 +319,15 @@ P2PeerCon*
 P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
 {
     // Accept
-    // NOTES: Mandatory P2PeerConPlc integration
-    if (  pConSpawn          != this &&
-         !pConSpawn->m_hP2PmsgCon       )
-         //pConSpawn->m_pPrev ==   0  &&
-         //pConSpawn->m_pNext ==   0     )
-    {
-      //*this += pConSpawn;
-      pConSpawn -> m_pP2PeerTarget = m_pP2PeerTarget;
-      PostP2PmsgCon ( GetP2PmsgHubID(/*this*/), pConSpawn );
-    }
+    // NOTES: Mandatory P2PeerConPlc integration - and it is LAST, below.
+    //        Posting links the child into the hub's list, and from then on
+    //        any thread walking that list reads it: P2PeerWeb's site workers
+    //        read GetMode() and the address of every connection they find.
+    //        Posted first, as it was until 3.3.2, those walks read the
+    //        settlement below while this thread was still writing it (TSan,
+    //        W4).  Posted last, the hub lock PostP2PmsgCon and
+    //        RetainP2PmsgCons both take orders every store here before them
+    const bool bPost = pConSpawn != this && !pConSpawn->m_hP2PmsgCon;
 
     // Settlement
     if ( pConSpawn != this )
@@ -399,6 +401,13 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
            pConSpawn -> m_xMaxAcceptedPerSource  . store ( 0 );
            pConSpawn -> m_xAcceptSource          = AcceptSourceKey ( );
            m_pxSourceTally -> Add ( pConSpawn->m_xAcceptSource );
+    }
+
+    // Accept, now that the child is whole
+    if ( bPost )
+    {
+      pConSpawn -> m_pP2PeerTarget = m_pP2PeerTarget;
+      PostP2PmsgCon ( GetP2PmsgHubID(/*this*/), pConSpawn );
     }
 
     // Tidy up, and
@@ -2149,7 +2158,8 @@ P2PeerCon::OnAccept ( const P2Paddr oThatP2Paddr )
 
     // Assign
     if ( !oThatP2Paddr.IsNull() )
-      m_oThatP2Paddr = oThatP2Paddr;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThatP2Paddr; }
 
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued
@@ -3864,7 +3874,8 @@ P2PeerCon::Login ( P2PaddrSTR strThatP2Paddr
            ->Throw();*/
 
     if ( !oThatP2Paddr.IsNull() )
-      m_oThatP2Paddr = oThatP2Paddr;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThatP2Paddr; }
 
     // Session key agreement runs first
     // NOTES: The application called this from its On_ConConnect handler and
@@ -4113,7 +4124,8 @@ P2PeerCon::OnLogin ( const P2Paddr& oThatP2Paddr )
 
     // Assignment
     if ( !oThatP2Paddr.IsNull() )
-      m_oThatP2Paddr = oThatP2Paddr;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThatP2Paddr; }
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
@@ -4206,7 +4218,8 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
              ->Advice ("Connection mis-match" )
              ->Advice ("Attempted security breach" )
              ->Group("P2P")->Throw();
-      m_oThatP2Paddr = oThatP2Paddr;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThatP2Paddr; }
     }
 
     // To be sure, to be sure
@@ -4222,7 +4235,8 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
            ->Group("P2P")->Throw();
 
     if ( !oThatP2Paddr.IsNull() )
-      m_oThatP2Paddr = oThatP2Paddr;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThatP2Paddr; }
 
     // Peer login authentication
     // NOTES: The acknowledgement signs the nonce the CLIENT just sent, so
@@ -5221,6 +5235,31 @@ P2PeerCon::GetP2Paddress ( )
     return m_oThatP2Paddr;
 }
 
+//
+//  The lock m_oThatP2Paddr's rewrites take once a connection is posted.
+//  NOTES: STRIPED by address and kept out of the object, so the layout of an
+//         exported class does not move for a patch.  A leaf: held only for
+//         one P2Paddr copy or assignment
+//       : Writes on the connection's own pump take it; so does
+//         CopyP2Paddress(), and nothing else needs to - a read on that pump
+//         cannot overlap a write on it.  Writes before the connection is
+//         posted (constructors, AcceptSpawn's settlement) need not either
+static std::mutex&
+ThatAddrLock ( const P2PeerCon* pCon )
+{
+    static std::mutex s_aLocks[32];
+    return s_aLocks[ ((UINT_PTR)pCon >> 6) % 32 ];
+}
+
+//  Returns:     P2Paddr
+//               A copy of GetP2Paddress(), safe from any thread
+P2Paddr
+P2PeerCon::CopyP2Paddress ( )
+{
+    std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+    return m_oThatP2Paddr;
+}
+
 const P2Padomain&
 P2PeerCon::GetP2Padomain ( ) const
 {
@@ -5256,7 +5295,8 @@ P2PeerCon::SetP2Paddr ( P2PaddrSTR oThisP2PaddrSTR )
     //        m_oThatP2Paddr's
     if ( !GetP2PaddrHub().IsNull()          &&
           GetP2PaddrHub() == m_oThatP2Paddr    )
-      m_oThatP2Paddr = oThisP2PaddrSTR;
+      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
+        m_oThatP2Paddr = oThisP2PaddrSTR; }
     m_pP2PeerTarget -> GetP2PeerHub() -> SetP2PaddrHub ( oThisP2PaddrSTR );
 
     // Tidy up and
