@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.3.1 is tag
-//         v3.3.1. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.3.2 is tag
+//         v3.3.2. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,26 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.3.2.0, a PATCH on 3.3.1. The covered surface did not move:
+//  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
+//  symbols. It carries the races ThreadSanitizer found once P2PeerWeb W4 ran
+//  under it against 3.3.1 -- none in 3.3.1's own fix, all older:
+//  - g_oCSectP2PeerConDmx was initialised lazily by the first DMX
+//    constructor behind an unguarded flag; two threads building their first
+//    DMX connections could both initialise it. Now once, at load.
+//  - the thread-id -> pump registry was looked up under whatever lock each
+//    caller held while pumps were inserted under another; it has its own.
+//  - AcceptSpawn posted the child to the hub list BEFORE settling its mode,
+//    address and the rest, so walkers on other threads read a half-built
+//    connection. It now posts last.
+//  - login rewrites a connection's peer address on its pump while walkers
+//    elsewhere compared it. P2PeerCon::CopyP2Paddress() copies it under the
+//    lock those rewrites now take (striped, outside the object).
+//  - P2PeerConDmx::Connect read m_pConThat unlocked while the service's
+//    AcceptSpawn rewired it; it reads under g_oCSectP2PeerConDmx.
+//  Added to the C++ surface: P2PeerCon::CopyP2Paddress. The class layout did
+//  not change.
+//  BELOW IS THE 3.3.1 RATIONALE.
 //  3.3.1.0, a PATCH on 3.3.0. The covered surface did not move:
 //  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
 //  symbols. What it carries is a defect fix. P2PeerHub::ConSignal walked a
@@ -173,23 +193,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  3
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_PATCH  2
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,3,1,0
+#define TARGETCORE_VERSION_COMMAS 3,3,2,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.3.1.0"
+#define TARGETCORE_VERSION_STRING "3.3.2.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03030100 is 3.3.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03030200 is 3.3.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03030100
+#define TARGETCORE_VERSION_HEX    0x03030200
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -205,7 +225,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.3.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.3.2.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
