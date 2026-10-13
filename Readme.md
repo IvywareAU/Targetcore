@@ -193,14 +193,17 @@ meaning lives in the dots, expressed as three predicates:
 
 | Predicate | Meaning |
 |-----------|---------|
-| `IsChild(a)` | `a` is a proper descendant — a prefix match that must end on a `.` boundary, so `CEXTRA` is *not* a child of `CEX`. |
+| `IsChild(a)` | `a` is a proper descendant — a prefix match that must end on a hop boundary (`.` or `:`), so `CEXTRA` is *not* a child of `CEX`. |
 | `IsRable(a)` | `a` is routable **down** through us — equal, or the same boundary-respecting prefix. |
 | `IsMapped(a)` | A `P2Padomain` wildcard match, used to police what a peer may claim at login. |
 
-> **Heads-up:** the `[VNetname:]` qualifier appears in the grammar and in the class layout but is
-> **never parsed, read or written** anywhere in the tree. It is a placeholder from the original
-> 2002 design. Reading the grammar at face value will mislead you — see
-> [P2PeerHub.md](P2PeerHub.md) for the full autopsy.
+> **VNet mounts (3.4.0).** `V:x` is the address `x` inside a network **mounted at hub `V`**;
+> only the first colon separates. A mount is a connection marked with
+> `P2PeerCon::SetVNetMount(peerHub)` on both ends. Hub `V` routes every `V:…` destination into
+> it, and crossing it rewrites `V:x → x` and `s → peerHub:s`. It is a **gateway**: it opens
+> seals and drops origin attestation, so end-to-end sealing and attestation stop there. With
+> no mount at `V`, a `V:x` message is undeliverable at `V`. An address without a colon is
+> unchanged. See [P2PeerHub.md](P2PeerHub.md#the-vnetname-qualifier--vnet-mounts-340).
 
 ### Priorities
 
@@ -1042,7 +1045,7 @@ bindings through `P2PeerConWsa.setFamily()`, and P2PeerWeb through `Server/Liste
 |----------|----------------|
 | **[examples.md](examples.md)** | Worked TCP and named-pipe examples, sub-targets, startup/teardown boilerplate. |
 | **[Architecture(IOCP).md](<Architecture(IOCP).md>)** | The completion-port design, traced end to end with `file:line` references — port creation, association, the completion key trick, and the lifecycle of one completion. |
-| **[P2PeerHub.md](P2PeerHub.md)** | How a hub acquires its `P2Paddr`, the routing predicates, and why the `VNetname:` qualifier is a dead letter. |
+| **[P2PeerHub.md](P2PeerHub.md)** | How a hub acquires its `P2Paddr`, the routing predicates, and the `VNetname:` qualifier as VNet mounts (3.4.0). |
 | **[P2PeerCon.md](P2PeerCon.md)** | Connection internals and the handshake state machine. |
 | **[BUGFIXES.md](BUGFIXES.md)** | The acknowledged leaks and crashes, each with the symptom, the site, the wrong fix, and the right one. |
 | **[SECURITY.md](SECURITY.md)** | The current security posture, the hardening checklist for today's users, and how to report a vulnerability privately. |
@@ -1077,7 +1080,7 @@ about what is solid and what is not:
 | **Key rotation · revocation** | 🟡 **Implemented; revocation is a required position since 2026-08-21, rotation is still operator-driven** — an allow-list may carry several keys for one address and every one is tried, so a peer can be issued its next key before it uses one and cut over without a flag day. A separate revocation list overrides the allow-list, covers identity and agreement keys alike, reloads on a running hub, and **fails closed** if it is configured and unreadable. What it is *not* is self-service: there is no signed rollover, so someone still has to put the new key in front of each hub. Guarded by `p2p_keyrotate` |
 | Session rekeying (per-message forward secrecy) | ❌ Not implemented — the session key lives as long as the connection |
 | Legacy `DHKeyXChanger` / `Rijndael` | 🗑️ Deleted — broken, dormant and never reachable |
-| `VNetname:` virtual networks | ❌ **Never implemented. Placeholder only** — the grammar promises it, nothing parses it, and a colon in an address is silently absorbed into the first hop's name. What shipped instead is per-connection interface mapping (`P2PeerIDmap_STATIC` / `_FRACTAL`), which is untested and mutually exclusive with authentication |
+| `VNetname:` virtual networks | ✅ **VNet mounts, since 3.4.0 (2026-10-14).** `V:x` is `x` in the network mounted at hub `V`; `:` is a hop boundary; `P2PeerCon::SetVNetMount` makes a link a gateway that rewrites addresses as messages cross it, with auth, relay auth and seal left on. End-to-end sealing and attestation stop at the mount by design. Until 3.4.0 the qualifier was a placeholder and a colon was silently absorbed into the first hop's name. Guarded by `p2p_vnetmount` (mutation-checked) and `Test_AddrVNet`. **Not built:** several address syntaxes routed side by side in one hub. Per-connection interface mapping (`P2PeerIDmap_STATIC` / `_FRACTAL`) is unchanged: untested and mutually exclusive with authentication |
 | Diagnostics cannot hang the hub | 🟢 **Holds, and needs no configuration since 2026-08-17.** A `P2Pevent` goes to stderr when there is a console or a redirected handle, and to a **modal dialog** when there is neither — and a dialog blocks the thread that raised it, which for a connection diagnostic is the hub's own pump, which `CloseHub()` then waits on without a bound. A Windows service was the one shape with nowhere to write *and* nobody to click OK. The library now refuses a dialog wherever it could not be seen (session 0, or a window station without `WSF_VISIBLE`), and `P2PeerService` routes a hosted hub's diagnostics to the Windows event log. A `P2Pmsg.cfg` beside the executable can also refuse the dialog and name a log file with no code at all (`ErrToMessageBox`, `LogFile`), and the setting moves only towards text — it cannot re-arm a dialog a host had refused. Asserted on both platforms by `p2p_servicedialog` (53 checks), and the dialog is driven for real by `ErrorReportingExamples/DialogOrLogFile`, which reaches a service's host shape by re-executing itself without a console or a stderr. **The end-to-end SCM run was executed, elevated, on 2026-08-22, and passed** — a real service under the SCM in session 0 reached `STOPPED` in 40 ms rather than sitting in `STOP_PENDING`. The evidence is not the clean stop, which an unarmed hub also produces: it is that `RunHub()` logged its pump entry, then the deliberate `P2Pevent`, then its pump exit, all in one second, and a `MessageBox` would have parked that thread between the second and the third. See [Hosting a hub where nobody can see a dialog](#hosting-a-hub-where-nobody-can-see-a-dialog) |
 | Backpressure on a flooding peer | ✅ **Real backpressure since 2026-08-19, on by default, both platforms.** The ceiling `s_cP2PmsgMAX` (50000 live `P2Pmsg`'s, process-wide) is still there and still throws `P2Pevent_QUEFULL`, but it is no longer the *first* thing that happens. Two marks make the same budget a slope: at or above **37500** a connection stops asking its transport for another message, at or below **25000** it starts again. Stopping is expressed by *not calling* `RecvP2PeerMsg()` — the call that issues the next `Recv()` — so no read is outstanding, the socket buffer fills and the TCP window closes. **The peer is throttled by the transport: nothing is discarded and nothing is refused.** The gap between the marks is hysteresis, not decoration — one mark makes a connection resume the instant the budget dips a message below it and re-hold on its next completion. `SetP2PmsgBudgetMarks(high, low)` moves them (it throws rather than clamping, and requires `high < MAX`, because a held connection arms a poll timer and a timer *is* a `P2Pmsg`). Watch it with `GetP2PmsgHeldCount()` process-wide or the hub snapshot's `Throttled` field. Guarded by `p2p_backpressure`, whose third phase is the one that matters: after the pressure is released, **every held message must arrive** — throttling that loses messages is dropping with a better name. ~~The limit is written three ways and all seven sites print "10000 entries"~~ — that was true when this row was written on 2026-08-17 and was fixed on 2026-08-18: all seven test the constant and render it through one format. **Not bounded:** a peer's send *rate* below the high mark, and the destination pump's own FIFO depth as distinct from the process budget |
 | Independent security audit | ❌ Not done |

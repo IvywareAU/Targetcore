@@ -10,18 +10,19 @@ addresses of the hub's connections.
 
 ### The type
 
-`P2Paddr` (`P2Peer.h:75`) is a hierarchical dotted address with an optional
+`P2Paddr` (`P2Peer.h:220`) is a hierarchical dotted address with an optional
 virtual-network qualifier:
 
 ```
 [VNetname:]RootHubname.Hubname[i]. . .Hubname
 ```
 
-The bracketed `VNetname:` part is **not implemented** — see below. In practice an address
-is only ever the dotted hop path.
+Since 3.4.0 the `VNetname:` part means a **VNet mount**: `V:x` is the address `x` inside a
+network mounted at hub `V`. See [VNet mounts](#the-vnetname-qualifier--vnet-mounts-340) below.
+An address without a colon is exactly what it always was: the dotted hop path.
 
 Underneath it is **just a string**. The constructor and `operator=` do nothing but copy
-(`P2Peer.cpp:254`, `:280`):
+(`P2Peer.cpp:259`):
 
 ```cpp
 P2Paddr::P2Paddr ( P2PaddrSTR strP2Paddr )
@@ -36,76 +37,72 @@ All routing meaning lives in the dots, expressed as three predicates:
 
 | Predicate | Source | Meaning |
 |---|---|---|
-| `IsChild(a)` | `P2Peer.cpp:339` | `a` is a proper descendant — prefix match **that ends on a `.` boundary**, so `CEXTRA` is *not* a child of `CEX` |
-| `IsRable(a)` | `P2Peer.cpp:367` | `a` is routable **down** through us — equal, or the same boundary-respecting prefix |
-| `IsMapped(a)` | `P2Peer.cpp:630` | `P2Padomain` wildcard/set match, used to police what a peer may claim at login |
+| `IsChild(a)` | `P2Peer.cpp:360` | `a` is a proper descendant — prefix match **that ends on a hop boundary** (`.` or `:`), so `CEXTRA` is *not* a child of `CEX`, and `CEX:Root` is |
+| `IsRable(a)` | `P2Peer.cpp:389` | `a` is routable **down** through us — equal, or the same boundary-respecting prefix |
+| `IsMapped(a)` | `P2Peer.cpp:693` | `P2Padomain` wildcard/set match, used to police what a peer may claim at login |
 
-Plus two accessors: `c_name()` = last hop (`P2Peer.cpp:436`), `c_hopname(n)` = the n-th
-hop (`:396`).
+Plus two accessors: `c_name()` = last hop (`P2Peer.cpp:458`), `c_hopname(n)` = the n-th
+hop (`:470`). These two still split on `.` only, so for `H:Root.Svc` `c_name()` is `Svc` and
+`c_hopname(0)` is `H:Root`.
 
-#### The `VNetname:` qualifier — design intent that was never built
+#### The `VNetname:` qualifier — VNet mounts (3.4.0)
 
-The `[VNetname:]` prefix appears in the grammar, in the class layout, and in four comment
-blocks, but **no code anywhere reads, writes, or parses it.** It is a placeholder from the
-original design, and reading the grammar at face value will mislead you.
+Until 3.4.0 the `[VNetname:]` prefix was a placeholder from the original Ivyware design: it
+was in the grammar and the class layout, but no code parsed it, and a colon was silently
+swallowed into the first hop's name. 3.4.0 builds it. The decision and the alternatives are
+recorded in `Targetcore_ProdDocs/AddressingSchemas.md` Part 5, Stage 0.
 
-**Where it came from.** Not from this repository's history — the entire tree arrived in a
-single commit (`a9f7568`, *"Initial code"*), and `git log -S"VNet" --all` turns up no
-commit that introduced or changed it. Of the five commits that have ever touched
-`P2Peer.h`/`P2Peer.cpp`, none is VNet-related. The provenance is in the file headers
-instead: `P2Peer.h:1` is `Copyright © 2002-2009, 2026 Ivyware Pty Ltd, Khrustal & Mann` and
-`P2Peer.cpp:1` is `2002-2007, 2026`, so the notation dates from the original Ivyware P2Pmsg design and predates
-version control here by well over a decade.
+**What it means.** `V:x` is the address `x` inside the network **mounted at the hub `V`**.
+`V` is an address in this network. Only the first colon separates, as on the Java wire, so
+qualifiers nest: `V:W:x` is `W:x` inside `V`'s mount.
 
-**What it was meant to do.** The dotted path is rooted at a single root hub. `VNetname:`
-was to be an optional qualifier naming a *virtual P2Peer network*, letting independent hub
-trees — each with its own root — coexist and be told apart. That intent is still visible in
-the three-way split of the class (`P2Peer.h:295-298`), which stores far more than the one
-string actually used:
+**The address.** `P2Paddr` stores one string, `m_strP2Paddr`. The two fields that were never
+set (`m_strVNetname`, `m_strVNetaddr`) are gone, so a copy cannot drop anything.
 
-```cpp
-CString  m_strP2Paddr;    // the whole address  — the only field ever used
-CString  m_strVNetname;   // the VNet qualifier — never assigned
-CString  m_strVNetaddr;   // address within the VNet — never assigned
-CString  m_strHubname;    // scratch buffer for c_name()/c_hopname()
-```
+| Member | Source | What it does |
+|---|---|---|
+| `GetVNet()` | `P2Peer.cpp:507` | The part before the first `:`, or empty |
+| `GetVNetAddr()` | `P2Peer.cpp:518` | The part after it, or the whole address when there is no qualifier |
+| `HasVNet()` | `P2Peer.cpp:526` | Whether there is a `:` at all |
+| `IsChild` / `IsRable` | `P2Peer.cpp:360`, `:389` | Accept `:` as a hop boundary, so `V:x` is below `V` and routes towards it with no other predicate change |
 
-plus an accessor `GetVNet()` declared at `P2Peer.h:277`.
+`GetVNet()` and `GetVNetAddr()` return a per-thread slot, like `c_name()`: valid until the
+next few calls on the same thread.
 
-**Why "never implemented" is the right reading:**
+**The mount.** A mount is a connection marked with `P2PeerCon::SetVNetMount(peerHub)`
+(`P2PeerCon.cpp:2828`). It joins hub `H` in one network to hub `P` in another. Set it before
+`PostP2PeerCon`, on **both** ends: a client connection, or the service whose accepted
+children are mounts (`AcceptSpawn` copies it).
 
-- **`GetVNet()` has no definition.** Declared at `P2Peer.h:277`; there is no body anywhere
-  in the tree and no caller. Only the absence of callers keeps the link from failing.
-- **`m_strVNetname` / `m_strVNetaddr` are never assigned or read.** Their sole appearance
-  outside the declaration is being cleared in `P2Paddr::Empty()` (`P2Peer.cpp:321-322`).
-- **There is no parser.** Every constructor and `operator=` copies the raw string straight
-  into `m_strP2Paddr` (`P2Peer.cpp:254`, `:280`). Nothing in the codebase splits on `:`.
-- **All routing tokenises on `.` only** — `IsChild` (`:339`), `IsRable` (`:368`),
-  `c_name` (`:389`), `c_hopname` (`:402`). A leading `MyVNet:` would therefore be silently
-  swallowed into the **first hop's name**, not treated as a qualifier.
+- **Routing.** In `RouteP2PeerMsg` (`P2PeerHub.cpp:1015`), hub `H` sends every message whose
+  `GetVNet(Dst) == H` into a mount. First it tries the mount whose own address covers the
+  destination, then any mount. Nothing else crosses a mount.
+- **Crossing.** On the send side, before seal and attestation, `VNetMountOut`
+  (`P2PeerCon.cpp:2875`) rewrites `Dst H:x → x` and `Src s → P:s`. The login and its ack are
+  signed over the same rewritten addresses, so their signatures match the wire.
+- **A gateway, not a pipe.** Crossing opens a body sealed into `H`'s network and drops the
+  origin's relay attestation (`P2PeerMsg::ClearRelayAttest`). The next hop on the far side
+  seals and attests under its own identity. **End-to-end sealing and attestation stop at a
+  mount**, and the mount's hub vouches for its side.
+- **Source binding.** A mount peer may present any source whose VNet is this hub, because it
+  is the gateway to that whole network. Any other source is refused, as on any link.
+- **Unicast only.** A broadcast or upcast copy is not carried across: its scope names a
+  subtree or a chain in one network, and there is no honest rewrite of it into another.
 
-**Practical consequence: never put a colon in a hub address.** `P2PeerHub(L"VNetA:Root.X")`
-does not create a hub in virtual network `VNetA` — it creates a hub whose root hop is
-literally named `VNetA:Root`, which will fail to match any peer that spelled it
-differently, and fail the way all address mistakes fail here: silently, as
-`P2Pevent_UNDELIVERABLE`.
+**A colon with no mount.** `P2PeerHub(L"VNetA:Root.X")` is still a mistake. The address is
+now read as "`Root.X` inside the mount at hub `VNetA`", so a message to it routes towards
+`VNetA`. If `VNetA` holds no mount, it ends there as `P2Pevent_UNDELIVERABLE`. Name hubs with
+dots; use a colon only to address through a mount.
 
-**Where the notation survives.** Four copy-pasted comment blocks — `P2Peer.h:218`, `:305`,
-`:227`, and `P2Peer.cpp:246` — attached to `P2Paddr`, `P2Padomain`, and `P2PaddrTemplate`.
-That last class is itself entirely commented out (`P2Peer.h:378`), which reinforces that
-this whole tier of the address design was sketched and abandoned. The two surviving copies
-have also drifted: `P2Peer.cpp:247` writes the qualifier as mandatory
-(`VNetname:Hubname.Hubname`) while `P2Peer.h:219` has the later optional-bracket form.
+**Example.** P2PeerLan L7b mounts a fixed-root app (`Root`, `Root.Echo`) under its LAN graft
+`Lan.A.Plant`. From the LAN the app's hub is `Lan.A.Plant:Root.Echo`. Inside the app a LAN
+peer is `Root:Lan.B.Sample.Echo`, which is where a reply goes. Tests: `p2p_vnetmount` (two
+networks over DMX, auth, seal and relay auth on) and `Test_AddrVNet` in MscsUnitTests.
 
-**The feature that actually shipped instead.** The real answer to "two networks whose
-address trees don't align" is the interface mapping — `P2PeerIDmap_STATIC` / `_FRACTAL`
-and `PerformIFaddrTransform()` (`P2PeerCon.cpp:4387`), which rewrites source and
-destination addresses at the link boundary so each side sees only its own tree. See
+**Still not built:** routing several address *syntaxes* side by side in one hub (reading C in
+`AddressingSchemas.md`). Interface mapping (`P2PeerIDmap_STATIC` / `_FRACTAL`,
+`PerformIFaddrTransform()`) is unchanged and still refuses authentication. See
 [Path 2](#path-2--negotiated-during-the-login-handshake) and practical rule 4 below.
-
-> Caveat on the above: the specific meaning given here for `m_strVNetaddr`
-> (*address-within-the-VNet*) is inferred from the field name and the `[VNetname:]addr`
-> grammar. No code or comment defines it, because nothing ever populates it.
 
 ### Where it lives
 
