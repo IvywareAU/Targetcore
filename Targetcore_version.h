@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.3.2 is tag
-//         v3.3.2. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.0 is tag
+//         v3.4.0. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,30 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.0.0, a MINOR on 3.3.2, earned by a BEHAVIOURAL break that no symbol
+//  records, as 3.2.0's was. The covered surface did not move:
+//  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
+//  symbols. VERSIONING.md records it as the ninth break: a ':' in an address
+//  is now a hop boundary. Until now nothing parsed it, so "VNetA:Root.X" named
+//  a hub whose first hop was literally "VNetA:Root". Now V:x is x inside the
+//  network MOUNTED at hub V, and a message to it routes towards V. An address
+//  with no colon compares byte for byte as before; a mixed 3.3/3.4 tree
+//  disagrees only about an address that has one.
+//  What it carries:
+//  - VNet mounts. P2Paddr::GetVNet / GetVNetAddr / HasVNet, and ':' in
+//    IsChild / IsRable. P2PeerCon::SetVNetMount makes a link a gateway between
+//    two trees: it rewrites H:x -> x and s -> P:s, opens seals and drops the
+//    origin's attestation (P2PeerMsg::ClearRelayAttest), so end-to-end sealing
+//    and attestation stop at a mount by design. RouteP2PeerMsg routes into a
+//    mount. Guarded by p2p_vnetmount, which is mutation-checked.
+//  - F-L7-2. An auto-restarted authenticated link skipped the key agreement
+//    and was refused for good. Restart() now calls KeyXReset(). Guarded by
+//    p2p_restartkeyx.
+//  The C++ class layout DID change, which the policy does not cover but a
+//  consumer will feel: P2Paddr lost m_strVNetname / m_strVNetaddr (never set),
+//  P2PeerCon gained m_oVNetPeer, and GetVNet() is now const and returns
+//  LPCTADDR. Rebuild every C++ consumer against this header.
+//  BELOW IS THE 3.3.2 RATIONALE.
 //  3.3.2.0, a PATCH on 3.3.1. The covered surface did not move:
 //  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
 //  symbols. It carries the races ThreadSanitizer found once P2PeerWeb W4 ran
@@ -192,24 +216,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  3
-#define TARGETCORE_VERSION_PATCH  2
+#define TARGETCORE_VERSION_MINOR  4
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,3,2,0
+#define TARGETCORE_VERSION_COMMAS 3,4,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.3.2.0"
+#define TARGETCORE_VERSION_STRING "3.4.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03030200 is 3.3.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040000 is 3.4.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03030200
+#define TARGETCORE_VERSION_HEX    0x03040000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -225,7 +249,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.3.2.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
