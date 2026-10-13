@@ -1041,11 +1041,21 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     if ( msgResult != msgCONTINUE )
       return msgResult;
 
+    // VNet: is the destination in a network mounted at THIS hub?
+    // NOTES: p2p_PeerLan_L7b.md §7 R4.  H:x is x beyond one of H's mounts, and
+    //        every one of them is reached through a mount connection, so the
+    //        mount takes it below whatever the three tests would say.  Asked
+    //        once, from the copy, before the loop
+    const P2Paddr oDstMsg ( pP2PaddrMsg );
+    CString       strDstVNet   = oDstMsg.GetVNet ( );
+    const bool    bDstMounted  = oDstMsg.HasVNet ( ) &&
+                                 m_oP2PaddrHub == (P2PaddrSTR)strDstVNet;
+
     // P2PeerCon routing
     // NOTES: Connections manage their own routing logic
     P2PeerCon *pCon = 0;
     while ( EnumP2PmsgCon(m_nHubID,&pCon) )
-    { 
+    {
       const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
       // NOTES: EnumP2PmsgCon() is deliberately unfiltered - it is the
       //        "every connection on this hub" primitive, and the ten
@@ -1055,6 +1065,19 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
       if ( pCon->GetMode() == P2PeerCon_SERVICE )
       {
         continue;
+      }
+
+      // VNet mount - R4 above
+      // NOTES: The mount whose own address covers the destination first: a
+      //        hub mounting two trees reaches H:R1.x through the client
+      //        connection it named H:R1.  The second pass below takes any
+      //        mount, which is the accepting side's case - its connection is
+      //        named by the far hub's claim and the far network is all of it
+      if ( pCon->IsVNetMount() )
+      {
+        if ( bDstMounted && oP2PaddrCon.IsRable ( pP2PaddrMsg ) )
+          return P2PeerContextSwap ( pCon, pMsg );
+        continue;                    // nothing else crosses a mount
       }
 
       // Immediate
@@ -1075,7 +1098,16 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
            !m_oP2PaddrHub.IsRable(pP2PaddrMsg)      )
         return P2PeerContextSwap ( pCon, pMsg );
     }
-   
+
+    // VNet mount, any - refer the first pass
+    if ( bDstMounted )
+    {
+      pCon = 0;
+      while ( EnumP2PmsgCon(m_nHubID,&pCon) )
+        if ( pCon->GetMode() != P2PeerCon_SERVICE && pCon->IsVNetMount() )
+          return P2PeerContextSwap ( pCon, pMsg );
+    }
+
     // Undeliverable
     return P2PeerTarget::RouteP2PeerMsg ( pMsg );
 }

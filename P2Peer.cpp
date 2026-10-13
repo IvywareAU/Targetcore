@@ -249,6 +249,11 @@ GetHostID ( )
 //  Constructors and destructors
 P2Paddr::P2Paddr ( )
 { }
+//  NOTES: The VNet qualifier is NOT parsed into fields of its own.  It used to
+//         have two (m_strVNetname, m_strVNetaddr) that nothing ever set and
+//         that this copy constructor and both assignments silently dropped -
+//         AddressingSchemas.md Blocker 3.  GetVNet() reads the string instead,
+//         so there is one copy of the address and nothing to fall out of step
 P2Paddr::P2Paddr ( const P2Paddr& rhs )
 {   m_strP2Paddr = rhs.m_strP2Paddr; }
 P2Paddr::P2Paddr ( P2PaddrSTR strP2Paddr )
@@ -318,17 +323,33 @@ void
 P2Paddr::Empty ( )
 {
     m_strP2Paddr.Empty();
-    m_strVNetname.Empty();
-    m_strVNetaddr.Empty();
 }
 
 ///////////////////////////////////////////////////////////////////////
 //  Routing
 
+//  Hop boundaries
+//  NOTES: '.' separates hops within one network.  ':' separates a VNet from
+//         the address inside it - V:x is x in the network MOUNTED at the hub
+//         V (p2p_PeerLan_L7b.md §7) - and it is a boundary in exactly the same
+//         structural sense: V:x is below V, as V.x is.  That one rule is what
+//         lets prefix routing carry a qualified address down to the hub that
+//         holds the mount, and lets the source-binding gate and the attestation
+//         entitlement test treat the mounted network as part of V's subtree
+//       : An address with no ':' is byte-for-byte what it was.  Before this a
+//         colon was an ordinary hop character, so V:x matched nothing above it
+//         and died as P2Pevent_UNDELIVERABLE one hop short of anything that
+//         could read it (AddressingSchemas.md Blocker 3)
+static inline bool
+P2PaddrIsHopBoundary ( T_ADDR c )
+{
+    return c == '.' || c == ':';
+}
+
 //  Child address comparison
 //  NOTES: An equivalent address is not a child
 //       : The prefix must end on a hop boundary, so CEXTRA is not a
-//         child of CEX
+//         child of CEX, and CEX:Root (CEX's mounted network) is
 //
 //  Returns:     bool
 //                 true... strP2Paddr is a direct child of the
@@ -344,7 +365,7 @@ P2Paddr::IsChild ( LPCTADDR strP2PaddrChild ) const
     // GetLength() counts T_ADDRs, memcmp() counts bytes
     if ( memcmp(strP2PaddrChild,m_strP2Paddr,lenP2PaddrThis*sizeof(T_ADDR)) )
       return false;
-    return strP2PaddrChild[lenP2PaddrThis] == '.';
+    return P2PaddrIsHopBoundary ( strP2PaddrChild[lenP2PaddrThis] );
 }
 //  Routable address comparison
 //  NOTES: Both equivalent and child addresses are routable
@@ -354,6 +375,7 @@ P2Paddr::IsChild ( LPCTADDR strP2PaddrChild ) const
 //         CEX is routable through CEX
 //         CEX is not routable through CEX.SDrvs
 //         CEX.SDrvsX is NOT routable through CEX.SDrvs
+//         CEX:Root.Svc is routable through CEX (a mounted network)
 //
 //
 //  Parameters:  P2PaddrSTR strP2PaddrDestin
@@ -374,7 +396,7 @@ P2Paddr::IsRable ( LPCTADDR strP2PaddrDestin ) const
       return false;
     // Equivalent, or a prefix ending on a hop boundary
     return strP2PaddrDestin[lenP2PaddrThis] == '\0' ||
-           strP2PaddrDestin[lenP2PaddrThis] == '.';
+           P2PaddrIsHopBoundary ( strP2PaddrDestin[lenP2PaddrThis] );
 }
 
 //  Property exposure
@@ -463,6 +485,47 @@ P2Paddr::c_hopname ( int nLevel ) const
     if ( nLevel > 0 )
       strHubname.clear();
     return P2PaddrNameSlot ( strHubname );
+}
+
+//  VNet qualifier
+//  NOTES: [VNetname:]Root.Hub... - the VNet is everything before the FIRST
+//         ':', as the Java wire splits it, so V:W:x is the VNet V holding the
+//         address W:x.  Empty when there is no qualifier
+//       : Per-thread ring, with c_name()'s lifetime: valid until the next few
+//         calls on this thread
+//       : An index scan, as c_name() does, and not CString::Find - the Linux
+//         CString shim has no Find() (P2PeerConWsa.cpp:138)
+static int
+P2PaddrVNetColon ( const CString& str )
+{
+    for ( int i = 0; i < str.GetLength(); i++ )
+      if ( str[i] == ':' )
+        return i;
+    return -1;
+}
+P2PaddrSTR
+P2Paddr::GetVNet ( ) const
+{
+    std::basic_string<T_ADDR> strVNet;
+    const int n = P2PaddrVNetColon ( m_strP2Paddr );
+    for ( int i = 0; i < n; i++ )
+      strVNet += m_strP2Paddr[i];
+    return P2PaddrNameSlot ( strVNet );
+}
+//  The address inside the VNet, or the whole address when there is no
+//  qualifier
+P2PaddrSTR
+P2Paddr::GetVNetAddr ( ) const
+{
+    std::basic_string<T_ADDR> strAddr;
+    for ( int i = P2PaddrVNetColon ( m_strP2Paddr ) + 1; i < m_strP2Paddr.GetLength(); i++ )
+      strAddr += m_strP2Paddr[i];
+    return P2PaddrNameSlot ( strAddr );
+}
+bool
+P2Paddr::HasVNet ( ) const
+{
+    return P2PaddrVNetColon ( m_strP2Paddr ) >= 0;
 }
 P2Psize_t
 P2Paddr::Sizeof ( ) const

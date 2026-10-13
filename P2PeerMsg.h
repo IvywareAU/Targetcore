@@ -394,6 +394,8 @@ class Targetcore_EXT P2PeerMsg : public P3PmsgBSTR
         SetRelayAttest ( const void *pvBlock, size_t cbBlock );
       bool
         HasRelayAttest ( );
+      void
+        ClearRelayAttest ( );
       // End-to-end scope - refer TMsg_Scp above.
       // NOTES: GetScopeOrDestin() is what a caller wants almost always: the
       //        address the ORIGIN addressed this to when one was stamped, and

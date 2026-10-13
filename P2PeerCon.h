@@ -593,6 +593,32 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       bool
         LeavesProcess   ( );
 
+      //  VNet mount (p2p_PeerLan_L7b.md §7).  [VNet:]addr: V:x is x inside the
+      //  network MOUNTED at the hub V.  A mount is a connection from hub H in
+      //  one network to hub P in another; on H's side everything beyond it is
+      //  addressed H:..., on P's side everything on H's side is P:...
+      //    - Routing: H's hub sends every message whose VNet is H here (R4)
+      //    - Crossing (send side, before seal and attest): Dst H:x -> x and
+      //      Src s -> P:s.  The login and its ack are signed over the same
+      //      rewritten addresses, so their signatures match the wire (R5)
+      //    - A GATEWAY, not a pipe: a body sealed into H's network is opened,
+      //      the origin's relay attestation is dropped, and the next hop on
+      //      the far side seals and attests under its own identity (R6)
+      //    - Source binding: a mount peer may present any source whose VNet is
+      //      H - it is the gateway to that whole network - and nothing else (R7)
+      //  Set it before PostP2PeerCon, on BOTH ends: a client connection, or the
+      //  service whose accepted children are mounts.  strPeerHub is P, the hub
+      //  on the far side; null or empty makes it an ordinary connection
+      //  NOTES: Unicast only.  A broadcast or upcast copy is NOT carried across:
+      //         its scope names a subtree or a chain in one network, and there
+      //         is no honest rewrite of it into another
+      void
+        SetVNetMount    ( P2PaddrSTR strPeerHub );
+      bool
+        IsVNetMount     ( ) const { return !m_oVNetPeer.IsNull ( ); }
+      const P2Paddr&
+        GetVNetPeer     ( ) const { return m_oVNetPeer; }
+
       //  What this TRANSPORT can vouch for, and what the hub's per-class link
       //  policy is read with.
       //  NOTES: TrustClass() is the transport's own answer and is a VIRTUAL on
@@ -769,6 +795,7 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       P2Paddr          m_oThisP2Paddr_, m_oThisP2Paddr1;
       P2Paddr          m_oThatP2Paddr, m_oThatP2Paddr1;
       P2PeerIDmap_e    m_eP2PeerIDmap;
+      P2Paddr          m_oVNetPeer;      // VNet mount: the far hub P; null = not a mount
 
       CString         *m_pstrVisualSummary;
       P2PeerConMode_e  m_eP2PeerConMode;
@@ -808,6 +835,27 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
 
     // Internals
     protected:
+      // Returns the per-session agreement and login-authentication state to
+      // what the constructor left: no ECDH pair, no binding, not keyed, no
+      // parked login, no nonce, no verified peer. Called by Restart(), which
+      // reuses this object for a NEW session - the cypher has already gone
+      // with the socket (P2Peerio::Reset), and state that outlived it made the
+      // restarted login skip the agreement (F-L7-2). Also the destructor's
+      // release of the same state.
+      void
+        KeyXReset ( );
+
+      // VNet mount helpers (refer SetVNetMount).  The two address rewrites are
+      // shared by the send path and the login signers, so what is signed is
+      // what goes on the wire.  VNetMountOut returns false to DROP the message
+      // (never the link): a message the mount cannot carry honestly
+      CString
+        VNetWireSrc ( P2PaddrSTR strSrc ) const;
+      CString
+        VNetWireDst ( P2PaddrSTR strDst ) const;
+      bool
+        VNetMountOut ( P2PeerMsg *pMsg );
+
       // Verifies the auth block on an inbound Login/LoginAck when the hub
       // requires one. On refusal it deletes pMsg and throws, exactly as the
       // domain and source-binding checks do, so the connection is dropped

@@ -203,11 +203,7 @@ P2PeerCon::~P2PeerCon ( )
     // NOTES: The deferred login payload is application data that never
     //        reached the wire (the connection dropped mid-exchange), so it is
     //        released here rather than leaked
-    delete (p2pcng::EcdhP256 *)m_pKeyX;
-    m_pKeyX = 0;
-    delete [] m_pLoginDefer;
-    m_pLoginDefer = 0;
-    SecureZeroMemory ( m_KeyXBind, sizeof(m_KeyXBind) );
+    KeyXReset ( );
 
     // Garbage collection
     //delete m_pP2PeerMsgQue;
@@ -306,6 +302,7 @@ P2PeerCon::RenderThisSafe ( )
 
     // Addressing
     m_eP2PeerIDmap   = P2PeerIDmap_NONE;
+    m_oVNetPeer      = P2Paddr ( );      // not a VNet mount
     //m_oThisP2Paddr  = 0; m_nThisP2PeerID1 = 0;
     //m_oThatP2Paddr  = 0; m_nThatP2PeerID1 = 0;
 
@@ -358,6 +355,11 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
       //         towards the transport's own honest answer rather than past it,
       //         and it is pinned by a gate-test phase rather than left to that
            pConSpawn -> m_eTrustCeiling   = m_eTrustCeiling;
+      //  A service that is a VNet mount accepts mounts (p2p_PeerLan_L7b.md §7
+      //  R3): the child speaks for the same far network the listener was
+      //  posted for, and without this line it would bind sources as an
+      //  ordinary child and drop the link on the first one
+           pConSpawn -> m_oVNetPeer       = m_oVNetPeer;
            pConSpawn -> m_dwState . store (
                          m_dwState.load ( ) & ~( ConState_Recv
                                                | ConState_Send
@@ -714,6 +716,19 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
                m_pP2PeerMsgSend    )
             PerformIFaddrTransform ( false, m_pP2PeerMsgSend );
 
+          // VNet mount (p2p_PeerLan_L7b.md §7)
+          // NOTES: Rewrites the addresses into the far network's terms, and is
+          //        a gateway rather than a pipe: neither the seal nor the
+          //        attestation below runs on a mount, since past the rewrite
+          //        this hub's keys name nothing.  Refer VNetMountOut
+          const bool bVNetMount = IsVNetMount ( );
+          if ( bVNetMount && m_pP2PeerMsgSend &&
+               !VNetMountOut ( m_pP2PeerMsgSend ) )
+          {
+            delete m_pP2PeerMsgSend;
+            m_pP2PeerMsgSend = 0;
+          }
+
           // End-to-end seal
           // NOTES: FIRST of the two, and the order is load-bearing.  The
           //        attestation digests the BODY, and the receiver checks it in
@@ -741,7 +756,8 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        clear the thing the operator asked to be hidden.  Refusing
           //        before the attestation also saves an ECDSA operation on a
           //        message that is about to be dropped
-          if ( m_pP2PeerMsgSend && !SealAppMsgOutbound ( m_pP2PeerMsgSend ) )
+          if ( !bVNetMount && m_pP2PeerMsgSend &&
+               !SealAppMsgOutbound ( m_pP2PeerMsgSend ) )
           {
             delete m_pP2PeerMsgSend;
             m_pP2PeerMsgSend = 0;
@@ -755,7 +771,7 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        application threads and left from exactly one
           //      : Does nothing at all unless the hub requires attestation.
           //        Refer AttestAppMsgOutbound
-          if ( m_pP2PeerMsgSend )
+          if ( !bVNetMount && m_pP2PeerMsgSend )
             AttestAppMsgOutbound ( m_pP2PeerMsgSend );
          }
 
@@ -2760,6 +2776,180 @@ P2PeerCon::KeyXDerive ( )
     m_bKeyXDone = true;
 }
 
+//
+//  Forget one session's agreement, before the object carries another
+//  NOTES: F-L7-2 (P2PeerLan, 2026-10-14).  Restart() reuses the connection
+//         object, and everything below was set once per OBJECT while it is
+//         state of one SESSION.  The cypher is not here: Drop() already reset
+//         the io object, which deleted it with the socket.  So a restarted
+//         client found m_bKeyXDone true and sent its login at once - no
+//         agreement, in clear, signed over the last session's binding - and
+//         could not have started one anyway, because KeyXBegin() returns
+//         while m_pKeyX is set and nothing freed it after the derive.  An
+//         auth-on server refused it every m_uAutoRestart, for ever, and the
+//         pending restart kept ConExists() true, so an application's own
+//         "redial if there is no link" never ran either.
+//       : Everything, not only the flag.  A cleared flag with a live m_pKeyX
+//         is the KeyXBegin dead end above; a stale nonce, strip length or
+//         m_oAuthPeer would make IsAuthenticated() and GetAuthPeer() answer
+//         for a session that has not verified anybody yet.  The
+//         constructor's list (RenderThisSafe) is the list
+//       : A parked login is dropped, not resent.  The application logs in
+//         again from its On_ConConnect handler on the new session, and a
+//         payload from the old one would go out twice
+//
+void
+P2PeerCon::KeyXReset ( )
+{
+    delete (p2pcng::EcdhP256 *)m_pKeyX;
+    m_pKeyX = 0;
+    SecureZeroMemory ( m_KeyXPubThis, sizeof(m_KeyXPubThis) );
+    SecureZeroMemory ( m_KeyXPubThat, sizeof(m_KeyXPubThat) );
+    SecureZeroMemory ( m_KeyXBind,    sizeof(m_KeyXBind)    );
+    m_bKeyXBound  = false;
+    m_bKeyXDone   = false;
+    m_bKeyXClient = false;
+
+    delete [] m_pLoginDefer;
+    m_pLoginDefer  = 0;
+    m_cbLoginDefer = 0;
+    m_bLoginDefer  = false;
+
+    SecureZeroMemory ( m_AuthNonce, sizeof(m_AuthNonce) );
+    m_bAuthNonce  = false;
+    m_cbAuthStrip = 0;
+    m_oAuthPeer   = P2Paddr ( );
+}
+
+///////////////////////////////////////////////////////////////////////
+//  VNet mount - p2p_PeerLan_L7b.md §7, refer SetVNetMount in P2PeerCon.h
+
+void
+P2PeerCon::SetVNetMount ( P2PaddrSTR strPeerHub )
+{
+    m_oVNetPeer = ( strPeerHub && *strPeerHub ) ? P2Paddr ( strPeerHub ) : P2Paddr ( );
+}
+
+//
+//  The source as the far network names it: P:s
+//
+CString
+P2PeerCon::VNetWireSrc ( P2PaddrSTR strSrc ) const
+{
+    CString str = m_oVNetPeer.c_wstr ( );
+    str += L":";
+    str += strSrc ? strSrc : L"";
+    return str;
+}
+
+//
+//  The destination as the far network names it: H:x -> x
+//  NOTES: Anything not qualified with this hub is returned unchanged, and the
+//         caller decides.  For a login it cannot happen (the connection's own
+//         address is H:P-root or P:H by construction); for an application
+//         message VNetMountOut refuses it
+//
+CString
+P2PeerCon::VNetWireDst ( P2PaddrSTR strDst ) const
+{
+    const P2Paddr oDst ( strDst ? strDst : L"" );
+    CString strVNet = oDst.GetVNet ( );          // copied out of the ring
+    if ( oDst.HasVNet ( ) && GetP2PaddrHub ( ) == (P2PaddrSTR)strVNet )
+      return CString ( oDst.GetVNetAddr ( ) );
+    return CString ( strDst ? strDst : L"" );
+}
+
+//
+//  A message crossing the mount, on the send side
+//  NOTES: BEFORE the seal and the attestation, which a mount connection skips
+//         altogether: on the far side of the rewrite this hub's keys name
+//         nothing, and the far side's next hop seals and attests under its own
+//         identity (R6).  What THIS side protected travels no further than
+//         this hub, which is the gateway's whole contract
+//       : Returns false to drop the MESSAGE.  Never throws: a message the
+//         mount cannot carry is a property of that message, and dropping the
+//         link for it would take every other conversation across the mount
+//         down with it
+//
+bool
+P2PeerCon::VNetMountOut ( P2PeerMsg *pMsg )
+{
+    if ( !pMsg )
+      return true;
+
+    //  Copies, for the reason RouteP2PeerMsg gives: off Windows the accessors
+    //  hand back recycled thread-local slots
+    CString strSrcHeld = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+    CString strDstHeld = pMsg->GetDestin ( ) ? pMsg->GetDestin ( ) : L"";
+
+    const bool bHandshake = pMsg->Map_MatchName ( P2Pmsg_Login    ) ||
+                            pMsg->Map_MatchName ( P2Pmsg_LoginAck ) ||
+                            pMsg->Map_MatchName ( P2Pmsg_KeyX     ) ||
+                            pMsg->Map_MatchName ( P2Pmsg_KeyXAck  ) ||
+                            pMsg->Map_MatchName ( P2Pmsg_CypherEx );
+    if ( !bHandshake )
+    {
+      const P2Paddr oDst ( strDstHeld );
+      CString strVNet = oDst.GetVNet ( );
+      const bool bMine = oDst.HasVNet ( ) && GetP2PaddrHub ( ) == (P2PaddrSTR)strVNet;
+      const TCHAR *pszWhy = 0;
+      if ( pMsg->IsFannedOut ( ) )
+        pszWhy = _T("a broadcast or upcast copy - its scope names a subtree in "
+                    "this network and has no honest rewrite into the other");
+      else if ( !bMine )
+        pszWhy = _T("its destination is not qualified with this hub, so it is "
+                    "not addressed into the mounted network");
+
+      //  A body sealed into the mounted network was sealed to an address in
+      //  THIS network's terms (H:x), with this hub's agreement key as the
+      //  reader - it is what the directory publishes for H:x.  Open it here:
+      //  past the rewrite nothing could
+      if ( !pszWhy && pMsg->IsSealed ( ) )
+      {
+        P2PeerHub *pHub = GetAuthHub ( );
+        CString    strScopeHeld = pMsg->GetScopeOrDestin ( ) ? pMsg->GetScopeOrDestin ( ) : L"";
+        const size_t cbIn   = pMsg->DataSize ( );
+        const size_t cbRoom = p2pseal::OpenedSize ( cbIn );
+        std::vector<unsigned char> vPlain ( cbRoom ? cbRoom : 1 );
+        size_t cbPlain = 0;
+        p2pseal::SealResult eResult = p2pseal::SealErrFormat;
+        if ( pHub && cbRoom )
+          eResult = pHub -> OpenFrom ( strSrcHeld, strScopeHeld,
+                                       (const unsigned char *)pMsg->Data ( ), cbIn,
+                                       &vPlain[0], cbRoom, &cbPlain );
+        if ( eResult == p2pseal::SealOk )
+        {
+          pMsg->SetData ( pMsg->c_name ( ), &vPlain[0], (P2Psize_t)cbPlain );
+          pMsg->ClearSealed ( );
+        }
+        else
+          pszWhy = _T("its body is sealed and this hub cannot open it - the "
+                      "sender sealed to a key this mount's hub does not hold");
+      }
+
+      if ( pszWhy )
+      {
+        EVERR->Module (__FUNCTION__)->AFPcon(this)
+             ->Message(_T("VNet mount to [%s] will not carry [%s] from [%s] to [%s]: %s")
+                      , m_oVNetPeer.c_wstr ( )
+                      , pMsg->c_name ( ) ? pMsg->c_name ( ) : L"?"
+                      , (P2PaddrSTR)strSrcHeld, (P2PaddrSTR)strDstHeld, pszWhy )
+             ->Advice_T ("Message dropped; the link stays up")
+             ->Display()->SetLast();
+        return false;
+      }
+
+      //  The origin's signature covers the addresses about to change.  A
+      //  verifier on the far side would refuse it and drop the LINK, so it
+      //  goes, and the far side's next hop attests instead (R6)
+      pMsg->ClearRelayAttest ( );
+    }
+
+    pMsg->SetDestin ( VNetWireDst ( strDstHeld ) );
+    pMsg->SetSource ( VNetWireSrc ( strSrcHeld ) );
+    return true;
+}
+
 void
 P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
 {
@@ -2886,7 +3076,21 @@ P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
       P2PaddrSTR strSource     = (P2PaddrSTR)strSourceHeld;
       bool       bBound        = m_oThatP2Paddr.IsRable ( strSource ) ? true : false;
 
-      if ( !bBound )
+      //  A VNet MOUNT binds differently, and more narrowly (p2p_PeerLan_L7b.md
+      //  §7 R7).  The peer is the gateway to a whole other network, and the
+      //  mount's own rewrite names every source from there H:s, H being this
+      //  hub - so H:anything is admitted and nothing else is, whatever the
+      //  login claimed.  No ancestor branch: a mount is never this hub's way
+      //  to the rest of its own tree
+      const bool bVNetMount = IsVNetMount ( );
+      if ( bVNetMount )
+      {
+        const P2Paddr oSrc ( strSource );
+        CString strVNet = oSrc.GetVNet ( );
+        bBound = oSrc.HasVNet ( ) && GetP2PaddrHub ( ) == (P2PaddrSTR)strVNet;
+      }
+
+      if ( !bBound && !bVNetMount )
       {
         //  Is the peer at or above this hub?  Then it is an ancestor link.
         const P2Paddr oThisHub = GetP2PaddrHub();
@@ -3943,9 +4147,19 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     if ( pAuthHub && pAuthHub -> CanAuthSign ( ) && !AuthLinkRelaxed ( ) )
     {
       unsigned char       aBlock[p2pauth::kAuthLoginLen];
+      //  Across a VNet mount, the addresses the message will CARRY are the
+      //  rewritten ones (VNetMountOut, on the send path), so those are what
+      //  is signed - the far end verifies against the wire
+      CString strThis = GetP2PaddrHub().c_wstr();
+      CString strThat = m_oThatP2Paddr.c_wstr();
+      if ( IsVNetMount ( ) )
+      {
+        strThis = VNetWireSrc ( strThis );
+        strThat = VNetWireDst ( strThat );
+      }
       p2pauth::AuthResult eAuth =
-        pAuthHub -> AuthBuildLogin ( GetP2PaddrHub().c_wstr()
-                                   , m_oThatP2Paddr.c_wstr()
+        pAuthHub -> AuthBuildLogin ( strThis
+                                   , strThat
                                    , aBlock, sizeof(aBlock), m_AuthNonce
                                    , m_bKeyXBound ? m_KeyXBind : 0 );
       if ( eAuth != p2pauth::AuthOk )
@@ -4253,9 +4467,17 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
     if ( m_bAuthNonce && pAuthHub && pAuthHub -> CanAuthSign ( ) )
     {
       unsigned char       aBlock[p2pauth::kAuthAckLen];
+      //  Rewritten across a VNet mount, as LoginSend does and for its reason
+      CString strThis = GetP2PaddrHub().c_wstr();
+      CString strThat = m_oThatP2Paddr.c_wstr();
+      if ( IsVNetMount ( ) )
+      {
+        strThis = VNetWireSrc ( strThis );
+        strThat = VNetWireDst ( strThat );
+      }
       p2pauth::AuthResult eAuth =
-        pAuthHub -> AuthBuildAck ( GetP2PaddrHub().c_wstr()
-                                 , m_oThatP2Paddr.c_wstr()
+        pAuthHub -> AuthBuildAck ( strThis
+                                 , strThat
                                  , m_AuthNonce, aBlock, sizeof(aBlock)
                                  , m_bKeyXBound ? m_KeyXBind : 0 );
       if ( eAuth != p2pauth::AuthOk )
@@ -4599,6 +4821,11 @@ P2PeerCon::Restart ( P2Pmsecs_t uiMSecDelay )
            ->Advice ("Refer PostDestroyState() for further details" )
            ->Throw  ( );
 
+    // The next session starts unkeyed and unauthenticated (F-L7-2)
+    // NOTES: Here rather than in Drop(): a close handler may still ask
+    //        GetAuthPeer() who the closed session was, and only a restart
+    //        means the object is about to carry a different one
+    KeyXReset ( );
 
     // Connection restart time
     // NOTES: Trigger processing cycle for the hub

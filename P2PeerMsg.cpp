@@ -1506,6 +1506,26 @@ P2PeerMsg::HasRelayAttest ( )
     return GetRelayAttest ( &cb ) != 0;
 }
 
+//
+//  Removes the relay attestation block
+//  NOTES: For a VNet mount (P2PeerCon::VNetMountOut), which rewrites Src and
+//         Dst and so makes the origin's signature over them worthless on the
+//         far side - where a verifier that met it would drop the LINK.  The
+//         next hop beyond the mount attests under its own identity instead
+//       : Displaced by an empty blob rather than erased, as ClearSealed does
+//         and for its reason.  GetRelayAttest treats an empty block as absent
+//
+void
+P2PeerMsg::ClearRelayAttest ( )
+{
+    if ( !Exists(VBLockBSTR_NET) )
+      return;
+    P3PmsgItem& oItemAddr = r_item(VBLockBSTR_NET);
+    if ( !oItemAddr.Exists(TMsg_Att) )
+      return;
+    oItemAddr[TMsg_Att].r_data() = P3PmsgData((const void *)0,0,VBLockData_BLOB16);
+}
+
 
 //
 //  Reports whether the payload is a sealed block rather than application bytes

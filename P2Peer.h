@@ -273,8 +273,16 @@ class Targetcore_EXT P2Paddr
         Sizeof ( ) const;
       bool
         IsNull ( ) const;
-      LPCTSTR
-        GetVNet ( );
+      //  [VNet:]addr - V:x is x in the network MOUNTED at the hub V; the VNet
+      //  is everything before the first ':' (p2p_PeerLan_L7b.md §7).  ':' is
+      //  a hop boundary for IsChild/IsRable, so V:x is below V.  Both return a
+      //  per-thread slot, valid until the next few calls on this thread
+      LPCTADDR
+        GetVNet ( ) const;
+      LPCTADDR
+        GetVNetAddr ( ) const;
+      bool
+        HasVNet ( ) const;
       //LPCTSTR
       //  GetPath ( );
       LPCTADDR
@@ -293,8 +301,6 @@ class Targetcore_EXT P2Paddr
     //        now goes to a per-thread ring in P2Peer.cpp - see P2PaddrNameSlot.
     private:
       CString  m_strP2Paddr;
-      CString  m_strVNetname;
-      CString  m_strVNetaddr;
 };
 typedef CList<P2Paddr*> CListP2Paddr;
 typedef const P2Paddr CP2Paddress;
