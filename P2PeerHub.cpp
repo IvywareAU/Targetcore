@@ -819,10 +819,14 @@ P2PeerHub::PostP2PeerCon ( P2PeerCon *pCon, P2PumpID nPumpID )
     // NOTES: Trap duplicates.  Null identification addresses
     //        are special
     //      : Retained: this runs on the POSTER's thread, not the hub's pump
+    //      : CopyP2Paddress, not GetP2Paddress: a posted connection's pump
+    //        rewrites its address in Login() while this walk reads it.  The
+    //        same holds for every walk below that a caller makes from its own
+    //        thread (ConSignal, ConExists, ConQuery)
     P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pConEnum : oCons.v )
     {
-      if ( pConEnum->GetP2Paddress() != oP2PaddrCon )
+      if ( pConEnum->CopyP2Paddress() != oP2PaddrCon )
         continue;
       EVERR->Module (_T(__FUNCTION__))->AFPcon(pCon)->AFP(nPumpID)
            ->Message(_T("P2PeerCon[%s] instance already exists ")
@@ -892,7 +896,7 @@ P2PeerHub::ConSignal ( P2PaddrSTR strP2PaddrTP
     P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pCon : oCons.v )
     {
-      if ( !oP2Paddr.IsMapped(pCon->GetP2Paddress()) )
+      if ( !oP2Paddr.IsMapped(pCon->CopyP2Paddress()) )
         continue;
       bResult = TRUE;
       pCon -> Signal ( nSigID, pvData, iDataSize );
@@ -954,7 +958,7 @@ P2PeerHub::ConExists  ( P2PaddrSTR strP2Paddr )
     P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pCon : oCons.v )
     {
-      if ( pCon->GetP2Paddress() == strP2Paddr )
+      if ( pCon->CopyP2Paddress() == strP2Paddr )
         return TRUE;
     }
 
@@ -995,7 +999,7 @@ P2PeerHub::ConQuery ( P2PaddrSTR strP2Paddress, SafeP2PeerCon& rSafeCon )
     P2PretainedCons oCons ( m_nHubID );
     for ( P2PeerCon *pCon : oCons.v )
     {
-      if ( pCon->GetP2Paddress() == strP2Paddress )
+      if ( pCon->CopyP2Paddress() == strP2Paddress )
       {
         rSafeCon = pCon;
         return true;

@@ -615,10 +615,12 @@ P2PeerExpump::PostP2PeerCon ( P2PeerCon *pCon )
     // Iterate through P2PeerCon list
     // NOTES: Trap duplicates.  Null identification addresses
     //        are special
+    //      : CopyP2Paddress, as in P2PeerHub::PostP2PeerCon - the poster's
+    //        thread reads addresses each connection's pump may be rewriting
     P2PeerCon *pConEnum = 0;
     while ( EnumP2PexpCon(m_nExpumpID,&pConEnum) )
     {
-      if ( pConEnum->GetP2Paddress() != oP2PaddrCon )
+      if ( pConEnum->CopyP2Paddress() != oP2PaddrCon )
         continue;
       EVERR->MODULE->AFPcon(pCon)
            ->Message(L"P2PeerCon[%s] instance already exists "
@@ -672,7 +674,7 @@ P2PeerExpump::ConSignal ( P2PaddrSTR strP2PaddrTP
     P2PeerCon *pConEnum = 0;
     while ( EnumP2PexpCon(m_nExpumpID,&pConEnum) )
     {
-      if ( !oP2Paddr.IsMapped(pConEnum->GetP2Paddress()) )
+      if ( !oP2Paddr.IsMapped(pConEnum->CopyP2Paddress()) )
         continue;
       bResult = TRUE;
       pConEnum -> Signal ( nSigID, pvData, iDataSize );
@@ -705,7 +707,7 @@ P2PeerExpump::ConExists  ( P2PaddrSTR strP2Paddr )
     P2PeerCon *pCon = 0;
     while ( EnumP2PexpCon(m_nExpumpID,&pCon) )
     {
-      if ( pCon->GetP2Paddress() == strP2Paddr )
+      if ( pCon->CopyP2Paddress() == strP2Paddr )
         return TRUE;
     }
 
@@ -742,7 +744,7 @@ P2PeerExpump::ConQuery ( P2PaddrSTR strP2Paddress, SafeP2PeerCon& rSafeCon )
     P2PeerCon *pCon = 0;
     while ( EnumP2PexpCon(m_nExpumpID,&pCon) )
     {
-      if ( pCon->GetP2Paddress() == strP2Paddress )
+      if ( pCon->CopyP2Paddress() == strP2Paddress )
       {
         rSafeCon = pCon;
         return true;
