@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.1 is tag
-//         v3.4.1. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.2 is tag
+//         v3.4.2. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,20 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.2.0, a PATCH on 3.4.1. The covered surface did not move:
+//  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
+//  symbols, and no class layout moved. What it carries is a data race fix.
+//  P2PeerHub::PostP2PeerCon walks the hub's posted connections on the
+//  POSTER's thread and compared each one's address through GetP2Paddress(),
+//  an unlocked reference, while that connection's pump rewrites
+//  m_oThatP2Paddr in P2PeerCon::Login under ThatAddrLock. ConSignal(addr),
+//  ConExists and ConQuery read it the same way, and so do P2PeerExpump's four
+//  twins in P2PeerExplorer.cpp - the sites 3.3.2's CopyP2Paddress() work
+//  missed. All eight now take the copy. TSan on the box: red by run 31 of
+//  p2p_vnetmount without it, clean for 100 runs with it. (The libcrypto report
+//  seen beside it on OpenSSL 3.5 is a false positive of an uninstrumented
+//  libcrypto: never reported in 131 runs against a TSan-built OpenSSL 3.5.5.)
+//  BELOW IS THE 3.4.1 RATIONALE.
 //  3.4.1.0, a PATCH on 3.4.0. The covered surface did not move:
 //  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
 //  symbols, and no class layout moved. What it carries is a defect fix.
@@ -236,23 +250,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_PATCH  2
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,1,0
+#define TARGETCORE_VERSION_COMMAS 3,4,2,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.1.0"
+#define TARGETCORE_VERSION_STRING "3.4.2.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040100 is 3.4.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040200 is 3.4.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040100
+#define TARGETCORE_VERSION_HEX    0x03040200
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -268,7 +282,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.2.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
