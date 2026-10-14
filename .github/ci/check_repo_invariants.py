@@ -43,6 +43,13 @@
 #      version, so no release number reveals that one moved; a one-character
 #      edit to kVersion stops interoperation with every deployed peer and
 #      this is the only thing that would say so.
+#   8. No P2Pevent Message()/Advice() call carries a literal of 254 characters
+#      or more. Msgcore VERIFYs each formatted line is under 255 (cSize counts
+#      the terminator), so in Debug such a diagnostic aborts the process
+#      instead of reporting. Found in 3.4.1: ~P2PeerHub's race report, meant
+#      to REPORT rather than abort, aborted every Debug consumer that had the
+#      race (exit code 3). Literals only -- a format argument can still make a
+#      line longer, which a reviewer has to see.
 #
 # WHAT THIS DOES NOT PROVE
 #   Nothing here compiles, links, or runs anything. A source file can be listed
@@ -628,6 +635,60 @@ def check_wire_versions() -> None:
                               "entirely comments")
 
 
+# ---------------------------------------------------------------------------
+# 8. Diagnostic lines fit the event class
+#
+# P2Pevent::Message() and Advice() (Msgcore/Msgexception.cpp) format ONE line
+# into a buffer and VERIFY(cSize<255), cSize counting the terminator. A longer
+# line is not truncated: in Debug the VERIFY fails and the CRT aborts. Every
+# call appends a line, so long text is written as one Message() plus Advice()
+# lines, never as one call with "\nADVICE\t:" embedded in it.
+# ---------------------------------------------------------------------------
+EVENT_LINE_MAX = 253      # characters, excluding the terminator
+_EVENT_CALL = re.compile(r"->\s*(Message|Message_T|Advice|Advice_T)\s*\(")
+_EVENT_LIT = re.compile(r'\s*(?:L|_T\(\s*)?"((?:[^"\\]|\\.)*)"\s*\)?')
+_LINE_COMMENT = re.compile(r"\s*//[^\n]*\n")
+
+
+def event_literal(src: str, pos: int) -> str | None:
+    """The adjacent string literals starting at pos, joined; None if there are none."""
+    pieces = []
+    while True:
+        m = _EVENT_LIT.match(src, pos)
+        if not m:
+            break
+        pieces.append(m.group(1))
+        pos = m.end()
+        while (c := _LINE_COMMENT.match(src, pos)):
+            pos = c.end()
+    if not pieces:
+        return None
+    return re.sub(r"\\.", "x", "".join(pieces))      # an escape is one character
+
+
+def check_event_line_length() -> None:
+    print(f"[8] diagnostic literals fit one P2Pevent line (<= {EVENT_LINE_MAX} chars)")
+    calls = over = 0
+    for src_path in sorted(list(ROOT.glob("*.cpp")) + list(ROOT.glob("*.h"))):
+        text = src_path.read_text(encoding="utf-8-sig", errors="replace")
+        for m in _EVENT_CALL.finditer(text):
+            lit = event_literal(text, m.end())
+            if lit is None:
+                continue
+            calls += 1
+            if len(lit) > EVENT_LINE_MAX:
+                over += 1
+                line = text.count("\n", 0, m.start()) + 1
+                fail("event-line",
+                     f"{src_path.name}:{line}: {m.group(1)}() literal is {len(lit)} "
+                     f"characters; P2Pevent VERIFYs < 255 per line, so Debug aborts. "
+                     f"Split it into Message() + Advice() calls")
+    if calls == 0:
+        fail("event-line", "found no Message()/Advice() calls -- the parser is broken")
+    elif over == 0:
+        ok(f"{calls} Message()/Advice() literals, none over {EVENT_LINE_MAX} characters")
+
+
 def regenerate_abi_manifest() -> int:
     """Rewrite abi-flat.manifest from the header, keeping its comment banner.
 
@@ -664,6 +725,7 @@ def main() -> int:
     check_evt_catalogue()
     check_abi_surface()
     check_wire_versions()
+    check_event_line_length()
 
     print()
     for note in notes:

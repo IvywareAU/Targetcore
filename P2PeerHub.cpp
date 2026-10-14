@@ -167,14 +167,25 @@ P2PeerHub::~P2PeerHub ( )
     //  still running" - so the P2Pmsg environment cannot already have been
     //  through CleanupP2Pmsg(), because a live pump is exactly what that
     //  refuses to leave behind.
+    //
+    //  EVERY LINE BELOW STAYS UNDER 254 CHARACTERS, and that is the fix in
+    //  3.4.1. P2Pevent::Message() and Advice() each VERIFY that one formatted
+    //  line is shorter than 255 (Msgexception.cpp), and until 3.4.1 this
+    //  report was ONE Message of about 330. So in every Debug build the report
+    //  that exists to avoid aborting failed that VERIFY and aborted the process
+    //  at shutdown (exit code 3) - the opposite of WHY THIS REPORTS above.
+    //  Found in _OldExamples\AKAssms, whose hub skipped CloseHub(). Successive
+    //  Message()/Advice() calls append lines, so the text is split, not cut.
     if ( HubSpawnedAndRunning ( ) )
       EVERR->Module (L"P2PeerHub::~P2PeerHub" )
            ->Message(L"Hub destroyed while its spawned pump thread was still "
-                      "running. Call CloseHub() BEFORE destruction begins - "
-                      "from the most-derived destructor, or at the owner. By "
-                      "the time this base destructor runs the derived object "
-                      "is gone and the vtable pointer has been rewritten, and "
-                      "the pump thread is still dispatching through both." )
+                      "running" )
+           ->Advice (L"Call CloseHub() BEFORE destruction begins - from the "
+                      "most-derived destructor, or at the owner" )
+           ->Advice (L"By the time this base destructor runs the derived "
+                      "object is gone and the vtable pointer has been "
+                      "rewritten, and the pump thread is still dispatching "
+                      "through both" )
            ->Cancel();
 
     CloseHub ( );

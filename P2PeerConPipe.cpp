@@ -577,15 +577,19 @@ P2PeerConPipe::CreateListenPipe ( )
 #ifdef _WIN32
       if ( dwCreateErr == ERROR_ACCESS_DENIED &&
            ( dwOpenMode & FILE_FLAG_FIRST_PIPE_INSTANCE ) != 0 )
+        //  One line per call: Message()/Advice() VERIFY each formatted line is
+        //  under 255 characters, and this was one Message of 324 before the
+        //  name was substituted twice (3.4.1, refer ~P2PeerHub)
         EVERR->MODULE
              ->Message(L"CreateNamedPipe(%s) refused: the name already has "
-                       L"an instance and this service creates the first\n"
-                       L"ADVICE\t: Another process holds %s - a server still "
-                       L"running, or a squatter.  Refused rather than joined, "
-                       L"because a joined pipe keeps the FIRST creator's "
-                       L"descriptor, not this one's\n"
-                       L"ADVICE\t: Stop the other holder, or choose a name"
-                      , (LPCTSTR)m_sPipename, (LPCTSTR)m_sPipename )
+                       L"an instance and this service creates the first"
+                      , (LPCTSTR)m_sPipename )
+             ->Advice (L"Another process holds %s - a server still running, "
+                       L"or a squatter"
+                      , (LPCTSTR)m_sPipename )
+             ->Advice (L"Refused rather than joined, because a joined pipe "
+                       L"keeps the FIRST creator's descriptor, not this one's" )
+             ->Advice (L"Stop the other holder, or choose a name" )
              ->HResult( dwCreateErr )->Throw();
 #endif
 
@@ -656,16 +660,18 @@ P2PeerConPipe::CreateListenPipe ( )
       CloseHandle ( m_hFile );
       m_hFile      = 0;
       m_bPipeLocal = false;
+      //  One line per call, under 255 characters each (3.4.1, refer the
+      //  CreateNamedPipe refusal above)
       EVERR->MODULE
            ->Message(L"Pipe %s is trust class %i and its hub holds no link "
-                     L"below class %i\n"
-                     L"ADVICE\t: 0 wire, 1 kernel-local, 2 in-process\n"
-                     L"ADVICE\t: SetPipeAccess() asked for a pipe of a class "
-                     L"this hub was fenced to refuse - drop the "
-                     L"P2PeerConPipeAccess_Legacy, or widen the fence with "
-                     L"RequireTrustAtLeast()\n"
-                     L"ADVICE\t: Listener not created"
+                     L"below class %i"
                     , (LPCTSTR)m_sPipename, (int)eClass, (int)eFloor )
+           ->Advice (L"0 wire, 1 kernel-local, 2 in-process" )
+           ->Advice (L"SetPipeAccess() asked for a pipe of a class this hub "
+                     L"was fenced to refuse - drop the "
+                     L"P2PeerConPipeAccess_Legacy, or widen the fence with "
+                     L"RequireTrustAtLeast()" )
+           ->Advice (L"Listener not created" )
            ->Throw();
     }
 
