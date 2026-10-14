@@ -617,20 +617,36 @@ P2PeerConDmx::Accept ( )
     // Delegate for state confirmation
     P2PeerCon::Accept ( );
 
-    // To be sure, to be sure
-    if ( m_pConThat          ||
-         m_pOVERLAPPEDaccept    )
+    // Check and initiate wait for client connection, under the transport lock
+    // NOTES: Must be a non-pended operation
+    //      : UNDER g_oCSectP2PeerConDmx, because Listen() has already put this
+    //        service in g_oCListP2PeerConDmx, and from that moment a client's
+    //        Connect() on ANOTHER pump reads m_pConThat, m_pOVERLAPPEDaccept and
+    //        the OVERLAPPED's fields under that lock and writes them back.  This
+    //        thread read and created them with no lock: TSan, 3.4.1, four
+    //        reports at Connect() (the accept latch, its bQueued, its
+    //        dwUserData, and m_pConThat), first seen by p2p_vnetmount, whose
+    //        hubs start a service and its client on two pumps at once.
+    //        Creating the OVERLAPPED inside the lock also publishes its zeroed
+    //        fields before a Connect() can read them
+    //      : MakeOVERLAPPED() only allocates, so nothing here reaches for the
+    //        pump-registry lock - refer the AB-BA note in Listen()
+    bool bDuplicate = false;
+    {
+      P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
+      if ( m_pConThat          ||
+           m_pOVERLAPPEDaccept    )
+        bDuplicate = true;
+      else
+        m_pOVERLAPPEDaccept = MakeOVERLAPPED ( );
+    }
+    if ( bDuplicate )
       EVERR->Module (L"%hs[%s-%s]", __FUNCTION__
                     , GetP2PaddrHub().c_wstr()
                     , (P2PaddrSTR)m_oThatP2Paddr )
            ->Message(L"Duplicate accepts attempted on single connection"
                     ,L"ADVICE\t: Bug (SNHappen)" )
            ->Throw();
-
-    // Initiate wait for client connection
-    // NOTES: Must be a non-pended operation
-    if ( m_pOVERLAPPEDaccept == NULL )
-      m_pOVERLAPPEDaccept = MakeOVERLAPPED ( );
 
     // Done
     return true;

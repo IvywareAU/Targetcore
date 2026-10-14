@@ -70,6 +70,12 @@
 //  P2PeerConPipe had the same shape (324 and 310 characters) and are split
 //  the same way. Guarded by p2p_hubdtorreport (red on 3.4.0), and by a new
 //  repo invariant [8] that fails on any Message()/Advice() literal over 253.
+//  And a data race the 3.4.1 CI found: P2PeerConDmx::Accept() read m_pConThat
+//  and created the accept OVERLAPPED with no lock, while Listen() had already
+//  published the service to clients whose Connect() reads both under
+//  g_oCSectP2PeerConDmx. TSan, four reports in Connect(); first exercised by
+//  p2p_vnetmount, which 3.4.0's CI never ran. Now under that lock - red on the
+//  first TSan run without it, clean for 20 runs with it.
 //  BELOW IS THE 3.4.0 RATIONALE.
 //  3.4.0.0, a MINOR on 3.3.2, earned by a BEHAVIOURAL break that no symbol
 //  records, as 3.2.0's was. The covered surface did not move:
