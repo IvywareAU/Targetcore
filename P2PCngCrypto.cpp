@@ -24,6 +24,7 @@
 #include <bcrypt.h>
 #include <vector>
 #include <cstring>
+#include <mutex>               // SharedAlg
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -33,6 +34,39 @@ namespace p2pcng
     // status variables typed as LONG so this translation unit never depends
     // on the NTSTATUS typedef being in scope.
     static inline bool ok ( LONG s ) { return s >= 0; }
+
+    //  The EC providers, opened ONCE per process and shared by every key object
+    //  (F-L4-2, 3.4.5). Opening one costs ~33 us - measured, perf_seal, Release
+    //  - against ~0.7 us for SHA-256 and AES, and every sealed message made at
+    //  least two EC key objects (the sender's ephemeral, each verifier's peer
+    //  key), so on the default seal + attest path it was the one cost that
+    //  bought nothing
+    //  NOTES: CNG documents an algorithm handle as safe to use from several
+    //         threads at once for creating and importing keys; only
+    //         BCryptSetProperty needs it exclusively, and nothing here sets a
+    //         property on an EC provider
+    //       : NEVER CLOSED. A key object no longer owns its m_hAlg, so no
+    //         destructor may close it; the process does at exit. One handle
+    //         per algorithm, opened on first use - a failed open is retried by
+    //         the next caller rather than cached as a failure
+    //       : Windows 10's BCRYPT_*_ALG_HANDLE pseudo-handles would make this
+    //         free, and are out of reach: the floor is 8.1 (targetver.h)
+    static BCRYPT_ALG_HANDLE SharedAlg ( LPCWSTR pszAlgId )
+    {
+        static std::mutex        s_oMutex;
+        static BCRYPT_ALG_HANDLE s_hEcdh  = nullptr;
+        static BCRYPT_ALG_HANDLE s_hEcdsa = nullptr;
+        BCRYPT_ALG_HANDLE *ph = ( wcscmp ( pszAlgId, BCRYPT_ECDH_P256_ALGORITHM ) == 0 )
+                              ? &s_hEcdh : &s_hEcdsa;
+        std::lock_guard<std::mutex> oLock ( s_oMutex );
+        if ( !*ph )
+        {
+            BCRYPT_ALG_HANDLE h = nullptr;
+            if ( ok ( BCryptOpenAlgorithmProvider ( &h, pszAlgId, nullptr, 0 ) ) )
+                *ph = h;
+        }
+        return *ph;
+    }
 
     // -------------------------------------------------------------------
     //  CSPRNG
@@ -295,8 +329,9 @@ namespace p2pcng
 
     EcdhP256::~EcdhP256 ( )
     {
+        //  m_hAlg is the process's shared provider - refer SharedAlg - and is
+        //  not this object's to close
         if ( m_hKey ) BCryptDestroyKey ( (BCRYPT_KEY_HANDLE)m_hKey );
-        if ( m_hAlg ) BCryptCloseAlgorithmProvider ( (BCRYPT_ALG_HANDLE)m_hAlg, 0 );
     }
 
     bool EcdhP256::Generate ( )
@@ -304,8 +339,7 @@ namespace p2pcng
         BCRYPT_ALG_HANDLE hAlg = (BCRYPT_ALG_HANDLE)m_hAlg;
         if ( !hAlg )
         {
-            if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_ECDH_P256_ALGORITHM,
-                                                     nullptr, 0 ) ) )
+            if ( !( hAlg = SharedAlg ( BCRYPT_ECDH_P256_ALGORITHM ) ) )
                 return false;
             m_hAlg = hAlg;
         }
@@ -361,8 +395,7 @@ namespace p2pcng
         BCRYPT_ALG_HANDLE hAlg = (BCRYPT_ALG_HANDLE)m_hAlg;
         if ( !hAlg )
         {
-            if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_ECDH_P256_ALGORITHM,
-                                                     nullptr, 0 ) ) )
+            if ( !( hAlg = SharedAlg ( BCRYPT_ECDH_P256_ALGORITHM ) ) )
                 return false;
             m_hAlg = hAlg;
         }
@@ -392,8 +425,7 @@ namespace p2pcng
         BCRYPT_ALG_HANDLE hAlg = (BCRYPT_ALG_HANDLE)m_hAlg;
         if ( !hAlg )
         {
-            if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_ECDH_P256_ALGORITHM,
-                                                     nullptr, 0 ) ) )
+            if ( !( hAlg = SharedAlg ( BCRYPT_ECDH_P256_ALGORITHM ) ) )
                 return false;
             m_hAlg = hAlg;
         }
@@ -466,16 +498,15 @@ namespace p2pcng
 
     EcdsaP256::~EcdsaP256 ( )
     {
+        //  m_hAlg is the process's shared provider - refer SharedAlg
         if ( m_hKey ) BCryptDestroyKey ( (BCRYPT_KEY_HANDLE)m_hKey );
-        if ( m_hAlg ) BCryptCloseAlgorithmProvider ( (BCRYPT_ALG_HANDLE)m_hAlg, 0 );
     }
 
     bool EcdsaP256::EnsureAlg ( )
     {
         if ( m_hAlg ) return true;
-        BCRYPT_ALG_HANDLE hAlg = nullptr;
-        if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_ECDSA_P256_ALGORITHM,
-                                                 nullptr, 0 ) ) )
+        BCRYPT_ALG_HANDLE hAlg = SharedAlg ( BCRYPT_ECDSA_P256_ALGORITHM );
+        if ( !hAlg )
             return false;
         m_hAlg = hAlg;
         return true;
