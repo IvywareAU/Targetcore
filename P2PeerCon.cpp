@@ -336,7 +336,11 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
            pConSpawn -> m_pP2Peerio -> Register ( pConSpawn );
            //pConSpawn -> m_oThisP2Paddr    = m_oThisP2Paddr;
            pConSpawn -> m_oThisP2Paddr1   = L"";
-           pConSpawn -> m_oThatP2Paddr    = m_oThatP2Paddr;
+      //  A listener with ConState_AcceptUnnamed hands out a blank for
+      //  OnAccept(addr) to fill, here and not after the post below
+           pConSpawn -> m_oThatP2Paddr    = HasState ( ConState_AcceptUnnamed )
+                                          ? P2Paddr ( )
+                                          : m_oThatP2Paddr;
            pConSpawn -> m_oThatP2Paddr1   = L"";
            pConSpawn -> m_eP2PeerIDmap    = m_eP2PeerIDmap;
            pConSpawn -> m_eP2PeerConMode  =    P2PeerCon_Accept;
@@ -363,7 +367,8 @@ P2PeerCon::AcceptSpawn ( P2PeerCon *pConSpawn )
            pConSpawn -> m_dwState . store (
                          m_dwState.load ( ) & ~( ConState_Recv
                                                | ConState_Send
-                                               | ConState_Login ) );
+                                               | ConState_Login
+                                               | ConState_AcceptUnnamed ) );
 
       // Accept admission control
       // NOTES: Accounting only. The REFUSAL is the transport's, and it has

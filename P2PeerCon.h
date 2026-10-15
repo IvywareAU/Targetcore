@@ -1014,6 +1014,17 @@ const DWORD ConState_Send        = (1<<3);
 const DWORD ConState_PKey        = (1<<4);
 const DWORD ConState_Login       = (1<<5);
 const DWORD ConState_CloseOnIdle = (1<<6);
+//  A SERVICE setting, not a state: set on a listener (SetState(
+//  ConState_AcceptUnnamed, 0)) before it accepts, and P2PeerCon::AcceptSpawn
+//  gives every child an EMPTY peer address instead of a copy of the
+//  listener's. For a service whose accepted peers are named afterwards by
+//  OnAccept(addr), which refuses to replace an address already set - an HTTP
+//  server whose browsers have no P2P identity (_OldExamples\AKAserva).
+//  NOTES: The child gets its blank before it is published to the hub list, so no
+//         walker on another thread can see the listener's name on it and
+//         nothing has to clear it afterwards outside ThatAddrLock (3.4.3)
+//       : Not carried to the child. A child accepts nothing
+const DWORD ConState_AcceptUnnamed = (1<<7);
 
 const DWORD ConBCasts_OK  = ( ConState_Send
                             | ConState_Login
