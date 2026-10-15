@@ -1,4 +1,4 @@
-﻿// Copyright © 2000-2026 Ivyware Pty Ltd, Khrustal & Mann
+// Copyright © 2000-2026 Ivyware Pty Ltd, Khrustal & Mann
 //              MELBOURNE, VICTORIA, AUSTRALIA, 3000
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.4 is tag
-//         v3.4.4. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.5 is tag
+//         v3.4.5. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,24 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.5.0, a PATCH on 3.4.4: a performance change and nothing else. The
+//  covered surface did not move (103 symbols, abi-flat.manifest unchanged), no
+//  class layout moved and nothing on the wire changed. F-L4-2 (P2PeerLan L4):
+//  a sealed, attested message cost ~2.5 ms. Measured again on 3.4.4 (Release,
+//  loopback, through one relay) it is ~0.8 ms - 3.4.4's compaction took the
+//  rest - and what remains is the EC work itself: the sender's ephemeral key,
+//  the agreement and two signatures, the receiver's two verifies and the
+//  agreement. That is the security and it stays. What this removes is the
+//  one cost that bought nothing: every EC key object opened its own CNG
+//  provider, ~33 us each, and the default seal + attest path makes one per
+//  sender ephemeral and one per verifier. The ECDH and ECDSA providers are now
+//  opened once per process and shared (SharedAlg in P2PCngCrypto.cpp; CNG
+//  documents algorithm handles as thread-safe for key creation and import).
+//  Ephemeral key 176 -> 138 us, peer-key import 69 -> 36 us, Open 400 -> 360
+//  us. The lever that matters is message SIZE, since the cost is per message:
+//  12 KB sealed bodies run at 15 MB/s, 28 KB at 32 MB/s, and 3.4.4 is what made
+//  28 KB possible. Windows only; the OpenSSL backend has no provider objects.
+//  BELOW IS THE 3.4.4 RATIONALE.
 //  3.4.4.0, a PATCH on 3.4.3, and a SECURITY fix. The covered surface did not
 //  move: .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still
 //  103 symbols, no class layout moved, and nothing on the wire changed format -
@@ -284,23 +302,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  4
+#define TARGETCORE_VERSION_PATCH  5
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,4,0
+#define TARGETCORE_VERSION_COMMAS 3,4,5,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.4.0"
+#define TARGETCORE_VERSION_STRING "3.4.5.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040400 is 3.4.4.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040500 is 3.4.5.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040400
+#define TARGETCORE_VERSION_HEX    0x03040500
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -316,7 +334,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.4.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.5.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
