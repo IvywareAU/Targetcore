@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.2 is tag
-//         v3.4.2. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.3 is tag
+//         v3.4.3. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,20 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.3.0, a PATCH on 3.4.2. The covered surface did not move:
+//  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
+//  symbols, and no class layout or vtable moved. Added to the C++ surface,
+//  which the policy does not cover: ConState_AcceptUnnamed, a SERVICE bit.
+//  P2PeerCon::AcceptSpawn copies the listener's peer address into every
+//  accepted child, and OnAccept(addr) refuses to replace an address already
+//  set, so a service that names its children after accept - _OldExamples
+//  AKAserva, whose browsers become Webserver.<n> - had to clear the copy in its
+//  own AcceptSpawn override, after the base had published the child to the hub
+//  list and outside ThatAddrLock. With the bit set on the listener the base
+//  gives the child an empty address before publishing it, and does not pass
+//  the bit on. Guarded by p2p_acceptunnamed (positive control + the bit;
+//  mutation-checked: red with the branch disabled).
+//  BELOW IS THE 3.4.2 RATIONALE.
 //  3.4.2.0, a PATCH on 3.4.1. The covered surface did not move:
 //  .github/ci/abi-flat.manifest and Targetcore_c.h are unchanged, still 103
 //  symbols, and no class layout moved. What it carries is a data race fix.
@@ -250,23 +264,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  2
+#define TARGETCORE_VERSION_PATCH  3
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,2,0
+#define TARGETCORE_VERSION_COMMAS 3,4,3,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.2.0"
+#define TARGETCORE_VERSION_STRING "3.4.3.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040200 is 3.4.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040300 is 3.4.3.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040200
+#define TARGETCORE_VERSION_HEX    0x03040300
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -282,7 +296,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.2.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.3.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
