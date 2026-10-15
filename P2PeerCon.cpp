@@ -32,6 +32,61 @@
 static std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddress()
 
 ///////////////////////////////////////////////////////////////////////
+//  A freshly sealed message, rebuilt compactly for the wire (F-L4-1, 3.4.4)
+//  NOTES: Sealing swaps the body in with SetData, which grows it inside the
+//         message's own heap and leaves the old block behind as free space,
+//         and the full-replica send path puts the whole heap in the frame. So
+//         a sealed frame was the plaintext's block PLUS the sealed one: ~2x the
+//         body, and a body over ~15 KB broke the 32768-byte frame cap and the
+//         next hub dropped the LINK. SealAppMsgOutbound zeroes the plaintext,
+//         so what this removes is the size
+//       : HOW: the frame is the whole heap, so the copy goes into a heap sized
+//         for what is live: the bytes that were not the body before the seal
+//         (nOverhead, measured by the caller), plus the sealed body, plus a
+//         margin for the seal marker and anything the send path adds after
+//         this. Too small only costs a grow - the heap extends itself, by at
+//         most a fifth - and the assignment copies the live items alone, as
+//         the copy constructor's does
+//       : NOT the copy constructor itself: it reserves the source's used
+//         count plus 4 KB, and the frame being the whole heap, it came out
+//         BIGGER (measured, p2p_sealwire: 9568 bytes against 6541). NOT
+//         Msgcore's partial image either: rebuilt as a P2PeerMsg it loses the
+//         root prefix ("Incompatible c_vBlob() type") - nothing in the tree
+//         sends with a mask other than ~0, and that path shows it
+//       : Returns the message to send and deletes the one it replaced. The
+//         connection owns m_pP2PeerMsgSend outright - taken off its queue,
+//         deleted when the send completes - so nothing else holds the old one
+//       : A failed copy keeps the original. Its plaintext is already zeroed,
+//         so that costs size, not confidentiality
+static P2PeerMsg*
+CompactSealed ( P2PeerMsg *pMsg, size_t nOverhead )
+{
+    const size_t kMargin   = 512;
+    const size_t nCapacity = nOverhead + pMsg -> DataSize ( ) + kMargin;
+    P2PeerMsg *pCompact = 0;
+    try
+    {
+      pCompact = new P2PeerMsg ( pMsg -> GetP2Pmsgnn ( ), (VBLsize)nCapacity );
+      *pCompact = *pMsg;
+    }
+    catch ( P2Pevent *pEVT )
+    {
+      if ( pEVT ) pEVT -> Cancel ( );
+      delete pCompact;
+      pCompact = 0;
+    }
+    catch ( ... )
+    {
+      delete pCompact;
+      pCompact = 0;
+    }
+    if ( !pCompact )
+      return pMsg;
+    delete pMsg;
+    return pCompact;
+}
+
+///////////////////////////////////////////////////////////////////////
 //  Per-source accept accounting (Stage 4 step 11)
 //  NOTES: One block per SERVICE, shared with every connection it accepts, for
 //         the same reason m_pxAccepted is shared: neither the service nor a
@@ -761,11 +816,21 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        clear the thing the operator asked to be hidden.  Refusing
           //        before the attestation also saves an ECDSA operation on a
           //        message that is about to be dropped
-          if ( !bVNetMount && m_pP2PeerMsgSend &&
-               !SealAppMsgOutbound ( m_pP2PeerMsgSend ) )
+          if ( !bVNetMount && m_pP2PeerMsgSend )
           {
-            delete m_pP2PeerMsgSend;
-            m_pP2PeerMsgSend = 0;
+            const bool   bWasSealed = m_pP2PeerMsgSend->IsSealed ( );
+            //  What is not the body, measured BEFORE the seal grows the heap
+            const size_t nUsed      = m_pP2PeerMsgSend->P3PmsgBSTR::Sizeof ( );
+            const size_t nBody      = m_pP2PeerMsgSend->DataSize ( );
+            const size_t nOverhead  = nUsed > nBody ? nUsed - nBody : nUsed;
+            if ( !SealAppMsgOutbound ( m_pP2PeerMsgSend ) )
+            {
+              delete m_pP2PeerMsgSend;
+              m_pP2PeerMsgSend = 0;
+            }
+            //  Sealed HERE, just now: send a compact copy.  Refer CompactSealed
+            else if ( !bWasSealed && m_pP2PeerMsgSend->IsSealed ( ) )
+              m_pP2PeerMsgSend = CompactSealed ( m_pP2PeerMsgSend, nOverhead );
           }
 
           // Origin attestation
@@ -3314,6 +3379,16 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
 
     if ( eResult == p2pseal::SealOk && cbSealed )
     {
+      //  The plaintext is ZEROED where it lies before the sealed block replaces
+      //  it.  SetData reallocates inside the message's own heap and frees the
+      //  old block without clearing it, and the send path puts the whole heap
+      //  on the wire - so until 3.4.4 the plaintext travelled beside its own
+      //  ciphertext, readable by any relay (F-L4-1, p2p_sealwire).  The send
+      //  path also compacts a freshly sealed message (refer CompactSealed), so
+      //  this is the second line rather than the only one: it still holds if
+      //  the message is ever sent from its own heap again
+      SecureZeroMemory ( pMsg->Data ( ), cbPlain );
+
       //  Payload first, marker second.  A half-done seal is then a message
       //  whose marker and body disagree, which fails to open and says so -
       //  rather than a body that looks like application bytes
