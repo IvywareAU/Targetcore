@@ -132,8 +132,28 @@ namespace p2pcng
                                       //   where the transport is already protected.
                                       //   Never a good resting state.
         IdProtect_DpapiMachine = 1,
-        IdProtect_DpapiUser    = 2
+        IdProtect_DpapiUser    = 2,
+        IdProtect_External     = 3    // wrapped by the process's registered
+                                      //   IdExternalProtectorFn (below). Android's
+                                      //   Keystore plays DPAPI's part this way.
     };
+
+    // ---- An external protector (IdProtect_External) ---------------------
+    // The host wraps and unwraps the private-key payload itself, typically with
+    // a key that never leaves a hardware keystore. bWrap true: pIn is the raw
+    // 96-byte key blob, write its wrapped form; false: pIn is a wrapped blob,
+    // write the raw key. nKind is 0 for an identity file, 1 for an agreement
+    // file (the protector may bind it, as DPAPI's entropy does). Return the
+    // number of bytes written to pOut (at most cbOutMax), or 0 on any failure -
+    // a wrong key or a tampered blob included. It may be called from any thread
+    // that saves or loads a key, pump threads included, and must not block on
+    // the UI. Without one registered, an External save or load fails
+    // IdErrUnsupported. Registered once, before the first key is touched; a
+    // null pfn unregisters.
+    typedef size_t ( *IdExternalProtectorFn ) ( void *pCtx, bool bWrap, int nKind,
+                                                const unsigned char *pIn, size_t cbIn,
+                                                unsigned char *pOut, size_t cbOutMax );
+    P2PCNG_EXT void SetExternalProtector ( IdExternalProtectorFn pfn, void *pCtx );
 
     // ---- Sizes ---------------------------------------------------------
     const size_t kIdHeaderLen      = 48;   // container header, bytes

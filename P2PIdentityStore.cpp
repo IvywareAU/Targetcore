@@ -53,6 +53,7 @@
 #include <cstring>
 #include <cstdio>
 #include <ctime>
+#include <mutex>            // the external protector's registration
 #ifndef _WIN32
 #include <fcntl.h>          // AT_FDCWD
 #include <sys/syscall.h>    // SYS_renameat2 (WriteWholeFile, exclusive, no hard links)
@@ -546,6 +547,38 @@ namespace
 #endif
     }
 
+    // IdProtect_External: the host's wrap/unwrap (SetExternalProtector). The
+    // mutex only orders registration against use; the call itself runs outside
+    // it, so a slow keystore does not serialise unrelated loads behind a lock.
+    std::mutex            g_oExternalLock;
+    IdExternalProtectorFn g_pfnExternal = nullptr;
+    void                 *g_pExternalCtx = nullptr;
+
+    IdResult ExternalPayload ( bool bWrap, KeyKind eKind,
+                               const unsigned char *pIn, size_t cbIn,
+                               std::vector<unsigned char> &vOut )
+    {
+        IdExternalProtectorFn pfn;
+        void                 *pCtx;
+        {
+            std::lock_guard<std::mutex> g ( g_oExternalLock );
+            pfn  = g_pfnExternal;
+            pCtx = g_pExternalCtx;
+        }
+        if ( !pfn ) return IdErrUnsupported;
+
+        std::vector<unsigned char> vBuf ( kMaxPayload, 0 );
+        size_t cb = pfn ( pCtx, bWrap, (int)eKind, pIn, cbIn, &vBuf[0], vBuf.size() );
+        if ( cb == 0 || cb > vBuf.size() )
+        {
+            ZeroVec ( vBuf );
+            return bWrap ? IdErrProtect : IdErrUnprotect;
+        }
+        vOut.assign ( vBuf.begin(), vBuf.begin() + cb );
+        ZeroVec ( vBuf );
+        return IdOk;
+    }
+
     IdResult ProtectPayload ( IdProtection eProtect, KeyKind eKind,
                               const unsigned char *pIn, size_t cbIn,
                               std::vector<unsigned char> &vOut )
@@ -555,6 +588,8 @@ namespace
             vOut.assign ( pIn, pIn + cbIn );
             return IdOk;
         }
+        if ( eProtect == IdProtect_External )
+            return ExternalPayload ( true, eKind, pIn, cbIn, vOut );
 #ifdef _WIN32
         size_t      cbEnt = 0;
         const char *pEnt  = EntropyOf ( eKind, &cbEnt );
@@ -603,6 +638,8 @@ namespace
             vOut.assign ( pIn, pIn + cbIn );
             return IdOk;
         }
+        if ( eProtect == IdProtect_External )
+            return ExternalPayload ( false, eKind, pIn, cbIn, vOut );
 #ifdef _WIN32
         size_t      cbEnt = 0;
         const char *pEnt  = EntropyOf ( eKind, &cbEnt );
@@ -693,7 +730,8 @@ namespace
         if ( nVersion != kVersion ) return IdErrVersion;
         if ( nProtect != (unsigned int)IdProtect_None         &&
              nProtect != (unsigned int)IdProtect_DpapiMachine &&
-             nProtect != (unsigned int)IdProtect_DpapiUser )
+             nProtect != (unsigned int)IdProtect_DpapiUser    &&
+             nProtect != (unsigned int)IdProtect_External )
             return IdErrFormat;
         if ( cbClaim == 0 || cbClaim > kMaxPayload ) return IdErrFormat;
         // The length field must match the file exactly. A shorter file is a
@@ -777,7 +815,8 @@ namespace
         IdProtection eUse = ResolveProtection ( eProtect );
         if ( eUse != IdProtect_None &&
              eUse != IdProtect_DpapiMachine &&
-             eUse != IdProtect_DpapiUser )
+             eUse != IdProtect_DpapiUser &&
+             eUse != IdProtect_External )
             return IdErrArgs;
 
         std::vector<unsigned char> vPriv ( cbPriv, 0 );
@@ -928,6 +967,13 @@ namespace
 // -----------------------------------------------------------------------
 //  Result text
 // -----------------------------------------------------------------------
+void SetExternalProtector ( IdExternalProtectorFn pfn, void *pCtx )
+{
+    std::lock_guard<std::mutex> g ( g_oExternalLock );
+    g_pfnExternal = pfn;
+    g_pExternalCtx = pfn ? pCtx : nullptr;
+}
+
 const char *IdResultText ( IdResult eResult )
 {
     switch ( eResult )
@@ -940,9 +986,9 @@ const char *IdResultText ( IdResult eResult )
     case IdErrFormat:      return "malformed file";
     case IdErrVersion:     return "unsupported container version";
     case IdErrIntegrity:   return "integrity check failed (file corrupted)";
-    case IdErrProtect:     return "DPAPI protect failed";
-    case IdErrUnprotect:   return "DPAPI unprotect failed (wrong machine, wrong "
-                                  "user, or tampered)";
+    case IdErrProtect:     return "protect failed (DPAPI or the external protector)";
+    case IdErrUnprotect:   return "unprotect failed (wrong machine, wrong user or "
+                                  "keystore key, or tampered)";
     case IdErrKey:         return "invalid or unusable key material";
     case IdErrPerms:       return "identity file permissions are too permissive";
     case IdErrUnsupported: return "not supported on this platform";
@@ -1562,6 +1608,67 @@ bool StoreSelfTest ( )
         if ( vFile.size() != kIdHeaderLen + kEcdsaPrivLen ) return false;
 
         DeleteOneFile ( sNone.c_str() );
+    }
+
+    // --- An external protector wraps and unwraps; without one, refused ----
+    // A stand-in for a hardware keystore: a 4-byte tag naming the kind, then
+    // the blob XOR 0x5A. Proves the store calls it both ways, records 3 in the
+    // header, keeps the scalar off the disk, and fails closed when the
+    // protector is missing or refuses.
+    {
+        auto pfnTest = [] ( void *, bool bWrap, int nKind, const unsigned char *pIn,
+                            size_t cbIn, unsigned char *pOut, size_t cbMax ) -> size_t
+        {
+            const unsigned char tag[4] = { 'T', 'X', 'P', (unsigned char)( '0' + nKind ) };
+            if ( bWrap )
+            {
+                if ( cbIn + 4 > cbMax ) return 0;
+                memcpy ( pOut, tag, 4 );
+                for ( size_t i = 0; i < cbIn; i++ ) pOut[4 + i] = pIn[i] ^ 0x5A;
+                return cbIn + 4;
+            }
+            if ( cbIn < 4 || memcmp ( pIn, tag, 4 ) != 0 || cbIn - 4 > cbMax ) return 0;
+            for ( size_t i = 4; i < cbIn; i++ ) pOut[i - 4] = pIn[i] ^ 0x5A;
+            return cbIn - 4;
+        };
+        auto pfnRefuse = [] ( void *, bool, int, const unsigned char *, size_t,
+                              unsigned char *, size_t ) -> size_t { return 0; };
+
+        EcdsaP256 oKey;
+        if ( !oKey.Generate() ) return false;
+        SetExternalProtector ( nullptr, nullptr );
+        if ( SaveIdentity ( sNone.c_str(), oKey, IdProtect_External ) != IdErrUnsupported )
+            return false;
+        if ( FileExists ( sNone.c_str() ) ) return false;
+
+        SetExternalProtector ( pfnTest, nullptr );
+        bool bOk = SaveIdentity ( sNone.c_str(), oKey, IdProtect_External ) == IdOk;
+        EcdsaP256 oBack;
+        bOk = bOk && LoadIdentity ( sNone.c_str(), oBack ) == IdOk;
+        unsigned char a[kEcdsaPubLen], b[kEcdsaPubLen];
+        bOk = bOk && oKey.ExportPublic ( a ) && oBack.ExportPublic ( b )
+                  && ConstTimeEqual ( a, b, kEcdsaPubLen );
+
+        std::vector<unsigned char> vFile, vPriv ( kEcdsaPrivLen, 0 );
+        bOk = bOk && ReadWholeFile ( sNone.c_str(), vFile, true,
+                                     kIdHeaderLen + kMaxPayload ) == IdOk
+                  && GetU16 ( &vFile[10] ) == (unsigned int)IdProtect_External
+                  && vFile.size() == kIdHeaderLen + 4 + kEcdsaPrivLen
+                  && oKey.ExportPrivate ( &vPriv[0] );
+        // The 32-byte scalar d is the tail of the 96-byte blob.
+        if ( bOk )
+            for ( size_t i = 0; i + 32 <= vFile.size(); i++ )
+                if ( memcmp ( &vFile[i], &vPriv[kEcdsaPrivLen - 32], 32 ) == 0 ) bOk = false;
+        ZeroVec ( vPriv );
+
+        EcdsaP256 oNo;
+        SetExternalProtector ( pfnRefuse, nullptr );
+        bOk = bOk && LoadIdentity ( sNone.c_str(), oNo ) == IdErrUnprotect;
+        SetExternalProtector ( nullptr, nullptr );
+        bOk = bOk && LoadIdentity ( sNone.c_str(), oNo ) == IdErrUnsupported;
+
+        DeleteOneFile ( sNone.c_str() );
+        if ( !bOk ) return false;
     }
 
     // --- A verify-only key cannot be saved as an identity --------------
