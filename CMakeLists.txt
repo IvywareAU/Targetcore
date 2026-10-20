@@ -108,11 +108,30 @@ if(WIN32)
     # build compiles each TU's own #include "stdafx.h" without a target PCH (see note below).
 else()
     # Linux: the OpenSSL crypto backend (p2pcng AES-256-GCM / ECDH P-256 / HKDF / HMAC / RNG,
-    # wire-compatible with CNG, §6.2 Risk #5) and the io_uring implementation of the
-    # p2p_iocp_* hooks. dllmain.cpp is excluded (§4.3).
+    # wire-compatible with CNG, §6.2 Risk #5) and an implementation of the p2p_iocp_* hooks.
+    # dllmain.cpp is excluded (§4.3).
+    #
+    # P2P_IO_BACKEND picks that implementation: `uring` (p2piocp.cpp, io_uring + liburing,
+    # kernel >= 6.1) or `epoll` (p2piocp_epoll.cpp, no extra library). Android blocks
+    # io_uring for apps, so it defaults to epoll there (P2PeerLanAndroid_Plan.md A0).
+    if(ANDROID)
+        set(_p2p_io_default epoll)
+    else()
+        set(_p2p_io_default uring)
+    endif()
+    set(P2P_IO_BACKEND ${_p2p_io_default} CACHE STRING "Linux IOCP shim backend: uring | epoll")
+    set_property(CACHE P2P_IO_BACKEND PROPERTY STRINGS uring epoll)
+    if(P2P_IO_BACKEND STREQUAL "epoll")
+        set(_p2p_iocp_src p2piocp_epoll.cpp)
+    elseif(P2P_IO_BACKEND STREQUAL "uring")
+        set(_p2p_iocp_src p2piocp.cpp)
+    else()
+        message(FATAL_ERROR "P2P_IO_BACKEND must be uring or epoll, not '${P2P_IO_BACKEND}'")
+    endif()
+    message(STATUS "Targetcore: IOCP shim backend ${P2P_IO_BACKEND}")
     set(TARGETCORE_SOURCES ${TARGETCORE_SOURCES_COMMON}
         P2PCngCrypto_openssl.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/p2piocp.cpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/${_p2p_iocp_src})
 endif()
 
 add_library(targetcore SHARED ${TARGETCORE_SOURCES})
@@ -166,10 +185,12 @@ else()
     # consumer, which is a development package demanded at build time for a
     # dependency that is already satisfied at run time. In-tree propagation is
     # unchanged: BUILD_INTERFACE evaluates to exactly what was there before.
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBURING REQUIRED liburing)
-    target_include_directories(targetcore PRIVATE ${LIBURING_INCLUDE_DIRS})
-    target_link_libraries(targetcore PUBLIC $<BUILD_INTERFACE:${LIBURING_LIBRARIES}>)
+    if(P2P_IO_BACKEND STREQUAL "uring")
+        find_package(PkgConfig REQUIRED)
+        pkg_check_modules(LIBURING REQUIRED liburing)
+        target_include_directories(targetcore PRIVATE ${LIBURING_INCLUDE_DIRS})
+        target_link_libraries(targetcore PUBLIC $<BUILD_INTERFACE:${LIBURING_LIBRARIES}>)
+    endif()
 
     # OpenSSL 3 (libcrypto) for P2PCngCrypto_openssl.cpp (§6.2). Required on Linux.
     find_package(OpenSSL REQUIRED)

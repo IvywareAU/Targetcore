@@ -53,6 +53,11 @@
 #include <cstring>
 #include <cstdio>
 #include <ctime>
+#ifndef _WIN32
+#include <fcntl.h>          // AT_FDCWD
+#include <sys/syscall.h>    // SYS_renameat2 (WriteWholeFile, exclusive, no hard links)
+#include <unistd.h>
+#endif
 
 namespace p2pcng
 {
@@ -473,13 +478,36 @@ namespace
             // rename() would silently replace. link() is the atomic
             // create-if-absent: it fails EEXIST rather than clobbering a key
             // another process just wrote.
-            if ( ::link ( sTemp.c_str(), sPath.c_str() ) != 0 )
+            bool bPlaced = false;
+            if ( ::link ( sTemp.c_str(), sPath.c_str() ) == 0 )
+            {
+                ::unlink ( sTemp.c_str() );
+                bPlaced = true;
+            }
+            else
             {
                 int nErr = errno;
-                ::unlink ( sTemp.c_str() );
-                return ( nErr == EEXIST ) ? IdErrExists : IdErrIo;
+                // Android's SELinux policy forbids hard links outright (EACCES
+                // even in /data/local/tmp, and for every app), and some
+                // filesystems have none (EPERM). renameat2(RENAME_NOREPLACE) is
+                // the same atomic create-if-absent without a link; called
+                // through syscall() because bionic wraps it only from API 30.
+#if defined(__linux__) && defined(SYS_renameat2)
+                if ( nErr == EACCES || nErr == EPERM || nErr == ENOSYS || nErr == EMLINK )
+                {
+                    if ( ::syscall ( SYS_renameat2, AT_FDCWD, sTemp.c_str(),
+                                     AT_FDCWD, sPath.c_str(), 1u /* RENAME_NOREPLACE */ ) == 0 )
+                        bPlaced = true;
+                    else
+                        nErr = errno;
+                }
+#endif
+                if ( !bPlaced )
+                {
+                    ::unlink ( sTemp.c_str() );
+                    return ( nErr == EEXIST ) ? IdErrExists : IdErrIo;
+                }
             }
-            ::unlink ( sTemp.c_str() );
         }
         else if ( ::rename ( sTemp.c_str(), sPath.c_str() ) != 0 )
         {

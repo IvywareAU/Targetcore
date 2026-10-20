@@ -44,9 +44,29 @@
   #define P2P_MEMFN_CAST      static_cast          // MSVC: legacy bare-name form (PTM warning suppressed)
   #define P2P_MEMFN_ADDR(FXN) (FXN)
   #else
-  #define P2P_MEMFN_CAST      reinterpret_cast     // GCC/Clang: &Class::Fxn (formed under -fpermissive) + member-ptr reinterpret
-  #define P2P_MEMFN_ADDR(FXN) (&FXN)
+  //  GCC/Clang: a QUALIFIED &Class::Fxn plus a member-pointer reinterpret.
+  //
+  //  The ON_* entries are written with a bare handler name, and an entry table used to be
+  //  a static data member whose initializer runs in class scope, where `&Fxn` is not
+  //  standard C++. GCC accepts it under -fpermissive; clang has no such switch (not even
+  //  -fms-compatibility), which stopped the NDK build (P2PeerLanAndroid A0). So off MSVC
+  //  each BEGIN_*_MAP puts its table inside a static member function that declares
+  //      typedef theClass P2PThisClass;
+  //  and the entry takes &P2PThisClass::Fxn. P2PeerTarget's hand-written root tables
+  //  resolve the same name through P2PeerTarget's own member typedef. MSVC keeps the
+  //  original expansion untouched.
+  #define P2P_MEMFN_CAST      reinterpret_cast
+  #define P2P_MEMFN_ADDR(FXN) (&P2PThisClass::FXN)
   #endif
+
+//  The static member function that holds an entry table off MSVC. Declared only there:
+//  on MSVC a declared-but-undefined member of a dllexported (Targetcore_EXT) class is an
+//  unresolved external at link time.
+#ifdef _MSC_VER
+  #define P2P_DECLARE_ENTRIES_FN(EntryType, Name)
+#else
+  #define P2P_DECLARE_ENTRIES_FN(EntryType, Name) static const EntryType* Name();
+#endif
 
 P2PmsgCN const 
 CN_P2PeerCon =  1;                     // P2PeerCon_MAP interceptions
@@ -144,6 +164,7 @@ struct P2P_MSGMAP
 #define DECLARE_P2PeerMsg_MAP() \
     private: \
 	    static const P2P_MSGMAP_ENTRY _P2PeerMsgEntries[]; \
+	    P2P_DECLARE_ENTRIES_FN(P2P_MSGMAP_ENTRY, _P2PeerMsgEntriesFn) \
     protected: \
 	    static  const P2P_MSGMAP  P2PeerMsgMap; \
 	    virtual const P2P_MSGMAP* \
@@ -161,6 +182,7 @@ struct P2P_MSGMAP
 //         #theClass leaves TWO tokens, which MSVC glues back together and GCC
 //         reports as an undeclared `L`.  _U takes the ALREADY-STRINGIFIED name,
 //         so the paste has a real string literal to work on
+#ifdef _MSC_VER
 #define BEGIN_P2PeerMsg_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_MSGMAP* \
@@ -178,6 +200,34 @@ AFX_COMDAT const P2P_MSGMAP_ENTRY theClass::_P2PeerMsgEntries[] \
 { 0, 0, 0, 0, 0, 0, 0, P2PSig_End, (P2P_PMSG)0 } \
   }; \
   PTM_WARNING_RESTORE
+#else
+//  The table lives in _P2PeerMsgEntriesFn() so P2PThisClass can be declared (see
+//  P2P_MEMFN_ADDR). Initialised once, thread-safely, when P2PeerMsgMap is: dynamic
+//  initialisation, which the old static array already was here because of the
+//  member-pointer reinterpret in every entry.
+#define BEGIN_P2PeerMsg_MAP(theClass, baseClass) \
+PTM_WARNING_DISABLE \
+const P2P_MSGMAP* \
+theClass::GetP2PeerMsgMap() const \
+{ return &theClass::P2PeerMsgMap; } \
+LPCTSTR \
+theClass::GetThisClassName() const \
+{ return _U(#theClass); } \
+AFX_COMDAT const P2P_MSGMAP theClass::P2PeerMsgMap \
+   = { &baseClass::P2PeerMsgMap, theClass::_P2PeerMsgEntriesFn() }; \
+const P2P_MSGMAP_ENTRY* theClass::_P2PeerMsgEntriesFn() \
+{ \
+  typedef theClass P2PThisClass; \
+  static const P2P_MSGMAP_ENTRY _entries[] \
+   = { \
+
+#define END_P2PeerMsg_MAP() \
+{ 0, 0, 0, 0, 0, 0, 0, P2PSig_End, (P2P_PMSG)0 } \
+  }; \
+  return &_entries[0]; \
+} \
+  PTM_WARNING_RESTORE
+#endif
 
 // pointer to afx_msg member function
 class   P2PeerTarget;
@@ -227,6 +277,7 @@ struct P2P_SNKMAP
 #define DECLARE_P2PeerSnk_MAP() \
     private: \
 	    static const P2P_SNKMAP_ENTRY _P2PeerSnkEntries[]; \
+	    P2P_DECLARE_ENTRIES_FN(P2P_SNKMAP_ENTRY, _P2PeerSnkEntriesFn) \
     protected: \
 	    static  const P2P_SNKMAP  P2PeerSnkMap; \
 	    virtual const P2P_SNKMAP* \
@@ -251,6 +302,7 @@ struct P2P_SNKMAP
 //         registration with the target sink and releasing the P2PmsgSinkID
 //         for posting P2PeerSnk messages to the target sink
 
+#ifdef _MSC_VER
 #define BEGIN_P2PeerSnk_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_SNKMAP* \
@@ -264,6 +316,27 @@ AFX_COMDAT const P2P_SNKMAP_ENTRY theClass::_P2PeerSnkEntries[] \
 #define END_P2PeerSnk_MAP() \
 { 0, 0, 0, 0, P2PSig_End, (P2P_PSNK)0, 0, 0 } }; \
   PTM_WARNING_RESTORE
+#else
+//  See BEGIN_P2PeerMsg_MAP: the table lives in a static member function off MSVC.
+#define BEGIN_P2PeerSnk_MAP(theClass, baseClass) \
+PTM_WARNING_DISABLE \
+const P2P_SNKMAP* \
+theClass::GetP2PeerSnkMap() const \
+{ return &theClass::P2PeerSnkMap; } \
+AFX_COMDAT const P2P_SNKMAP theClass::P2PeerSnkMap \
+   = { &baseClass::P2PeerSnkMap, theClass::_P2PeerSnkEntriesFn() }; \
+const P2P_SNKMAP_ENTRY* theClass::_P2PeerSnkEntriesFn() \
+{ \
+  typedef theClass P2PThisClass; \
+  static const P2P_SNKMAP_ENTRY _entries[] \
+   = { \
+
+#define END_P2PeerSnk_MAP() \
+{ 0, 0, 0, 0, P2PSig_End, (P2P_PSNK)0, 0, 0 } }; \
+  return &_entries[0]; \
+} \
+  PTM_WARNING_RESTORE
+#endif
 
 // pointer to afx_msg member function
 class   P2PeerTarget;
@@ -309,6 +382,7 @@ struct P2P_SYSMAP
 #define DECLARE_P2PeerSys_MAP() \
     private: \
 	    static const P2P_SYSMAP_ENTRY _P2PeerSysEntries[]; \
+	    P2P_DECLARE_ENTRIES_FN(P2P_SYSMAP_ENTRY, _P2PeerSysEntriesFn) \
     protected: \
 	    static  const P2P_SYSMAP  P2PeerSysMap; \
 	    virtual const P2P_SYSMAP* \
@@ -318,6 +392,7 @@ struct P2P_SYSMAP
 //  P2PeerSys map wrappers
 //  NOTES: P2PeerSYS mapping macros must be encapsulated
 //         by the following two wrappers
+#ifdef _MSC_VER
 #define BEGIN_P2PeerSys_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_SYSMAP* \
@@ -332,6 +407,28 @@ AFX_COMDAT const P2P_SYSMAP_ENTRY theClass::_P2PeerSysEntries[] \
 { 0, 0, 0, 0, P2PSig_End, (P2P_PSYS)0, 0, 0 } }; \
   PTM_WARNING_RESTORE \
 
+#else
+//  See BEGIN_P2PeerMsg_MAP: the table lives in a static member function off MSVC.
+#define BEGIN_P2PeerSys_MAP(theClass, baseClass) \
+PTM_WARNING_DISABLE \
+const P2P_SYSMAP* \
+theClass::GetP2PeerSysMap() const \
+{ return &theClass::P2PeerSysMap; } \
+AFX_COMDAT const P2P_SYSMAP theClass::P2PeerSysMap \
+   = { &baseClass::P2PeerSysMap, theClass::_P2PeerSysEntriesFn() }; \
+const P2P_SYSMAP_ENTRY* theClass::_P2PeerSysEntriesFn() \
+{ \
+  typedef theClass P2PThisClass; \
+  static const P2P_SYSMAP_ENTRY _entries[] \
+   = { \
+
+#define END_P2PeerSys_MAP() \
+{ 0, 0, 0, 0, P2PSig_End, (P2P_PSYS)0, 0, 0 } }; \
+  return &_entries[0]; \
+} \
+  PTM_WARNING_RESTORE \
+
+#endif
 
 // pointer to afx_msg member function
 class   P2PeerTarget;
@@ -410,6 +507,7 @@ struct P2P_CONMAP
 #define DECLARE_P2PeerCon_MAP() \
     private: \
 	    static const P2P_CONMAP_ENTRY _P2PeerConEntries[]; \
+	    P2P_DECLARE_ENTRIES_FN(P2P_CONMAP_ENTRY, _P2PeerConEntriesFn) \
     protected: \
 	    static  const P2P_CONMAP  P2PeerConMap; \
 	    virtual const P2P_CONMAP* \
@@ -419,6 +517,7 @@ struct P2P_CONMAP
 //  P2PeerCon_MAP implementation (.cpp)
 //  NOTES: P2PeerCon_MAP macros must be encapsulated by the following
 //         two wrappers
+#ifdef _MSC_VER
 #define BEGIN_P2PeerCon_MAP(theClass, baseClass) \
 PTM_WARNING_DISABLE \
 const P2P_CONMAP* \
@@ -433,6 +532,28 @@ AFX_COMDAT const P2P_CONMAP_ENTRY theClass::_P2PeerConEntries[] \
 { 0, 0, L"", 0, P2PSig_End, (P2P_PCON)0, 0 } }; \
   PTM_WARNING_RESTORE \
 
+#else
+//  See BEGIN_P2PeerMsg_MAP: the table lives in a static member function off MSVC.
+#define BEGIN_P2PeerCon_MAP(theClass, baseClass) \
+PTM_WARNING_DISABLE \
+const P2P_CONMAP* \
+theClass::GetP2PeerConMap() const \
+{ return &theClass::P2PeerConMap; } \
+AFX_COMDAT const P2P_CONMAP theClass::P2PeerConMap \
+   = { &baseClass::P2PeerConMap, theClass::_P2PeerConEntriesFn() }; \
+const P2P_CONMAP_ENTRY* theClass::_P2PeerConEntriesFn() \
+{ \
+  typedef theClass P2PThisClass; \
+  static const P2P_CONMAP_ENTRY _entries[] \
+   = { \
+
+#define END_P2PeerCon_MAP() \
+{ 0, 0, L"", 0, P2PSig_End, (P2P_PCON)0, 0 } }; \
+  return &_entries[0]; \
+} \
+  PTM_WARNING_RESTORE \
+
+#endif
 /////////////////////////////////////////////////////////////////////////////
 // User extensions for message map entries
 

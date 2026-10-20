@@ -276,6 +276,12 @@ class Targetcore_EXT P2PeerTarget
       virtual P2PmsgHubID
         GetHubID ( ) const;
 
+    // The class the ON_* map entries name a handler of (P2PmsgMaps.h, P2P_MEMFN_ADDR).
+    // Only this class's hand-written root tables (P2PeerTarget.cpp) resolve it here;
+    // every BEGIN_*_MAP declares its own in the function that holds its table.
+    protected:
+      typedef P2PeerTarget P2PThisClass;
+
     // P2PeerSnk_MAP handlers
     // NOTES: Default set of P2PeerSnk handlers
     protected:

@@ -23,7 +23,11 @@
 //  Safe SOCKET container
 //  NOTES: SOCKET is managed within the life cycle of this object.
 //
-#ifndef SOCKET
+//  Windows only. SOCKET is a typedef, never a macro, so `#ifndef SOCKET` is always true;
+//  off Windows this used to redefine SOCKET as an integer for the rest of the TU, while the
+//  Platform shim's SOCKET (and closesocket, INVALID_SOCKET) is a P2PHandle*. GCC let that
+//  through under -fpermissive; clang refuses it (P2PeerLanAndroid A0).
+#if defined(_WIN32) && !defined(SOCKET)
 #define SOCKET UINT_PTR
 #endif
 class SafeSOCKET
