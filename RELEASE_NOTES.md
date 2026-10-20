@@ -3,6 +3,34 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.4.7
+
+A patch release. The flat C API (103 symbols), every class layout and the wire format are
+unchanged.
+
+### New: an external key protector (`IdProtect_External`)
+
+The identity store can now hand the private-key payload of `identity.key` and
+`agreement.key` to a wrap/unwrap function the host supplies, instead of DPAPI (Windows) or
+plain storage with 0600 permissions (POSIX).
+
+```cpp
+p2pcng::SetExternalProtector(&MyWrap, pCtx);    // once, before the first key is touched
+p2pcng::LoadOrCreateIdentity(path, key, &created, p2pcng::IdProtect_External);
+```
+
+- **What it is for:** P2PeerLan's Android app registers AES-GCM under an Android Keystore
+  key. The plaintext keys exist only in memory, as DPAPI keeps them on Windows.
+- **Threads:** the protector may be called on any thread that loads or saves a key, pump
+  threads included. It must not wait on the UI.
+- **Failures:** with no protector registered, an External save or load fails
+  `IdErrUnsupported` and writes nothing. A protector that refuses (wrong key, tampered blob)
+  gives `IdErrProtect` / `IdErrUnprotect`.
+- **Existing files:** they load exactly as before; the container records the protection.
+
+**Compatibility:** a build older than 3.4.7 refuses a key file with protection 3
+(`IdErrFormat`). Only a host that registers a protector writes one.
+
 ## 3.4.6
 
 A patch release that brings **Android**. The flat C API (103 symbols), every class layout and the

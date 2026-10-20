@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.6 is tag
-//         v3.4.6. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.7 is tag
+//         v3.4.7. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,22 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.7.0, a PATCH on 3.4.6. The covered surface did not move (103 symbols,
+//  abi-flat.manifest unchanged), no class layout moved and nothing on the wire
+//  changed. Added to the C++ surface, which the policy does not cover, as
+//  3.4.3's ConState_AcceptUnnamed was: IdProtect_External (3) and
+//  SetExternalProtector, a host-supplied wrap/unwrap for the private-key
+//  payload of identity.key and agreement.key. P2PeerLan's Android app (A2)
+//  registers AES-GCM under an Android Keystore key, so the plaintext keys exist
+//  only in memory there, as DPAPI keeps them on Windows. Without a protector an
+//  External save or load fails IdErrUnsupported; a refusing one gives
+//  IdErrProtect / IdErrUnprotect. Pinned by StoreSelfTest.
+//  ONE COMPATIBILITY NOTE: the identity container's version byte did not move,
+//  but a 3.4.6-or-older build refuses a file with protection 3 as IdErrFormat.
+//  Only a host that registers a protector writes one, so nothing existing is
+//  affected; an External file is not portable to a build without the protector
+//  anyway, by design.
+//  BELOW IS THE 3.4.6 RATIONALE.
 //  3.4.6.0, a PATCH on 3.4.5. The covered surface did not move (103 symbols,
 //  abi-flat.manifest unchanged), no class layout moved, nothing on the wire
 //  changed, and a Windows build compiles to the same code. It carries ANDROID:
@@ -325,23 +341,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  6
+#define TARGETCORE_VERSION_PATCH  7
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,6,0
+#define TARGETCORE_VERSION_COMMAS 3,4,7,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.6.0"
+#define TARGETCORE_VERSION_STRING "3.4.7.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040600 is 3.4.6.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040700 is 3.4.7.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040600
+#define TARGETCORE_VERSION_HEX    0x03040700
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -357,7 +373,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.6.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.7.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
