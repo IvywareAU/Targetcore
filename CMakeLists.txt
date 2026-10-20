@@ -121,17 +121,19 @@ else()
     endif()
     set(P2P_IO_BACKEND ${_p2p_io_default} CACHE STRING "Linux IOCP shim backend: uring | epoll")
     set_property(CACHE P2P_IO_BACKEND PROPERTY STRINGS uring epoll)
+    # Both paths are spelled out in full: .github/ci/check_repo_invariants.py [3] reads every
+    # set(TARGETCORE_IOCP_SOURCE ...) to pin the sources compiled from outside this repository.
     if(P2P_IO_BACKEND STREQUAL "epoll")
-        set(_p2p_iocp_src p2piocp_epoll.cpp)
+        set(TARGETCORE_IOCP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/p2piocp_epoll.cpp)
     elseif(P2P_IO_BACKEND STREQUAL "uring")
-        set(_p2p_iocp_src p2piocp.cpp)
+        set(TARGETCORE_IOCP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/p2piocp.cpp)
     else()
         message(FATAL_ERROR "P2P_IO_BACKEND must be uring or epoll, not '${P2P_IO_BACKEND}'")
     endif()
     message(STATUS "Targetcore: IOCP shim backend ${P2P_IO_BACKEND}")
     set(TARGETCORE_SOURCES ${TARGETCORE_SOURCES_COMMON}
         P2PCngCrypto_openssl.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/../Msgcore/Platform/${_p2p_iocp_src})
+        ${TARGETCORE_IOCP_SOURCE})
 endif()
 
 add_library(targetcore SHARED ${TARGETCORE_SOURCES})

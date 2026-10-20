@@ -541,7 +541,7 @@ Expected layout — one sibling, a peer of this directory, not a submodule:
 ```text
 <parent>\
 ├── Msgcore\      ← headers + Msgcore.lib / Msgcore.dll
-│   └── Platform\ ← platform.h, mfcshim.h, p2piocp.cpp, p2psvc.h
+│   └── Platform\ ← platform.h, mfcshim.h, p2piocp.cpp, p2piocp_epoll.cpp, p2psvc.h
 └── Targetcore\   ← this repository
 ```
 
@@ -606,7 +606,7 @@ must also sit beside `Targetcore.dll` at run time.
 |------|---------|
 | `CMakeLists.txt:113-115` | include directory `../Msgcore` |
 | `CMakeLists.txt:123` | `target_link_libraries(targetcore PUBLIC msgcore $<BUILD_INTERFACE:p2pplatform>)` — targets the parent solution defines. `p2pplatform` is build-interface only because it contributes no binary and an installed consumer needs none of its headers |
-| `CMakeLists.txt:108` | Linux only: compiles `../Msgcore/Platform/p2piocp.cpp` straight into this library |
+| `CMakeLists.txt:108` | Linux and Android only: compiles one `p2p_iocp_*` backend from `../Msgcore/Platform` straight into this library, chosen by `P2P_IO_BACKEND`: `p2piocp.cpp` (io_uring, the Linux default) or `p2piocp_epoll.cpp` (epoll, the Android default; since 3.4.6) |
 
 ### Windows — Visual Studio (authoritative)
 

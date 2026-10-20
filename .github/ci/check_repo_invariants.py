@@ -86,7 +86,13 @@ DOCUMENTED_VCXPROJ_ONLY = {"stdafx.cpp"}
 # retired and its tree vendored into Msgcore, so the io_uring shim is now reached
 # at ../Msgcore/Platform/p2piocp.cpp. One sibling source, one sibling repository --
 # it is the SAME coupling, spelled through the repository that owns it now.
-EXPECTED_SIBLING_SOURCES = {"../Msgcore/Platform/p2piocp.cpp"}
+#
+# 3.4.6 (Android) made it one of TWO, chosen by P2P_IO_BACKEND: the io_uring shim
+# or the epoll one (p2piocp_epoll.cpp), and a build compiles exactly one. Still one
+# sibling repository and one role -- the p2p_iocp_* hooks -- so the coupling did not
+# widen; the alternatives are read from the set(TARGETCORE_IOCP_SOURCE ...) blocks.
+EXPECTED_SIBLING_SOURCES = {"../Msgcore/Platform/p2piocp.cpp",
+                            "../Msgcore/Platform/p2piocp_epoll.cpp"}
 
 REQUIRED_FILES = [
     "LICENSE",       # Apache-2.0, referenced from Readme.md "License"
@@ -228,6 +234,15 @@ def check_source_parity() -> None:
     common_s = cmake_sources(common)
     win_s = common_s | cmake_sources(win_body)
     lin_s = common_s | cmake_sources(lin_body)
+    # The Linux list names the p2p_iocp_* backend through ${TARGETCORE_IOCP_SOURCE};
+    # every alternative it can take is a set() block of its own.
+    at = 0
+    while True:
+        try:
+            body, at = cmake_set_block(cm, "TARGETCORE_IOCP_SOURCE", at)
+        except LookupError:
+            break
+        lin_s |= cmake_sources(body)
 
     sibling = {s for s in (win_s | lin_s) if "/" in s}
     win_s -= sibling
