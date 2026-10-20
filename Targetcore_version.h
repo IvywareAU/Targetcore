@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.5 is tag
-//         v3.4.5. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.6 is tag
+//         v3.4.6. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,29 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.6.0, a PATCH on 3.4.5. The covered surface did not move (103 symbols,
+//  abi-flat.manifest unchanged), no class layout moved, nothing on the wire
+//  changed, and a Windows build compiles to the same code. It carries ANDROID:
+//  the cores build with the NDK (clang, libc++, bionic; arm64-v8a and x86_64,
+//  API 29+) for P2PeerLan's Android app (P2PeerLanAndroid, phase A0), which runs
+//  them natively.
+//  - P2P_IO_BACKEND (uring|epoll) picks the p2piocp backend; epoll is Msgcore
+//    3.4.1's Platform/p2piocp_epoll.cpp, the default on ANDROID, where seccomp
+//    blocks io_uring for apps. liburing is required only for uring.
+//  - P2PmsgMaps.h: clang rejects the unqualified &Handler the BEGIN_*_MAP macros
+//    wrote, even with -fms-extensions. Off MSVC each map's table now lives in a
+//    static member function that typedefs P2PThisClass, and P2P_MEMFN_ADDR
+//    qualifies with it; none of the 154 map sites changed, and the MSVC
+//    expansion is byte-for-byte what it was. P2PeerTarget.h gives its
+//    hand-written root maps the same typedef.
+//  - P2PIdentityStore: Android's SELinux denies link(), which the exclusive
+//    write used; it falls back to renameat2(RENAME_NOREPLACE) -- atomic, never
+//    overwrites -- and still fsyncs the directory.
+//  - WSA_Ext.h defines SOCKET only under _WIN32.
+//  Box ctest 101/101 (uring) and 100/101 (epoll, a timing flake that passes
+//  alone); Windows 96/96; P2PeerLan's native suite 11/12 on an Android 14
+//  emulator (lan_ctl_test needs an app context for its socket file).
+//  BELOW IS THE 3.4.5 RATIONALE.
 //  3.4.5.0, a PATCH on 3.4.4: a performance change and nothing else. The
 //  covered surface did not move (103 symbols, abi-flat.manifest unchanged), no
 //  class layout moved and nothing on the wire changed. F-L4-2 (P2PeerLan L4):
@@ -302,23 +325,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  5
+#define TARGETCORE_VERSION_PATCH  6
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,5,0
+#define TARGETCORE_VERSION_COMMAS 3,4,6,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.5.0"
+#define TARGETCORE_VERSION_STRING "3.4.6.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040500 is 3.4.5.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040600 is 3.4.6.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040500
+#define TARGETCORE_VERSION_HEX    0x03040600
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -334,7 +357,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.5.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.6.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
