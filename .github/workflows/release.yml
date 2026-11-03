@@ -77,15 +77,20 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
+      # The WORKFLOW's own commit, not the tag's: for a tag push they are the
+      # same, but a hand-run for an older tag must still find
+      # .github/ci/release_notes.py, which did not exist at v3.4.7. Checking out
+      # the tag is how the first hand-run (for v3.4.7) published the tag message
+      # instead of the notes. RELEASE_NOTES.md is read AT THE TAG below.
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
 
-      # actions/checkout leaves an annotated tag as a lightweight ref (the tag
-      # object is not fetched), so its message would read as the commit's.
-      - name: fetch the tag object
-        run: git fetch --force --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+      # The tag object itself (for its message) and the tagged commit (for
+      # RELEASE_NOTES.md as it was when tagged).
+      - name: fetch the tag
+        run: git fetch --force --no-tags --depth=1 origin "refs/tags/${TAG}:refs/tags/${TAG}"
 
       - name: create the release
         run: |
@@ -128,11 +133,17 @@ jobs:
           done
 
           # --- Notes ----------------------------------------------------------
+          tagged_notes="$RUNNER_TEMP/RELEASE_NOTES.at-tag"
+          git show "${TAG}:RELEASE_NOTES.md" > "$tagged_notes" 2>/dev/null || : > "$tagged_notes"
+
+          # 3 = no section for this version (or no file at the tag). Anything
+          # else non-zero -- python3's own 2 for a missing script included --
+          # is a broken job, not a reason to fall back.
           rc=0
-          python3 .github/ci/release_notes.py "$version" RELEASE_NOTES.md > "$notes" || rc=$?
+          python3 .github/ci/release_notes.py "$version" "$tagged_notes" > "$notes" || rc=$?
           if [ "$rc" -eq 0 ]; then
-            echo "Notes: RELEASE_NOTES.md section $version"
-          elif [ "$rc" -eq 2 ]; then
+            echo "Notes: RELEASE_NOTES.md section $version, as of $TAG"
+          elif [ "$rc" -eq 3 ]; then
             git tag -l --format='%(contents)' "$TAG" | sed '/./,$!d' > "$notes"
             if [ ! -s "$notes" ]; then
               echo "::error::RELEASE_NOTES.md has no '## $version' section and $TAG has no message."

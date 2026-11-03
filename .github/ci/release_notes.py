@@ -31,8 +31,11 @@
 #  less a "Build checks" section that was added to the release by hand and is
 #  not in RELEASE_NOTES.md -- a release made here says only what that file says.
 #
-#  Exit status 2 when the file has no section for the version, so the caller
-#  can decide what to fall back to.
+#  Exit status 3 when the file is missing or has no section for the version,
+#  so the caller can decide what to fall back to. Not 2: that is what python3
+#  itself exits with when it cannot open the script, and a release workflow
+#  that read 2 as "no section" once published a tag message instead of failing
+#  because the script was not in the checkout it ran from.
 
 import re
 import sys
@@ -86,10 +89,10 @@ def main(argv):
         with open(path, encoding='utf-8') as f:
             text = f.read().replace('\r\n', '\n')
     except FileNotFoundError:
-        return 2
+        return 3
     body = section(text, version)
     if not body:
-        return 2
+        return 3
     sys.stdout.reconfigure(newline='\n')
     sys.stdout.write(unwrap(body) + '\n')
     return 0
