@@ -1,0 +1,151 @@
+# Copyright © 2026 Khrustal & Mann
+#              MELBOURNE, VICTORIA, AUSTRALIA, 3000
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+#
+# =============================================================================
+# release -- a GitHub release for every pushed version tag.
+#
+# Releases up to 3.4.6 were made by hand, and v3.4.6 and v3.4.7 each sat as a
+# bare tag until someone noticed there was no release. A tag is not a release;
+# this workflow takes that step away. Msgcore has the same workflow.
+#
+# The body:
+#   * The "## X.Y.Z" section of RELEASE_NOTES.md at the tagged commit,
+#     UNWRAPPED by .github/ci/release_notes.py. The file is hard-wrapped for a
+#     terminal; GitHub renders each of those newlines as a <br>, which is how
+#     the hand-made 3.4.6 release came out with breaks mid-sentence.
+#   * If RELEASE_NOTES.md has no section for the version, the annotated tag's
+#     message instead, with a warning. Neither: the job fails.
+#   * Then one line per CI workflow naming the green run for the tagged commit.
+#
+# CI it requires: a SUCCESSFUL run, on the tagged commit, of each of
+#   repo-invariants.yml, solution-build.yml and sanitizers.yml. All three run
+#   on push. One still running is waited for; one missing, failed or cancelled
+#   fails the job and nothing is published. That is stricter than
+#   tools/hooks/pre-push, which gates master on repo-invariants.yml alone --
+#   a release says the build was checked, not only the bookkeeping.
+#
+# What it does NOT do:
+#   * Attach binaries. No release has ever carried assets; the library does not
+#     build standalone (see repo-invariants.yml), so there is nothing to attach.
+#   * Overwrite. If the release already exists (made by hand, or a re-run) the
+#     job says so and stops; edit an existing release with `gh release edit`.
+#
+# To backfill or retry a tag, run it by hand (workflow_dispatch) with the tag.
+# =============================================================================
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v3.4.7"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: create release
+    # Pinned, as in the other workflows.
+    runs-on: ubuntu-24.04
+    # Long enough to wait out a solution-build or sanitizers run still going
+    # when the tag lands (each takes ~12 minutes).
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 1
+
+      # actions/checkout leaves an annotated tag as a lightweight ref (the tag
+      # object is not fetched), so its message would read as the commit's.
+      - name: fetch the tag object
+        run: git fetch --force --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+
+      - name: create the release
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::A release for $TAG already exists; nothing to do."
+            exit 0
+          fi
+
+          version="${TAG#v}"
+          sha="$(git rev-parse "${TAG}^{commit}")"
+          notes="$RUNNER_TEMP/notes.txt"
+          runs="$RUNNER_TEMP/runs.txt"
+          : > "$runs"
+
+          # --- CI: every workflow green on this exact commit ------------------
+          for wf in repo-invariants.yml solution-build.yml sanitizers.yml; do
+            id="$(gh run list --workflow "$wf" --commit "$sha" --event push \
+                    --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -z "$id" ]; then
+              echo "::error::No $wf run for $TAG ($sha). Push that commit, let CI finish, then re-run this workflow for $TAG."
+              exit 1
+            fi
+            if [ "$(gh run view "$id" --json status --jq .status)" != "completed" ]; then
+              echo "Waiting for $wf run $id ..."
+              gh run watch "$id" --interval 30 >/dev/null || true
+            fi
+            read -r conclusion name < <(gh run view "$id" --json conclusion,workflowName \
+                                          --jq '"\(.conclusion) \(.workflowName)"')
+            if [ "$conclusion" != "success" ]; then
+              echo "::error::$wf run $id for $TAG finished as '$conclusion'; not publishing."
+              exit 1
+            fi
+            # Display names carry a parenthetical ("repo invariants (standalone,
+            # ...)"); the release line keeps the part before it.
+            printf -- '- %s: %s/%s/actions/runs/%s\n' "${name%% (*}" \
+                   "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$id" >> "$runs"
+            echo "CI ok: $wf run $id"
+          done
+
+          # --- Notes ----------------------------------------------------------
+          rc=0
+          python3 .github/ci/release_notes.py "$version" RELEASE_NOTES.md > "$notes" || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "Notes: RELEASE_NOTES.md section $version"
+          elif [ "$rc" -eq 2 ]; then
+            git tag -l --format='%(contents)' "$TAG" | sed '/./,$!d' > "$notes"
+            if [ ! -s "$notes" ]; then
+              echo "::error::RELEASE_NOTES.md has no '## $version' section and $TAG has no message."
+              exit 1
+            fi
+            echo "::warning::RELEASE_NOTES.md has no '## $version' section; using the tag message."
+          else
+            exit "$rc"
+          fi
+
+          { printf '\nCI runs:\n'; cat "$runs"; } >> "$notes"
+
+          args=(--title "Targetcore $version" --verify-tag --notes-file "$notes")
+          case "$version" in *-*) args+=(--prerelease) ;; esac
+
+          gh release create "$TAG" "${args[@]}"
