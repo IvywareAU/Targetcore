@@ -42,15 +42,18 @@
 #  refusal paths, and CMakeLists.txt generates. 26 of the 30 translation units
 #  are not even parsed, and the authoritative .vcxproj build is never invoked.
 #
-#  solution-build.yml is deliberately NOT the gate here. It is the workflow that
-#  would really verify the build contract, and it is workflow_dispatch-only
-#  because the siblings it needs are not in this repository -- so it can never
-#  produce a run for an arbitrary pushed SHA, and gating on it would refuse
-#  every push forever.
+#  solution-build.yml and sanitizers.yml are NOT the gate here, though they are
+#  what really verifies the build. This comment used to say solution-build was
+#  workflow_dispatch-only and so could never produce a run for a pushed SHA;
+#  that stopped being true -- both now run on every push, checking out the
+#  siblings they need -- and the gate was never widened to match. They take
+#  ~12 minutes where repo-invariants takes seconds, and pushing master only
+#  after all three would need this hook to wait for them; it does not.
 #
-#  So this hook enforces "the checks that exist were run and passed on this
-#  exact SHA". That is worth having and it is not the same thing as "this commit
-#  builds".
+#  So this hook enforces "repo-invariants passed on this exact SHA". That is
+#  worth having and it is not the same thing as "this commit builds". The
+#  release workflow is stricter: .github/workflows/release.yml publishes a tag
+#  only when all three workflows passed on the tagged commit.
 #
 #  WHAT IT ENFORCES, on refs/heads/master only. Other branches push freely --
 #  that is the point, since a branch push is what gets CI to run in the first
