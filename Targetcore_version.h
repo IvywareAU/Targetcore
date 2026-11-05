@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.7 is tag
-//         v3.4.7. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.8 is tag
+//         v3.4.8. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,31 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.8.0, a PATCH on 3.4.7. The covered surface did not move (103 symbols,
+//  abi-flat.manifest unchanged), no class layout moved and nothing on the wire
+//  changed. Added to the C++ surface, which the policy does not cover, as
+//  3.4.3's ConState_AcceptUnnamed was: the state bits ConState_LoginHold and
+//  ConState_LoginParked, and four non-virtual P2PeerCon members -
+//  ParkForLogin, ReleaseLoginHold, PostHandshakeP2PeerMsg and
+//  GetSendableP2PeerMsg. Bits, not members, so the exported layout is the same.
+//  It fixes the login handshake, in two halves. SEND: a CLIENT connection sent
+//  application messages queued while its link was down or still dialling
+//  ahead of the Login that opens it - the send path took them as soon as the
+//  transport connected, before the connect handler called Login(), and on a
+//  restarted link even before OnConnect() - so the far end refused them
+//  ("Application message received before login") and dropped the link, and
+//  every redial met the same queue. Now a CLIENT sends handshake messages only
+//  until ConState_Login, and Login/LoginAck go to the front of the queue.
+//  RECEIVE: the loop posted a Login/LoginAck to the pump and read straight on,
+//  so a message behind it in the same completion met GateAppMsgInbound()
+//  before OnLogin()/OnLoginAck() set the state it tests. Now the loop parks
+//  until the pump has applied the login; a refused login drops the connection
+//  with that message unread. Found by P2PeerLan's lan_join_test (an in-process
+//  Dmx link that failed nearly every Release run, 0 of 20 after).
+//  ONE BEHAVIOUR NOTE: a CLIENT whose peer never answers its Login now keeps
+//  its application messages queued instead of sending them to be refused.
+//  Every connect handler in these repositories logs in.
+//  BELOW IS THE 3.4.7 RATIONALE.
 //  3.4.7.0, a PATCH on 3.4.6. The covered surface did not move (103 symbols,
 //  abi-flat.manifest unchanged), no class layout moved and nothing on the wire
 //  changed. Added to the C++ surface, which the policy does not cover, as
@@ -341,23 +366,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  7
+#define TARGETCORE_VERSION_PATCH  8
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,7,0
+#define TARGETCORE_VERSION_COMMAS 3,4,8,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.7.0"
+#define TARGETCORE_VERSION_STRING "3.4.8.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040700 is 3.4.7.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040800 is 3.4.8.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040700
+#define TARGETCORE_VERSION_HEX    0x03040800
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -373,7 +398,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.7.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.8.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

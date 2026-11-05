@@ -359,6 +359,26 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
       // received anything.  Signal(P2PsigCon_RECV) routes here
       void
         RearmRecv ( );
+      // The receive loop's half of the login hold: true, and the connection
+      // marked parked, when a hold is in place; false otherwise
+      bool
+        ParkForLogin ( );
+      // Ends the login hold (ConState_LoginHold) and re-arms the read it
+      // withheld, if the loop had parked.  Called wherever ConState_Login is
+      // set; a no-op when no hold is in place
+      void
+        ReleaseLoginHold ( );
+      // Queues a handshake message (Login, LoginAck) AHEAD of any application
+      // message already waiting, behind any handshake already queued.  Refer
+      // its definition for the failure it exists for
+      void
+        PostHandshakeP2PeerMsg ( P2PeerMsg *pMsg );
+      // The send path's dequeue: GetP2PeerMsg(), except that a CLIENT
+      // connection sends only handshake messages until its login completes
+      // (ConState_Login).  bHeld says application messages wait on the
+      // login - not idle
+      P2PeerMsg*
+        GetSendableP2PeerMsg ( bool& bHeld );
       // Does a transport read that COMPLETES WITH ZERO BYTES on this
       // connection mean the peer closed?  On a socket it does - that is FIN,
       // and it is the only notification of an orderly close a stream socket
@@ -1025,6 +1045,21 @@ const DWORD ConState_CloseOnIdle = (1<<6);
 //         nothing has to clear it afterwards outside ThatAddrLock (3.4.3)
 //       : Not carried to the child. A child accepts nothing
 const DWORD ConState_AcceptUnnamed = (1<<7);
+//  The login hold, two bits and one owner of the re-arm at any instant.
+//    ConState_LoginHold    set by the receive loop just BEFORE it posts a
+//                          Login or LoginAck to the pump: "the pump owes this
+//                          connection a login"
+//    ConState_LoginParked  the loop saw the hold still set and stopped
+//                          reading (ParkForLogin): "and nobody is reading"
+//  ReleaseLoginHold(), on the pump once ConState_Login is set, clears both and
+//  re-arms the read ONLY when it was parked - if the loop had not stopped yet
+//  it is still running and simply carries on.  Two bits because one cannot
+//  tell those cases apart, and re-arming a read the loop is still inside puts
+//  a second completion on the same OVERLAPPED (measured: 0xC0000409 on TCP
+//  links, where the pump is another thread).  Drop() clears both.  State bits
+//  rather than members so the exported class layout is unchanged
+const DWORD ConState_LoginHold     = (1<<8);
+const DWORD ConState_LoginParked   = (1<<9);
 
 const DWORD ConBCasts_OK  = ( ConState_Send
                             | ConState_Login

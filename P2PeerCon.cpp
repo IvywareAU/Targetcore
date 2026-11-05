@@ -638,7 +638,22 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
         //  any connection that had ever received a message.
         P2PeerMsg *pMsg;
         pOVERLAPPEDcon -> dwBytes += dwBytes;
-        while ( !HoldRecvForBackpressure ( )  &&
+        //  LOGIN HOLD, the same "do not ask" as backpressure and FIRST in the
+        //  condition.  A Login or LoginAck taken off below is POSTED, so the
+        //  pump applies it later - OnLogin()/OnLoginAck() set ConState_Login -
+        //  while this loop would carry straight on to the next message and
+        //  hand it to GateAppMsgInbound(), which tests that very state.  A
+        //  peer's first message behind its Login (a dialer does not wait for
+        //  the LoginAck before writing), or the acceptor's behind its
+        //  LoginAck, was refused as "received before login" and the link
+        //  dropped: measured on in-process Dmx links in Release, where both
+        //  messages are ready in one completion every time.  Withholding the
+        //  read keeps the order and keeps the gate exact - nothing is admitted
+        //  early, and a login the pump REFUSES drops the connection with the
+        //  next message still unread.  ParkForLogin() stops it and ReleaseLoginHold()
+        //  resumes it.
+        while ( !ParkForLogin ( )             &&
+                !HoldRecvForBackpressure ( )  &&
                 (pMsg=m_pP2Peerio
                     ->RecvP2PeerMsg(m_hFile,pOVERLAPPEDcon)) != NULL )
         {
@@ -671,10 +686,14 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
             delete pMsg;
             continue;
           }
+          //  The hold is taken BEFORE the post, never after: were the pump to
+          //  apply the login first, a hold set afterwards would have nothing
+          //  left to release it
           else if (  pMsg->Map_MatchName(P2Pmsg_Login) &&
                     !pMsg->GetSource()                    )
           {
             AuthGateInbound ( pMsg, false );
+            SetState ( ConState_LoginHold, 0 );
             PostP2Pmsg ( m_oThatP2Paddr, CN_P2PeerCon, P2P_Login
                        , this, pMsg, m_hCPortP2PumpID ); //was 0
           }
@@ -682,12 +701,14 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
                     pMsg->GetSource()                       )
           {
             AuthGateInbound ( pMsg, false );
+            SetState ( ConState_LoginHold, 0 );
             PostP2Pmsg ( pMsg->GetSource(), CN_P2PeerCon, P2P_Login
                        , this, pMsg, m_hCPortP2PumpID ); //was 0
           }
           else if ( pMsg->Map_MatchName(P2Pmsg_LoginAck) )
           {
             AuthGateInbound ( pMsg, true );
+            SetState ( ConState_LoginHold, 0 );
             PostP2Pmsg ( m_oThatP2Paddr, CN_P2PeerCon, P2P_LoginAck
                        , this, pMsg, m_hCPortP2PumpID ); // was 0
           }
@@ -767,9 +788,12 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           m_pP2PeerMsgSend = 0;
         }
         // Fetch next message
+        // NOTES: Handshake only while this connection's own Login is
+        //        unanswered - refer GetSendableP2PeerMsg
+        bool bHeldForLogin = false;
         if ( m_pP2PeerMsgSend == NULL )
         {
-          m_pP2PeerMsgSend = GetP2PeerMsg ( );
+          m_pP2PeerMsgSend = GetSendableP2PeerMsg ( bHeldForLogin );
           // Interface mapping
           // NOTES: Mandatory
           if ( m_eP2PeerIDmap   &&
@@ -846,10 +870,12 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
          }
 
         // May become idle here
+        // NOTES: Not idle when application messages wait on the login:
+        //        ReleaseLoginHold() wakes this path again
         if ( m_pP2PeerMsgSend )
           m_pP2Peerio -> SendP2PeerMsg ( m_hFile, m_pP2PeerMsgSend
                                        , pOVERLAPPEDcon );
-        else if ( HasState ( ConState_CloseOnIdle ) )
+        else if ( !bHeldForLogin && HasState ( ConState_CloseOnIdle ) )
           Drop ( 0 );
       }
 
@@ -1485,6 +1511,80 @@ P2PeerCon::RearmRecv ( )
 }
 
 //
+//  The receive loop's half of the login hold
+//  NOTES: Asked at the top of every pass of the receive loop.  With no hold it
+//         answers false and the loop reads on.  With one it trades
+//         ConState_LoginHold for ConState_LoginParked in ONE compare-exchange
+//         and answers true: the loop stops, and from that instant the re-arm
+//         belongs to ReleaseLoginHold().  Had the pump released the hold
+//         first, the exchange finds no hold and the loop simply reads on -
+//         nobody re-arms, because nobody stopped
+//
+//  Returns:     bool
+//                 true... Parked: stop reading, the release will re-arm
+//                 false.. No hold: carry on reading
+bool
+P2PeerCon::ParkForLogin ( )
+{
+    DWORD dwOld = m_dwState.load ( );
+    for ( ;; )
+    {
+      if ( !( dwOld & ConState_LoginHold ) )
+        return false;
+      const DWORD dwNew = ( dwOld & ~ConState_LoginHold ) | ConState_LoginParked;
+      if ( m_dwState.compare_exchange_weak ( dwOld, dwNew ) )
+        return true;
+    }
+}
+
+//
+//  Ends the login hold and resumes receipt
+//  NOTES: The other half of ParkForLogin().  Called immediately after every
+//         SetState(ConState_Login) - OnLogin(), LoginAck(), OnLoginAck() and
+//         its _Static/_Fractal forms - so the next message read off this
+//         connection meets a gate whose state is already set
+//       : Clears BOTH bits in one compare-exchange and re-arms only if the
+//         loop had PARKED.  If it had not, the loop is still running - on
+//         another thread whenever the pump is not the completion thread, as on
+//         TCP - and re-arming would hand a second completion for the same
+//         OVERLAPPED to the port while the loop is still inside it (measured:
+//         0xC0000409 in lan_join_test section 2).  With the hold gone the
+//         running loop just reads on
+//       : Runs on this connection's pump, as RearmRecv() does from the
+//         backpressure poll.  A no-op without a hold: a login applied on the
+//         P2PsigCon_MSG injection path, or a re-login, took none
+//
+void
+P2PeerCon::ReleaseLoginHold ( )
+{
+    // Send half: the login is complete, so application messages held by
+    // GetSendableP2PeerMsg may leave.  Wake the send path if it went idle on
+    // them - the same wake-up, under the same lock, as PostP2PeerMsg().  A
+    // no-op on a connection with nothing queued or a send in flight
+    {
+      P2PsafeCS oSafeCS = m_oCSectMsgQue;
+      if ( m_oCListMsgQue.GetCount() > 0 &&
+           m_pP2PeerMsgSend == 0         &&
+           m_pOVERLAPPEDsend             &&
+          !m_pOVERLAPPEDsend->bQueued       )
+        PostOVERLAPPED ( m_pOVERLAPPEDsend );
+    }
+
+    // Receive half
+    const DWORD dwBits = ConState_LoginHold | ConState_LoginParked;
+    DWORD dwOld = m_dwState.load ( );
+    for ( ;; )
+    {
+      if ( !( dwOld & dwBits ) )
+        return;
+      if ( m_dwState.compare_exchange_weak ( dwOld, dwOld & ~dwBits ) )
+        break;
+    }
+    if ( dwOld & ConState_LoginParked )
+      RearmRecv ( );
+}
+
+//
 //  Asynchronously signals this connection
 //  NOTES: Provides facility by which P2PeerCon objects may be
 //         controlled other than P2PeerCon_MAP handlers
@@ -1853,6 +1953,12 @@ P2PeerCon::Drop ( P2Pevent *pEVENT )
     // State
     SetState ( 0, ON_ConClose );
 
+    // Login hold
+    // NOTES: ON_ConClose clears ConState_Login, so a hold still in place here
+    //        belongs to a login that will never be applied.  A connection that
+    //        is Restart()ed must start reading, not inherit the hold
+    SetState ( 0, ConState_LoginHold | ConState_LoginParked );
+
     // Restart timers
     if ( m_uRestartTimerID > 0 )
       KillP2PmsgTimer ( m_uRestartTimerID );
@@ -1984,6 +2090,121 @@ P2PeerCon::PostP2PeerMsg ( P2PeerMsg *pMsg )
 
     // Tidy up and
     return (P2PeerMsg *)0;
+}
+
+//  Handshake traffic: the messages a connection exchanges to log in and agree
+//  keys, as opposed to application traffic.  The same five names the outbound
+//  seal/attest and VNet paths exempt
+static bool
+IsHandshakeP2PeerMsg ( P2PeerMsg *pMsg )
+{
+    return pMsg->Map_MatchName ( P2Pmsg_Login    ) ||
+           pMsg->Map_MatchName ( P2Pmsg_LoginAck ) ||
+           pMsg->Map_MatchName ( P2Pmsg_KeyX     ) ||
+           pMsg->Map_MatchName ( P2Pmsg_KeyXAck  ) ||
+           pMsg->Map_MatchName ( P2Pmsg_CypherEx );
+}
+
+//
+//  Queues a handshake message ahead of waiting application traffic
+//  NOTES: Login() and LoginAck() posted through PostP2PeerMsg(), which APPENDS
+//         at the message's priority - and a connection queues application
+//         messages from the moment it exists, long before it is connected
+//         ("Posted messages are pended until connection is completed").  So
+//         anything posted while a link was down or still dialling left BEFORE
+//         the Login that opens it.  The far end's gate refuses an application
+//         message ahead of a login and drops the link; the link redials; the
+//         sender has queued again meanwhile; the next Login lands behind that
+//         too.  Measured: lan_join_test (P2PeerLan, Release), an in-process
+//         Dmx link from Lan.JB.Sample.Talk whose SampleSay went out ahead of
+//         its P2PmsgLogin on every redial for ten seconds - the transport
+//         trace showed dmx-send SampleSay, then dmx-send P2PmsgLogin.  Debug
+//         only passed because the link happened to be up first
+//       : FRONT of the queue, but BEHIND any handshake already queued, so two
+//         handshake messages keep the order they were posted in
+//       : Same lock, same wake-up as PostP2PeerMsg().  Not a priority: a
+//         priority would be on the wire, and would reorder against every
+//         application message that also uses one
+//
+void
+P2PeerCon::PostHandshakeP2PeerMsg ( P2PeerMsg *pMsg )
+{
+    if ( g_bP2Pmsg_AssertValid )
+      pMsg -> AssertValid ( );
+    P2PsafeCS oSafeCS = m_oCSectMsgQue;
+    ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
+
+    // After the last handshake at the head, before everything else
+    POSITION posAfter = 0;
+    POSITION pos      = m_oCListMsgQue.GetHeadPosition ( );
+    while ( pos )
+    {
+      POSITION posThis = pos;
+      if ( !IsHandshakeP2PeerMsg ( m_oCListMsgQue.GetNext ( pos ) ) )
+        break;
+      posAfter = posThis;
+    }
+    if ( posAfter )
+      m_oCListMsgQue.InsertAfter ( posAfter, pMsg );
+    else
+      m_oCListMsgQue.AddHead ( pMsg );
+
+    // Wakeup
+    // NOTES: As PostP2PeerMsg()
+    if ( m_pP2PeerMsgSend == 0      &&
+         m_pOVERLAPPEDsend          &&
+        !m_pOVERLAPPEDsend->bQueued    )
+      PostOVERLAPPED ( m_pOVERLAPPEDsend );
+}
+
+//
+//  The send path's dequeue
+//  NOTES: Front-of-queue for the Login (PostHandshakeP2PeerMsg) was not enough
+//         on its own, and the trace said why: the transport connects, the send
+//         path wakes and takes the application message that was already
+//         waiting, and only THEN does the pump's connect handler call Login()
+//         - on a restarted connection the send path can even run before
+//         OnConnect(), since the rendezvous wires the peer and the send buffer
+//         survives the restart.
+//         So a CLIENT connection sends only handshake messages until its login
+//         is complete (ConState_Login, set by OnLoginAck); application
+//         messages stay queued, in order, and ReleaseLoginHold() wakes the
+//         send path when the login completes
+//       : The FIRST handshake in the queue, not only the head: a KeyX posted
+//         through PostP2PeerMsg() lands behind waiting application messages
+//         and must still be able to leave
+//       : bHeld tells the caller the queue is waiting on the login rather than
+//         empty, so ConState_CloseOnIdle does not read it as idle
+//
+//  Parameters:  bool& bHeld
+//               Set true when application messages are queued and withheld
+//
+//  Returns:     P2PeerMsg*
+//               Message to transmit.  0 when there is none to send now
+//
+P2PeerMsg*
+P2PeerCon::GetSendableP2PeerMsg ( bool& bHeld )
+{
+    bHeld = false;
+    P2PsafeCS oSafeCS = m_oCSectMsgQue;
+    if ( m_oCListMsgQue.GetCount() <= 0 )
+      return 0;
+    if ( m_eP2PeerConMode != P2PeerCon_CLIENT || HasState ( ConState_Login ) )
+      return m_oCListMsgQue.RemoveHead();
+
+    POSITION pos = m_oCListMsgQue.GetHeadPosition ( );
+    while ( pos )
+    {
+      POSITION posThis = pos;
+      P2PeerMsg *pMsg = m_oCListMsgQue.GetNext ( pos );
+      if ( IsHandshakeP2PeerMsg ( pMsg ) )
+      {
+        m_oCListMsgQue.RemoveAt ( posThis );
+        return pMsg;
+      }
+    }
+    bHeld = true;
+    return 0;
 }
 //
 //  Fetches the next highest priority message from P2PeerMsg queue.
@@ -4270,7 +4491,7 @@ P2PeerCon::LoginSend ( const void *pvLoginMsg, P2Psize_t iSize )
     P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
                                       , P2Pmsg_Login
                                       , pvSendMsg, iSendSize );
-    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
+    PostHandshakeP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and
@@ -4335,7 +4556,7 @@ P2PeerCon::Login_Fractal ( P2PaddrSTR strThisP2Paddr1, P2PaddrSTR strThatP2Paddr
     P2PeerMsgSP spMsg = new P2PeerMsg ( GetP2PaddrHub(), m_oThatP2Paddr
                                       , P2Pmsg_Login
                                       , pvLoginMsg, iSize );
-    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
+    PostHandshakeP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and
@@ -4423,6 +4644,7 @@ P2PeerCon::OnLogin ( const P2Paddr& oThatP2Paddr )
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
+    ReleaseLoginHold ( );
     return;
 }
 
@@ -4586,11 +4808,12 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
                                       , m_oThatP2Paddr.c_wstr()
                                       , P2Pmsg_LoginAck
                                       , pvSendAck, iSendSize );
-    PostP2PeerMsg ( spMsg.p_SafePtr ( ) );
+    PostHandshakeP2PeerMsg ( spMsg.p_SafePtr ( ) );
     spMsg.Dereference ( );
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
+    ReleaseLoginHold ( );
     return bResult;
 }
 
@@ -4681,6 +4904,7 @@ P2PeerCon::OnLoginAck ( const P2Paddr& oThisP2Paddr
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
+    ReleaseLoginHold ( );
 }
 
 //
@@ -4762,6 +4986,7 @@ P2PeerCon::OnLoginAck_Static ( const P2Paddr& oThisP2Paddr1
 
     // Default attributes
     SetState ( ConState_Login, 0 );
+    ReleaseLoginHold ( );
 }
 
 //
@@ -4843,6 +5068,7 @@ P2PeerCon::OnLoginAck_Fractal ( const P2Paddr& oThisP2Paddr1
 
     // Default attributes
     SetState ( ConState_Login, 0 );
+    ReleaseLoginHold ( );
 }
 
 //

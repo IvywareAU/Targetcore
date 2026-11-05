@@ -3,6 +3,32 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.4.8
+
+A patch release: a fix to the login handshake. The flat C API, every class layout and the wire format are
+unchanged; `P2PeerCon` gains four non-virtual members (`ParkForLogin`, `ReleaseLoginHold`,
+`PostHandshakeP2PeerMsg`, `GetSendableP2PeerMsg`) and the state bits `ConState_LoginHold` and
+`ConState_LoginParked`.
+
+- **A dialling connection no longer sends application messages ahead of its login.** Messages
+  posted while a link was down or still connecting used to leave before the `Login` that opens
+  it — on a restarted link the send path could even run before `OnConnect()` — and the far end
+  refused them ("Application message received before login") and dropped the link. The next
+  dial met the same queue, so a hub that kept posting never got through. A `CLIENT` connection
+  now sends handshake messages only (`Login`, key agreement) until its login completes, and
+  `Login`/`LoginAck` go to the front of the queue. Found by P2PeerLan's `lan_join_test`, whose
+  in-process Dmx link from an app's `Talk` hub failed nearly every Release run.
+- **A message right behind a `Login` or `LoginAck` is no longer gated before that login is
+  applied.** The receive loop posts the handshake to the pump and used to read straight on, so
+  when both arrived in one completion the next message met `GateAppMsgInbound()` before
+  `OnLogin()`/`OnLoginAck()` had set `ConState_Login`. The loop now stops reading until the
+  pump has applied the login, then resumes — order kept, nothing admitted early, and a login
+  the pump refuses drops the connection with the next message still unread.
+
+**Behaviour change:** a `CLIENT` connection whose peer never answers its `Login` now keeps its
+application messages queued instead of sending them to be refused. Every connect handler in
+these repositories logs in (`P2PeerTarget::On_ConConnect`, `PeerFsMesh`).
+
 ## 3.4.7
 
 A patch release. The flat C API (103 symbols), every class layout and the wire format are

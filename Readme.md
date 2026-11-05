@@ -821,7 +821,7 @@ The item and index names, and the limits, are copied from TargetFacade's
 
 ### Reporting the version
 
-The current release is **3.4.7** (tag `v3.4.7`); what changed in each release from 3.4.6 on is
+The current release is **3.4.8** (tag `v3.4.8`); what changed in each release from 3.4.6 on is
 in [RELEASE_NOTES.md](RELEASE_NOTES.md), and what the number *promises* is written down. The
 short form is that
 the flat C ABI — 103 symbols, enumerated and gated — is the covered surface, the C++ classes
@@ -869,7 +869,7 @@ P3PmsgItem oHub = hub.Serialise(0);      // the {P2PeerHub} node
 wprintf(L"hub is running Targetcore %s (0x%08X)\n",
         oHub.SelectItem(_N("Version")).r_data().c_wstr(),
         oHub.SelectItem(_N("VersionHex")).r_data().c_uint());
-// hub is running Targetcore 3.4.7.0 (0x03040700)
+// hub is running Targetcore 3.4.8.0 (0x03040800)
 ```
 
 `Version` is for display, `VersionHex` packs `MAJOR,MINOR,PATCH,BUILD` for comparison.
@@ -879,7 +879,7 @@ replies, anything that already carries hub state now carries its version too.
 The shipped binary also answers without being run — the resource is on the file itself:
 
 ```powershell
-(Get-Item Targetcore.dll).VersionInfo.FileVersion   # 3.4.7.0
+(Get-Item Targetcore.dll).VersionInfo.FileVersion   # 3.4.8.0
 ```
 
 > **This is a build identity, not a wire version.** Whether two hubs can talk is decided
