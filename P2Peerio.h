@@ -328,6 +328,34 @@ class Targetcore_EXT P2Peerio
       bool
         IsEncrypted ( );
 
+    // Frame size limit (F-P0-15)
+    // NOTES: Until 2026-11-19 nothing read m_dwMaxSendSize: an oversized frame
+    //        went out, the far end's RecvP2PeerMsg refused it against its
+    //        m_dwMaxRecvSize and DROPPED THE CONNECTION, and the sender was told
+    //        nothing at all.  This class's SendP2PeerMsg now measures the frame
+    //        it is about to write and, over the limit, writes NOTHING and
+    //        returns kSendRefusedFrame; P2PeerCon refuses the message and keeps
+    //        the link
+    //      : IN SendP2PeerMsg, NOT BESIDE IT, and that is the design rather
+    //        than a convenience.  The limit is a property of THIS framing - the
+    //        image plus the cypher's growth.  An override that frames its own
+    //        bytes (P2PeerioDmx's pointer handoff, P2PeerioBSTR's length prefix,
+    //        P2PeerWeb's WebIoHttp writing HTTP) never reaches the check, so it
+    //        cannot be refused against a limit that does not describe it.  A
+    //        first version asked a virtual from P2PeerCon instead, and it
+    //        refused P2PeerWeb's 34 KB HTTP responses (p2pweb_w12): an
+    //        out-of-tree override cannot know to opt out
+    //      : MEASURED BEFORE THE CYPHER RUNS.  A link cypher that numbers its
+    //        nonces would be desynchronised by a frame encrypted and not sent
+    //      : All non-virtual, so no vtable slot moves
+    public:
+      static const DWORD kSendRefusedFrame = 0xE00F0015;   // not a Win32 code
+      DWORD
+        MeasureSendFrame ( P2PeerMsg *pMsg );
+    private:
+      DWORD
+        FrameSizeOf ( P2PeerMsg *pMsg, const P2Piomage *pImage );
+
     // Attributes
     private:
       P2PeerioCrypto      *m_pP2Pcrypto;

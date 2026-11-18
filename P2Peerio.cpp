@@ -217,6 +217,20 @@ P2Peerio::SendP2PeerMsg ( HANDLE hFile
     pSendP2Piomage = pMsg -> P2Piomage ( );
      //nSendIOmageSize = pMsg -> IOmageSize ( );
 
+    // Frame size limit (F-P0-15)
+    // NOTES: BEFORE the cypher, and before the sealing decision is minted.  A
+    //        frame over m_dwMaxSendSize is refused by the far end's
+    //        RecvP2PeerMsg by dropping the connection, so it is not written:
+    //        nothing leaves, nothing is encrypted, and the caller is told by a
+    //        return code it can tell apart from success.  P2PeerCon refuses
+    //        the MESSAGE, reports it to its source and sends the next one.
+    //        Refer kSendRefusedFrame for why the check lives here
+    if ( FrameSizeOf ( pMsg, pSendP2Piomage ) > m_dwMaxSendSize )
+    {
+      pMsg -> ReleaseP2Piomage ( );
+      return kSendRefusedFrame;
+    }
+
     // Encryption
     // NOTES: Last immediate action before buffer transmission.  Encryption 
     //        logic is intended to be fully self contained.  With function call
@@ -1292,8 +1306,63 @@ P2Peerio::SetMaxSendSize ( DWORD dwMaxSendSize )
 
 DWORD
 P2Peerio::GetMaxSendSize ( ) const
-{   
+{
     return m_dwMaxSendSize;
+}
+
+//
+//  The size of the frame SendP2PeerMsg would write for a prepared image
+//  NOTES: F-P0-15, refer the declaration.  Mirrors the size arithmetic of
+//         EncryptP2PiomageSwap without running it: the plain frame is
+//         P2Piomage_Sizeof, and a cyphered frame is the cypher's SealedSize of
+//         the payload plus the header, exactly as EncryptP2PiomageSwap stamps
+//         it.  The KeyX pair is never encrypted there, so it is not grown here
+//
+DWORD
+P2Peerio::FrameSizeOf ( P2PeerMsg *pMsg, const P2Piomage *pImage )
+{
+    if ( !pImage )
+      return 0;
+    DWORD dwFrame = (DWORD)P2Piomage_Sizeof ( pImage );
+    if ( m_pP2Pcrypto                        &&
+         !pMsg->Map_MatchName(P2Pmsg_KeyX)   &&
+         !pMsg->Map_MatchName(P2Pmsg_KeyXAck)   )
+    {
+      const UINT nPlain  = IOmage_Sizeof ( pImage );
+      const UINT nSealed = m_pP2Pcrypto -> SealedSize ( nPlain );
+      if ( nSealed >= nPlain )
+        dwFrame = (DWORD)( nSealed + sizeof(P2Piomage) - 1 );
+    }
+    return dwFrame;
+}
+
+//
+//  The frame size of an unprepared message, for a diagnostic
+//  NOTES: Prepares, measures and releases.  Called by P2PeerCon only after
+//         SendP2PeerMsg has returned kSendRefusedFrame, to say how big the
+//         refused frame was - so it costs nothing on the path that sends
+//       : The image is released on every path, a throw included:
+//         PrepareP2Piomage ASSERTs that no image is outstanding
+//
+DWORD
+P2Peerio::MeasureSendFrame ( P2PeerMsg *pMsg )
+{
+    if ( !pMsg )
+      return 0;
+    DWORD dwFrame = 0;
+    pMsg -> ReleaseP2Piomage ( );
+    pMsg -> PrepareP2Piomage ( GetIFmask() );
+    try
+    {
+      dwFrame = FrameSizeOf ( pMsg, pMsg -> P2Piomage ( ) );
+    }
+    catch ( ... )
+    {
+      pMsg -> ReleaseP2Piomage ( );
+      throw;
+    }
+    pMsg -> ReleaseP2Piomage ( );
+    return dwFrame;
 }
 
 bool

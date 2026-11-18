@@ -790,10 +790,20 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
         // Fetch next message
         // NOTES: Handshake only while this connection's own Login is
         //        unanswered - refer GetSendableP2PeerMsg
+        //      : A LOOP, since 2026-11-19 (F-P0-15).  Three steps below can
+        //        refuse the message they were handed - the VNet rewrite, the
+        //        seal and the frame-size check - and each used to leave this
+        //        connection IDLE with the rest of its queue still waiting: the
+        //        send buffer had just been released and nothing re-posted it,
+        //        so the next message went out only when some later post woke
+        //        the path.  Each pass removes one message from the queue, so
+        //        the loop ends
         bool bHeldForLogin = false;
-        if ( m_pP2PeerMsgSend == NULL )
+        while ( m_pP2PeerMsgSend == NULL )
         {
           m_pP2PeerMsgSend = GetSendableP2PeerMsg ( bHeldForLogin );
+          if ( m_pP2PeerMsgSend == NULL )
+            break;
           // Interface mapping
           // NOTES: Mandatory
           if ( m_eP2PeerIDmap   &&
@@ -867,15 +877,34 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        Refer AttestAppMsgOutbound
           if ( !bVNetMount && m_pP2PeerMsgSend )
             AttestAppMsgOutbound ( m_pP2PeerMsgSend );
+
+          // Frame size (F-P0-15)
+          // NOTES: Checked by the transport, inside SendP2PeerMsg below, after
+          //        the seal and the attestation have set the final size.  Over
+          //        the limit it writes nothing and returns kSendRefusedFrame;
+          //        the MESSAGE is then refused and reported here and the next
+          //        one taken.  Refer P2Peerio::kSendRefusedFrame
+          if ( m_pP2PeerMsgSend &&
+               m_pP2Peerio -> SendP2PeerMsg ( m_hFile, m_pP2PeerMsgSend
+                                            , pOVERLAPPEDcon )
+                 == P2Peerio::kSendRefusedFrame )
+          {
+            RefuseOversizedOutbound ( m_pP2PeerMsgSend
+                                    , m_pP2Peerio -> MeasureSendFrame
+                                                       ( m_pP2PeerMsgSend ) );
+            delete m_pP2PeerMsgSend;
+            m_pP2PeerMsgSend = 0;
+          }
          }
 
         // May become idle here
         // NOTES: Not idle when application messages wait on the login:
         //        ReleaseLoginHold() wakes this path again
-        if ( m_pP2PeerMsgSend )
-          m_pP2Peerio -> SendP2PeerMsg ( m_hFile, m_pP2PeerMsgSend
-                                       , pOVERLAPPEDcon );
-        else if ( !bHeldForLogin && HasState ( ConState_CloseOnIdle ) )
+        //      : The send itself is issued inside the loop above since
+        //        F-P0-15, so a refused frame can be followed by the next
+        //        message; reaching here with a message means it was sent
+        if ( !m_pP2PeerMsgSend &&
+             !bHeldForLogin && HasState ( ConState_CloseOnIdle ) )
           Drop ( 0 );
       }
 
@@ -3642,6 +3671,88 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
                      "broadcast is an open design question")
          ->Display()->SetLast();
     return false;
+}
+
+//
+//  Refuses an outbound message whose frame is over the send limit
+//  NOTES: F-P0-15 (p2p_performance_progress.md, measured 2026-11-18).  Before
+//         this a 30,700-byte payload made a 32,782-byte frame, the far end's
+//         P2Peerio::RecvP2PeerMsg refused it against its 32,768-byte receive
+//         limit and DROPPED THE CONNECTION, and the poster was told nothing:
+//         every later message on the link was lost with it.  Refusing here
+//         costs the one message and keeps the link
+//       : REPORTED TO THE SOURCE as P2Pevent_UNDELIVERABLE, the same report
+//         P2PeerTarget::RouteP2PeerMsg sends for an unroutable message, so an
+//         application handles both through the one On_MsgCatch path it has
+//         already.  SealAppMsgOutbound cannot do this (its own KNOWN GAP: the
+//         report might need the seal it failed to make); this one can, because
+//         the report is SMALL by construction - the message is over
+//         MAX_P2PmsgWrapEmbed, so ExceptionFactory elides the body and wraps
+//         only the name and the addresses
+//       : SOURCED FROM THIS HUB, for the reason StampReportOrigin gives at
+//         RouteP2PeerMsg (F-S9-1): the hub that raised a report is the address
+//         it may speak for
+//       : NOT REPORTED for handshake traffic or for an exception.  A login or
+//         key agreement has no application poster to tell, and a report about
+//         a report is the cascade RouteP2PeerMsg's first branch exists to end.
+//         Both are still diagnosed
+//       : NEVER THROWS.  It runs on the send path between two messages, and a
+//         failure to report must not cost the link the refusal just saved
+//
+//  Parameters:  P2PeerMsg *pMsg
+//               The refused message.  NOT deleted here: the caller does that
+//
+//               DWORD dwFrame
+//               The refused frame's size (P2Peerio::MeasureSendFrame)
+//
+void
+P2PeerCon::RefuseOversizedOutbound ( P2PeerMsg *pMsg, DWORD dwFrame )
+{
+    if ( !pMsg )
+      return;
+
+    try
+    {
+      const DWORD dwMax = m_pP2Peerio ? m_pP2Peerio -> GetMaxSendSize ( ) : 0;
+      P2Pevent *pEVT =
+      EVERR->Module (__FUNCTION__)->AFPcon(this)
+           ->Message(L"Message[%s] from [%s] to [%s] not sent: its frame is %u "
+                     L"bytes, over this link's limit of %u"
+                    , pMsg->c_name ( )    ? pMsg->c_name ( )    : L"?"
+                    , pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"?"
+                    , pMsg->GetDestin ( ) ? pMsg->GetDestin ( ) : L"?"
+                    , (UINT)dwFrame, (UINT)dwMax )
+           ->Advice_T ("The message was refused, not the link: the "
+                       "connection stays up")
+           ->Advice_T ("Split the payload. The frame is the payload plus the "
+                       "message's own overhead (about 2 KB unsealed)")
+           ->HResult(P2Pevent_UNDELIVERABLE)
+           ->Group("P2P");
+
+      const bool bReport = m_pP2PeerTarget                          &&
+                           !IsHandshakeP2PeerMsg ( pMsg )           &&
+                           !pMsg->Map_MatchName ( P2Pmsg_Exception );
+      if ( bReport )
+      {
+        try
+        {
+          P2PeerMsg *pReport = pMsg -> ExceptionFactory ( pEVT );
+          if ( pReport )
+          {
+            //  A COPY, not the reference's c_wstr() - refer StampReportOrigin
+            const CString strHub = GetP2PaddrHub ( ) . c_wstr ( );
+            if ( !strHub.IsEmpty ( ) )
+              pReport -> SetSource ( (P2PaddrSTR)strHub );
+            delete m_pP2PeerTarget -> PostP2PeerMsg ( pReport );
+          }
+        }
+        catch ( P2Pevent *pInner ) { if ( pInner ) pInner -> Cancel ( false ); }
+        catch ( ... )              { }
+      }
+      pEVT -> Display ( ) -> SetLast ( );
+    }
+    catch ( P2Pevent *pEVT ) { if ( pEVT ) pEVT -> Cancel ( false ); }
+    catch ( ... )            { }
 }
 
 //

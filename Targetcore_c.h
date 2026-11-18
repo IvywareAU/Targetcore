@@ -120,7 +120,12 @@ P2PC_API int            p2paddr_is_rable      (P2PAddrHandle h, const wchar_t* s
 // message and no error, because the truncation happened in the ABI itself before
 // any kernel check could see the real number. The message cap is still
 // MAX_P2Psize (32768) and an over-cap size is refused downstream — but it is now
-// refused at the size the caller actually passed.
+// refused at the size the caller actually passed. The cap is on the FRAME, not
+// the payload: the frame is the payload plus ~2 KB of message structure (plus
+// the link cypher's nonce and tag), so the largest payload that fits is about
+// 30,680 bytes. Since 2026-11-19 (F-P0-15) an over-cap message is refused on
+// the send path and reported to its source as P2Pevent_UNDELIVERABLE, and the
+// link stays up; before, the receiver dropped the whole connection.
 P2PC_API P2PeerMsgHandle  p2peermsg_create         (void);
 P2PC_API P2PeerMsgHandle  p2peermsg_create_full    (const wchar_t* src,
                                                      const wchar_t* dst,

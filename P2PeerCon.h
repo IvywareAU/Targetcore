@@ -916,6 +916,12 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
         SealAppMsgOutbound ( P2PeerMsg *pMsg );
       void
         OpenAppMsgInbound  ( P2PeerMsg *pMsg );
+      // F-P0-15: a message whose frame exceeds the transport's send limit
+      // (P2Peerio::SendP2PeerMsg returned kSendRefusedFrame).  Diagnoses it
+      // and reports it to its source
+      // as undeliverable; the caller deletes it and the link stays up.
+      void
+        RefuseOversizedOutbound ( P2PeerMsg *pMsg, DWORD dwFrame );
 
       // The ancestor half of GateAppMsgInbound, split out because it is the
       // only part of that gate with a policy switch and a second failure

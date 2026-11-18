@@ -3,6 +3,31 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.4.9
+
+A patch release: an oversized message no longer drops the link. The flat C API (103 symbols),
+every class layout and the wire format are unchanged. `P2Peerio` gains the constant
+`kSendRefusedFrame` and the non-virtual member `MeasureSendFrame`; nothing virtual was added.
+
+- **A message too big for the link is refused and reported, and the link stays up.** Nothing
+  checked a frame against the link's send limit (32,768 bytes, about 30,680 bytes of payload on
+  an unsealed link), so an oversized message was sent anyway. The receiver threw on its own
+  limit and dropped the connection, and the sender was never told why. `P2Peerio::SendP2PeerMsg`
+  now measures the frame before it is sent, counting the link cypher when it is on, and returns
+  `P2Peerio::kSendRefusedFrame`. The connection reports the message to its sender as
+  `P2Pevent_UNDELIVERABLE`, with the frame size and the limit in the text, then deletes it and
+  sends the next queued message.
+- **A refused message no longer stalls the send side.** When the VNet gate, the seal or the size
+  check refused a message, the connection stopped sending until something else was posted.
+  It now takes the next queued message straight away.
+- **Transports with their own framing keep their own limits.** `P2PeerioDmx`, `P2PeerioBSTR` and
+  P2PeerWeb's HTTP transport override `SendP2PeerMsg` and are not affected. P2PeerWeb's 34 KB
+  HTTP frames still go out.
+
+**Behaviour change:** code that calls `SendP2PeerMsg` on a stock transport directly can now get
+`kSendRefusedFrame` back. Before, it got success followed by a dropped link. The new MscsUnitTests
+case `p2p_oversize` covers a plain link and a cyphered one.
+
 ## 3.4.8
 
 A patch release: a fix to the login handshake. The flat C API, every class layout and the wire format are

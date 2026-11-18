@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.8 is tag
-//         v3.4.8. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.4.9 is tag
+//         v3.4.9. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,29 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.4.9.0, a PATCH on 3.4.8. The covered surface did not move (103 symbols,
+//  abi-flat.manifest unchanged; Targetcore_c.h changed in a comment only), no
+//  class layout moved and nothing on the wire changed. Added to the C++
+//  surface: P2Peerio::kSendRefusedFrame (a static const, 0xE00F0015, not a
+//  Win32 code), P2Peerio::MeasureSendFrame, the private P2Peerio::FrameSizeOf
+//  and the private P2PeerCon::RefuseOversizedOutbound - all non-virtual, so no
+//  vtable slot moved. It fixes F-P0-15: a message whose frame exceeded the
+//  link's m_dwMaxSendSize (32,768 - about 30,680 B of payload unsealed) was
+//  sent anyway, the receiver threw on m_dwMaxRecvSize and DROPPED THE LINK,
+//  with no report to the sender. Base P2Peerio::SendP2PeerMsg now measures the
+//  frame (cyphered size when the link cypher is on) before encrypting and
+//  returns kSendRefusedFrame; the P2PeerCon send funnel, now a loop, reports
+//  the message to its sender as P2Pevent_UNDELIVERABLE (source = the hub, as
+//  F-S9-1), deletes it and sends the next one. The link stays up. The check is
+//  in the base framing path ON PURPOSE: transports with their own framing
+//  (P2PeerioDmx, P2PeerioBSTR, P2PeerWeb's WebIoHttp) override SendP2PeerMsg
+//  and keep their own limits - a first version that asked a virtual from
+//  P2PeerCon refused P2PeerWeb's 34 KB HTTP frames. The loop also cures an
+//  idle stall: a message refused by the VNet gate or the seal left the send
+//  side idle until something else was posted; it now takes the next one.
+//  BEHAVIOUR NOTE: a caller of SendP2PeerMsg on a stock transport can now see
+//  kSendRefusedFrame where it used to see success (and a dropped link).
+//  BELOW IS THE 3.4.8 RATIONALE.
 //  3.4.8.0, a PATCH on 3.4.7. The covered surface did not move (103 symbols,
 //  abi-flat.manifest unchanged), no class layout moved and nothing on the wire
 //  changed. Added to the C++ surface, which the policy does not cover, as
@@ -366,23 +389,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  8
+#define TARGETCORE_VERSION_PATCH  9
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,8,0
+#define TARGETCORE_VERSION_COMMAS 3,4,9,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.8.0"
+#define TARGETCORE_VERSION_STRING "3.4.9.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040800 is 3.4.8.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03040900 is 3.4.9.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040800
+#define TARGETCORE_VERSION_HEX    0x03040900
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -398,7 +421,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.8.0"
+#define TARGETCORE_VERSION_STRINGW L"3.4.9.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
