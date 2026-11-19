@@ -1231,12 +1231,14 @@ namespace p2pauth
 
         void              *m_pAllow;         // vector<AllowEntry>
         void              *m_pSeen;          // vector<SeenNonce>
-        // vector<SigMark>, and deliberately NOT the same container as m_pSeen:
+        // SigCache (vector<SigMark> in arrival order plus a keyed hash index
+        // by signature, so "seen?" is O(1) - P2PAuthLogin.cpp), and
+        // deliberately NOT the same container as m_pSeen:
         // a login nonce and a relay signature are different lengths, and one
         // cache holding both would make an evicted login nonce depend on how
         // much relay traffic a hub carried.
         void              *m_pSeenRel;
-        // vector<SigMark> again, and a third container rather than a shared
+        // SigCache again, and a third container rather than a shared
         // one: this cache is trimmed by a different rule from m_pSeenRel (see
         // SetSealReplayRefused), so merging them would force one rule on both.
         void              *m_pSeenSeal;
@@ -1245,6 +1247,13 @@ namespace p2pauth
         // asks which entry is oldest - refer NoteSealSig. m_pSeenRel has no
         // equivalent on purpose: its age trim needs arrival order.
         size_t             m_nSealNext;
+        // KeyCache (P2PAuthLogin.cpp): imported key handles for STATIC points
+        // - allow-list identity keys verified against, agreement keys sealed
+        // to - keyed by the raw point. Plan T1g: each import is ~34 us on CNG
+        // and was redone on every message. A pure function of the point's
+        // bytes, so it can never answer for a key it was not asked about;
+        // revocation and the allow-list are consulted BEFORE it, every time.
+        void              *m_pKeyCache;
         char              *m_pszAllowPath;
         // Did the LAST load of that path succeed? SetAllowList keeps the path
         // even when the load fails, so the path alone cannot answer "is there

@@ -339,6 +339,19 @@ SealTo ( p2pcng::EcdsaP256 &oSender,
          unsigned char *pOut, size_t cbOut, size_t *pcbOut,
          long long llWhen )
 {
+    return SealToKeyed ( oSender, pReaders, nullptr, nReaders, pSrc, pDst,
+                         pPlain, cbPlain, pOut, cbOut, pcbOut, llWhen );
+}
+
+SealResult
+SealToKeyed ( p2pcng::EcdsaP256 &oSender,
+              const unsigned char *pReaders,
+              p2pcng::EcdhP256 *const *apReaderKeys, size_t nReaders,
+              const wchar_t *pSrc, const wchar_t *pDst,
+              const void *pPlain, size_t cbPlain,
+              unsigned char *pOut, size_t cbOut, size_t *pcbOut,
+              long long llWhen )
+{
     if ( pcbOut ) *pcbOut = 0;
     if ( !pReaders || !pSrc || !pDst || !pOut )      return SealErrArgs;
     if ( cbPlain && !pPlain )                        return SealErrArgs;
@@ -418,7 +431,9 @@ SealTo ( p2pcng::EcdsaP256 &oSender,
         std::memcpy ( pTagW, aTags + r * kSealRTagLen, kSealRTagLen );
 
         unsigned char aSecret[kEcdhSecLen];
-        if ( !oEph.DeriveRawSecret ( pRdr, aSecret ) )
+        p2pcng::EcdhP256 *pKey = apReaderKeys ? apReaderKeys[r] : nullptr;
+        if ( !( pKey ? oEph.DeriveRawSecret ( *pKey, aSecret )
+                     : oEph.DeriveRawSecret ( pRdr, aSecret ) ) )
         {
             Wipe ( aCek, sizeof(aCek) );
             return SealErrNoAgreement;      // not a point on P-256
@@ -497,6 +512,7 @@ namespace {
 SealResult
 OpenV1 ( p2pcng::EcdhP256 &oRecipAgree,
        const unsigned char *pSenderId,
+       p2pcng::EcdsaP256 *pSenderKey,      // T1g: pre-imported, or null
        const wchar_t *pSrc, const wchar_t *pDst,
        const unsigned char *pIn, size_t cbIn,
        void *pOut, size_t cbOut, size_t *pcbOut,
@@ -504,7 +520,8 @@ OpenV1 ( p2pcng::EcdhP256 &oRecipAgree,
 {
     if ( pcbOut )    *pcbOut    = 0;
     if ( pllWhenOut ) *pllWhenOut = 0;
-    if ( !pSenderId || !pSrc || !pDst || !pIn )  return SealErrArgs;
+    if ( ( !pSenderId && !pSenderKey ) || !pSrc || !pDst || !pIn )
+        return SealErrArgs;
     if ( cbIn < kSealOverheadV1 )                return SealErrFormat;
 
     //  The version FIRST, before anything is parsed on the strength of it.
@@ -540,9 +557,14 @@ OpenV1 ( p2pcng::EcdhP256 &oRecipAgree,
         return SealErrInternal;
     {
         p2pcng::EcdsaP256 oPeer;
-        if ( !oPeer.ImportPublic ( pSenderId ) ) return SealErrInternal;
-        if ( !oPeer.Verify ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
-                             pSig ) )
+        p2pcng::EcdsaP256 *pPeer = pSenderKey;
+        if ( !pPeer )
+        {
+            if ( !oPeer.ImportPublic ( pSenderId ) ) return SealErrInternal;
+            pPeer = &oPeer;
+        }
+        if ( !pPeer->Verify ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
+                              pSig ) )
             return SealErrSignature;
     }
 
@@ -593,6 +615,7 @@ namespace {
 SealResult
 OpenV2 ( p2pcng::EcdhP256 &oRecipAgree,
          const unsigned char *pSenderId,
+         p2pcng::EcdsaP256 *pSenderKey,    // T1g: pre-imported, or null
          const wchar_t *pSrc, const wchar_t *pDst,
          const unsigned char *pIn, size_t cbIn,
          void *pOut, size_t cbOut, size_t *pcbOut,
@@ -634,9 +657,14 @@ OpenV2 ( p2pcng::EcdhP256 &oRecipAgree,
     AppendField ( sSig, pSlots, kSealSlotLen * nReaders );
     {
         p2pcng::EcdsaP256 oPeer;
-        if ( !oPeer.ImportPublic ( pSenderId ) ) return SealErrInternal;
-        if ( !oPeer.Verify ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
-                             pSig ) )
+        p2pcng::EcdsaP256 *pPeer = pSenderKey;
+        if ( !pPeer )
+        {
+            if ( !oPeer.ImportPublic ( pSenderId ) ) return SealErrInternal;
+            pPeer = &oPeer;
+        }
+        if ( !pPeer->Verify ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
+                              pSig ) )
             return SealErrSignature;
     }
 
@@ -725,6 +753,37 @@ OpenV2 ( p2pcng::EcdhP256 &oRecipAgree,
 //  header that called v0 -> v1 a hard break said so: a format whose first
 //  byte says what it is can grow a second generation without a flag day, and
 //  one whose first byte is a coordinate cannot.
+namespace {
+SealResult
+OpenAny ( p2pcng::EcdhP256 &oRecipAgree,
+          const unsigned char *pSenderId,
+          p2pcng::EcdsaP256 *pSenderKey,
+          const wchar_t *pSrc, const wchar_t *pDst,
+          const unsigned char *pIn, size_t cbIn,
+          void *pOut, size_t cbOut, size_t *pcbOut,
+          long long *pllWhenOut )
+{
+    if ( pcbOut )     *pcbOut     = 0;
+    if ( pllWhenOut ) *pllWhenOut = 0;
+    if ( ( !pSenderId && !pSenderKey ) || !pSrc || !pDst || !pIn )
+        return SealErrArgs;
+    if ( cbIn < kSealVerLen )                   return SealErrFormat;
+
+    switch ( pIn[0] )
+    {
+      case kSealVersion:
+        return OpenV2 ( oRecipAgree, pSenderId, pSenderKey, pSrc, pDst,
+                        pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
+      case kSealVersion1:
+        return OpenV1 ( oRecipAgree, pSenderId, pSenderKey, pSrc, pDst,
+                        pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
+    }
+    //  Includes every v0 body, which began with a uniformly distributed
+    //  coordinate and so lands here 254 times in 256.
+    return SealErrVersion;
+}
+}   // anonymous namespace
+
 SealResult
 Open ( p2pcng::EcdhP256 &oRecipAgree,
        const unsigned char *pSenderId,
@@ -733,23 +792,26 @@ Open ( p2pcng::EcdhP256 &oRecipAgree,
        void *pOut, size_t cbOut, size_t *pcbOut,
        long long *pllWhenOut )
 {
+    //  pSenderId checked HERE as well as in OpenAny: the raw-point entry point
+    //  must keep refusing a null point with SealErrArgs, and OpenAny alone
+    //  would accept it whenever a key was passed - which here it never is.
     if ( pcbOut )     *pcbOut     = 0;
     if ( pllWhenOut ) *pllWhenOut = 0;
-    if ( !pSenderId || !pSrc || !pDst || !pIn ) return SealErrArgs;
-    if ( cbIn < kSealVerLen )                   return SealErrFormat;
+    if ( !pSenderId ) return SealErrArgs;
+    return OpenAny ( oRecipAgree, pSenderId, nullptr, pSrc, pDst,
+                     pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
+}
 
-    switch ( pIn[0] )
-    {
-      case kSealVersion:
-        return OpenV2 ( oRecipAgree, pSenderId, pSrc, pDst, pIn, cbIn,
-                        pOut, cbOut, pcbOut, pllWhenOut );
-      case kSealVersion1:
-        return OpenV1 ( oRecipAgree, pSenderId, pSrc, pDst, pIn, cbIn,
-                        pOut, cbOut, pcbOut, pllWhenOut );
-    }
-    //  Includes every v0 body, which began with a uniformly distributed
-    //  coordinate and so lands here 254 times in 256.
-    return SealErrVersion;
+SealResult
+OpenKeyed ( p2pcng::EcdhP256 &oRecipAgree,
+            p2pcng::EcdsaP256 &oSenderKey,
+            const wchar_t *pSrc, const wchar_t *pDst,
+            const unsigned char *pIn, size_t cbIn,
+            void *pOut, size_t cbOut, size_t *pcbOut,
+            long long *pllWhenOut )
+{
+    return OpenAny ( oRecipAgree, nullptr, &oSenderKey, pSrc, pDst,
+                     pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
 }
 
 // ---- Self-test ---------------------------------------------------------

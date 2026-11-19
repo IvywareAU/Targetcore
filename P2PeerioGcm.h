@@ -55,8 +55,9 @@
 //         SetKeyPair()
 //       : The underlying AesGcm holds a BCrypt key handle.  Encrypt on one
 //         thread and Decrypt on another is sound - the OpenSSL backend
-//         builds a fresh EVP_CIPHER_CTX per call and the CNG one reuses a
-//         key handle documented as safe for concurrent use - but the two
+//         caches one EVP_CIPHER_CTX per direction behind a try-lock and
+//         builds a fresh one for a caller that finds it busy (T1a), and the
+//         CNG one reuses a key handle documented as safe for concurrent use - but the two
 //         directions now touch different members anyway
 //       : AND THE BUDGET IS ENFORCED, which is the other half of the split.
 //         Sealing REFUSES once the send key has been used kGcmMaxSeals

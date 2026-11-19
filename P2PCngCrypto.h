@@ -194,6 +194,15 @@ namespace p2pcng
         P2PCNG_EXT bool DeriveRawSecret ( const unsigned char pPeerPub[/*kEcdhPubLen*/],
                                           unsigned char pSecretOut[/*kEcdhSecLen*/] );
 
+        // The same, against a peer point ALREADY imported (ImportPublic on
+        // oPeer). Byte-identical result; what it saves is the import, ~34 us
+        // on CNG, which a caller agreeing with the same STATIC point message
+        // after message (p2pauth's seal to an allow-listed reader) otherwise
+        // repeats every time - plan T1g. Only this instance needs a private
+        // half; oPeer may be public-only, and is only read.
+        P2PCNG_EXT bool DeriveRawSecret ( const EcdhP256 &oPeer,
+                                          unsigned char pSecretOut[/*kEcdhSecLen*/] );
+
       private:
         void *m_hAlg;                  // BCRYPT_ALG_HANDLE
         void *m_hKey;                  // BCRYPT_KEY_HANDLE (our pair)

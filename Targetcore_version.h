@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.4.9 is tag
-//         v3.4.9. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.5.0 is tag
+//         v3.5.0. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,34 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.5.0.0, a MINOR on 3.4.9, informed - not compelled - by an ADDITIVE
+//  exported C++ surface. The covered surface did not move (103 symbols,
+//  abi-flat.manifest and Targetcore_c.h unchanged), no exported class layout
+//  moved (AuthPolicy gained m_pKeyCache, but it is held by pointer and not
+//  exported; AesGcm keeps its four members, which P2PeerioGcm embeds), no
+//  virtual was added and nothing on the wire changed. Added, all exported and
+//  non-virtual: p2pcng::EcdhP256::DeriveRawSecret(const EcdhP256&) (agree
+//  with an already-imported peer key), p2pseal::SealToKeyed and
+//  p2pseal::OpenKeyed (seal/open with pre-imported reader/sender keys).
+//  It is the p2p_performance P1 security fast path, same decisions, same
+//  bytes:
+//  - T1j: the relay and seal replay caches are indexed (SipHash-keyed hash
+//    set beside the ordered vector/ring; age trim and eviction order as
+//    before) instead of a linear scan of up to 4,096 x 64 B per message.
+//  - T1g: AuthPolicy caches imported STATIC public keys (identity and
+//    agreement), cleared on every allow-list reload; full = stops growing,
+//    never evicts, because Seal holds the pointers.
+//    T1j+T1g: posture D CPU/msg -10/-11% Windows, -15/-17% Linux (B5).
+//  - T1h (CNG): SHA-256, HMAC and AES-GCM providers are shared per process
+//    like ECDH/ECDSA since 3.4.5; AES-GCM was opened per AesGcm object.
+//    HKDF -46%, ~11-16 us per seal/open.
+//  - T1i: SealAppMsgOutbound reads the scope once and tests the last hop
+//    first; the waived seal's cost on a direct link -52% Windows, -69% Linux.
+//  - T1a (OpenSSL): AesGcm caches one EVP_CIPHER_CTX per direction inside its
+//    key block (try-lock, fresh-context fallback, so one object may still be
+//    driven from two threads), re-keying only the nonce per operation: link
+//    seal -1.0 us, open -0.9 us; allocation counts unchanged.
+//  BELOW IS THE 3.4.9 RATIONALE.
 //  3.4.9.0, a PATCH on 3.4.8. The covered surface did not move (103 symbols,
 //  abi-flat.manifest unchanged; Targetcore_c.h changed in a comment only), no
 //  class layout moved and nothing on the wire changed. Added to the C++
@@ -388,24 +416,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  4
-#define TARGETCORE_VERSION_PATCH  9
+#define TARGETCORE_VERSION_MINOR  5
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,4,9,0
+#define TARGETCORE_VERSION_COMMAS 3,5,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.4.9.0"
+#define TARGETCORE_VERSION_STRING "3.5.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03040900 is 3.4.9.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03050000 is 3.5.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03040900
+#define TARGETCORE_VERSION_HEX    0x03050000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -421,7 +449,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.4.9.0"
+#define TARGETCORE_VERSION_STRINGW L"3.5.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

@@ -52,6 +52,8 @@
 
 #include <vector>
 #include <cstring>
+#include <atomic>
+#include <new>
 
 namespace p2pcng
 {
@@ -150,10 +152,95 @@ namespace p2pcng
     }
 
     // -------------------------------------------------------------------
-    //  AES-256-GCM. m_hAlg holds the EVP_CIPHER_CTX; m_hKey holds the 32-byte
-    //  key (stashed on SetKey; a fresh context is initialised per Seal/Open so a
-    //  single AesGcm object can process many messages).
+    //  AES-256-GCM. m_pKeyObj holds the 32-byte key (stashed on SetKey).
+    //
+    //  T1a (p2p_performance.md): the key schedule is done ONCE per key, not
+    //  once per Seal/Open. The block m_pKeyObj points at (GcmKeyBlock: the key
+    //  first, then an encrypt and a decrypt EVP_CIPHER_CTX slot) caches one
+    //  context per direction, keyed on first use; an operation re-inits only
+    //  the nonce (EVP_*Init_ex(ctx, NULL, NULL, NULL, iv)). Same output bytes.
+    //  The slots live in the key's own allocation so a one-shot AesGcm (p2pseal
+    //  makes one per message and per reader) costs no allocation more than it
+    //  did, and the class layout - and so P2PeerioGcm's, which holds two AesGcm
+    //  by value in an exported class - is unchanged.
+    //
+    //  CONCURRENCY. One object may be driven by more than one thread at once
+    //  (P2PeerioGcm::Encrypt counts "two senders" on one link; the loopback
+    //  SetKey shape seals and opens on one object). An EVP_CIPHER_CTX is not
+    //  thread-safe, so each cached context sits behind a try-lock: the thread
+    //  that gets it uses it, a thread that does not falls back to a fresh
+    //  context for that one call - the pre-T1a path - instead of waiting. No
+    //  operation ever blocks on another, and the uncontended case (the normal
+    //  one: one writer per direction) is the fast one.
+    //  A failed operation (bad tag, any EVP error) DISCARDS its cached context,
+    //  so no state from a failed call can reach the next one.
     // -------------------------------------------------------------------
+    namespace
+    {
+        struct GcmCtxSlot
+        {
+            EVP_CIPHER_CTX  *ctx  = nullptr;        // keyed, or null (build on use)
+            std::atomic_flag busy = ATOMIC_FLAG_INIT;
+        };
+
+        //  The key MUST stay the first member: m_pKeyObj is read as the raw key.
+        struct GcmKeyBlock
+        {
+            unsigned char key[kAesKeyLen];
+            GcmCtxSlot    enc;
+            GcmCtxSlot    dec;
+        };
+
+        GcmKeyBlock *BlockOf ( unsigned char *pKeyObj ) { return (GcmKeyBlock *)pKeyObj; }
+
+        void DropCtx ( GcmCtxSlot &s )
+        {
+            if ( s.ctx ) { EVP_CIPHER_CTX_free ( s.ctx ); s.ctx = nullptr; }  // clears its key schedule
+        }
+
+        //  A context keyed for one direction, nonce not yet set.
+        EVP_CIPHER_CTX *NewKeyedCtx ( const unsigned char *pKey, bool bEncrypt )
+        {
+            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+            if ( !ctx ) return nullptr;
+            bool bOk = false;
+            do {
+                if ( EVP_CipherInit_ex ( ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr,
+                                         bEncrypt ? 1 : 0 ) != 1 ) break;
+                if ( EVP_CIPHER_CTX_ctrl ( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)kGcmNonceLen, nullptr ) != 1 ) break;
+                if ( EVP_CipherInit_ex ( ctx, nullptr, nullptr, pKey, nullptr,
+                                         bEncrypt ? 1 : 0 ) != 1 ) break;
+                bOk = true;
+            } while ( 0 );
+            if ( !bOk ) { EVP_CIPHER_CTX_free ( ctx ); return nullptr; }
+            return ctx;
+        }
+
+        //  Hands out the cached context (bOwned=false) or, if it is busy or
+        //  cannot be built, a fresh one the caller frees (bOwned=true).
+        //  The slots live in the key block SetKey allocates, before any
+        //  Seal/Open, so two threads never race to create one.
+        EVP_CIPHER_CTX *AcquireCtx ( GcmCtxSlot &s, const unsigned char *pKey, bool bEncrypt,
+                                     bool &bOwned )
+        {
+            if ( !s.busy.test_and_set ( std::memory_order_acquire ) )
+            {
+                if ( !s.ctx ) s.ctx = NewKeyedCtx ( pKey, bEncrypt );
+                if ( s.ctx ) { bOwned = false; return s.ctx; }
+                s.busy.clear ( std::memory_order_release );
+            }
+            bOwned = true;
+            return NewKeyedCtx ( pKey, bEncrypt );
+        }
+
+        void ReleaseCtx ( GcmCtxSlot &s, EVP_CIPHER_CTX *ctx, bool bOwned, bool bOk )
+        {
+            if ( bOwned ) { EVP_CIPHER_CTX_free ( ctx ); return; }
+            if ( !bOk ) DropCtx ( s );
+            s.busy.clear ( std::memory_order_release );
+        }
+    }
+
     AesGcm::AesGcm ( )
         : m_hAlg(nullptr), m_hKey(nullptr), m_pKeyObj(nullptr), m_cbKeyObj(0)
     { }
@@ -162,21 +249,34 @@ namespace p2pcng
     {
         if ( m_pKeyObj )
         {
-            OPENSSL_cleanse ( m_pKeyObj, m_cbKeyObj );
+            GcmKeyBlock *pB = BlockOf ( m_pKeyObj );
+            DropCtx ( pB->enc );
+            DropCtx ( pB->dec );
+            OPENSSL_cleanse ( pB->key, kAesKeyLen );
+            pB->~GcmKeyBlock ( );
             free ( m_pKeyObj );
         }
     }
 
+    //  A re-key drops both cached contexts; they rebuild on next use under the
+    //  new key. Like the pre-T1a backend (and the CNG one), SetKey must not race
+    //  a Seal/Open on the same object - every caller keys before first use.
+    //  malloc + placement new, as the bare key was malloc'd before T1a.
     bool AesGcm::SetKey ( const unsigned char *pKey, size_t cbKey )
     {
         if ( cbKey != kAesKeyLen || !pKey ) return false;
         if ( !m_pKeyObj )
         {
-            m_pKeyObj = (unsigned char *)malloc ( kAesKeyLen );
-            if ( !m_pKeyObj ) return false;
-            m_cbKeyObj = kAesKeyLen;
+            void *pMem = malloc ( sizeof ( GcmKeyBlock ) );
+            if ( !pMem ) return false;
+            new ( pMem ) GcmKeyBlock;
+            m_pKeyObj  = (unsigned char *)pMem;
+            m_cbKeyObj = kAesKeyLen;          // the secret part, for the cleanse
         }
-        memcpy ( m_pKeyObj, pKey, kAesKeyLen );
+        GcmKeyBlock *pB = BlockOf ( m_pKeyObj );
+        DropCtx ( pB->enc );
+        DropCtx ( pB->dec );
+        memcpy ( pB->key, pKey, kAesKeyLen );
         return true;
     }
 
@@ -194,14 +294,14 @@ namespace p2pcng
 
         if ( !CngRandom ( pNonce, (unsigned long)kGcmNonceLen ) ) return false;
 
-        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+        bool bOwned = true;
+        GcmCtxSlot &slot = BlockOf ( m_pKeyObj )->enc;
+        EVP_CIPHER_CTX *ctx = AcquireCtx ( slot, m_pKeyObj, true, bOwned );
         if ( !ctx ) return false;
         bool bOk = false;
         int outl = 0;
         do {
-            if ( EVP_EncryptInit_ex ( ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr ) != 1 ) break;
-            if ( EVP_CIPHER_CTX_ctrl ( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)kGcmNonceLen, nullptr ) != 1 ) break;
-            if ( EVP_EncryptInit_ex ( ctx, nullptr, nullptr, m_pKeyObj, pNonce ) != 1 ) break;
+            if ( EVP_EncryptInit_ex ( ctx, nullptr, nullptr, nullptr, pNonce ) != 1 ) break;
             if ( cbAad && pAad &&
                  EVP_EncryptUpdate ( ctx, nullptr, &outl, pAad, (int)cbAad ) != 1 ) break;
             if ( cbPlain &&
@@ -210,7 +310,7 @@ namespace p2pcng
             if ( EVP_CIPHER_CTX_ctrl ( ctx, EVP_CTRL_GCM_GET_TAG, (int)kGcmTagLen, pTag ) != 1 ) break;
             bOk = true;
         } while ( 0 );
-        EVP_CIPHER_CTX_free ( ctx );
+        ReleaseCtx ( slot, ctx, bOwned, bOk );
         if ( bOk && pcbOut ) *pcbOut = need;
         return bOk;
     }
@@ -229,14 +329,14 @@ namespace p2pcng
         const unsigned char *pCipher = pIn + kGcmNonceLen;
         const unsigned char *pTag    = pIn + kGcmNonceLen + cbCipher;
 
-        EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+        bool bOwned = true;
+        GcmCtxSlot &slot = BlockOf ( m_pKeyObj )->dec;
+        EVP_CIPHER_CTX *ctx = AcquireCtx ( slot, m_pKeyObj, false, bOwned );
         if ( !ctx ) return false;
         bool bOk = false;
         int outl = 0;
         do {
-            if ( EVP_DecryptInit_ex ( ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr ) != 1 ) break;
-            if ( EVP_CIPHER_CTX_ctrl ( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)kGcmNonceLen, nullptr ) != 1 ) break;
-            if ( EVP_DecryptInit_ex ( ctx, nullptr, nullptr, m_pKeyObj, pNonce ) != 1 ) break;
+            if ( EVP_DecryptInit_ex ( ctx, nullptr, nullptr, nullptr, pNonce ) != 1 ) break;
             if ( cbAad && pAad &&
                  EVP_DecryptUpdate ( ctx, nullptr, &outl, pAad, (int)cbAad ) != 1 ) break;
             if ( cbCipher &&
@@ -247,7 +347,7 @@ namespace p2pcng
             if ( EVP_DecryptFinal_ex ( ctx, pOut ? pOut + outl : nullptr, &outl ) != 1 ) break;
             bOk = true;
         } while ( 0 );
-        EVP_CIPHER_CTX_free ( ctx );
+        ReleaseCtx ( slot, ctx, bOwned, bOk );
         if ( bOk && pcbOut ) *pcbOut = cbCipher;
         return bOk;
     }
@@ -448,6 +548,37 @@ namespace p2pcng
         if ( dctx ) EVP_PKEY_CTX_free ( dctx );
         if ( peer ) EVP_PKEY_free ( peer );
         if ( fctx ) EVP_PKEY_CTX_free ( fctx );
+        return bOk;
+    }
+
+    bool EcdhP256::DeriveRawSecret ( const EcdhP256 &oPeer,
+                                     unsigned char pSecretOut[] )
+    {
+        //  As above minus the import: oPeer's EVP_PKEY is the one ImportPublic
+        //  built and kept. EVP_PKEY_derive_set_peer still runs its default peer
+        //  check, so nothing is validated less than on the raw-point path.
+        if ( !m_hKey || !m_bPrivate || !oPeer.m_hKey || !pSecretOut ) return false;
+
+        EVP_PKEY_CTX *dctx = nullptr;
+        bool bOk = false;
+        do {
+            dctx = EVP_PKEY_CTX_new ( (EVP_PKEY *)m_hKey, nullptr );
+            if ( !dctx ) break;
+            if ( EVP_PKEY_derive_init ( dctx ) != 1 ) break;
+            if ( EVP_PKEY_derive_set_peer ( dctx, (EVP_PKEY *)oPeer.m_hKey ) != 1 ) break;
+
+            size_t slen = kEcdhSecLen;
+            unsigned char be[kEcdhSecLen];
+            if ( EVP_PKEY_derive ( dctx, be, &slen ) != 1 || slen != kEcdhSecLen ) break;
+
+            //  Big-endian to CNG's little-endian, as above (Risk #5).
+            for ( size_t i = 0; i < kEcdhSecLen; ++i )
+                pSecretOut[i] = be[kEcdhSecLen - 1 - i];
+            OPENSSL_cleanse ( be, sizeof(be) );
+            bOk = true;
+        } while ( 0 );
+
+        if ( dctx ) EVP_PKEY_CTX_free ( dctx );
         return bOk;
     }
 

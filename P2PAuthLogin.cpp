@@ -44,6 +44,11 @@
 #include <cwchar>
 #include <string>
 #include <vector>
+#include <array>
+#include <cstdint>
+#include <unordered_map>
+#include <memory>
+#include <utility>
 
 namespace p2pauth
 {
@@ -128,6 +133,188 @@ namespace
     typedef std::vector<NonceMark>  SeenVec;
     typedef std::vector<SigMark>    SeenSigVec;
     typedef std::vector<RevPoint>   RevVec;
+
+    //  SipHash-2-4 over one 64-byte signature, under a per-cache random key.
+    //  KEYED because both operands of every lookup came off the wire: an
+    //  authorised sender can grind its own signatures, and with an unkeyed
+    //  hash it could grind them into one bucket and hand the lookup back the
+    //  linear scan it replaced. Without the key it cannot aim. Even if it
+    //  could, the worst case is the old cost - one bucket holding every entry
+    //  - not anything new.
+    typedef std::array<unsigned char, p2pcng::kEcdsaSigLen> SigKey;
+
+    inline std::uint64_t SipRotl ( std::uint64_t x, int b )
+    {
+        return ( x << b ) | ( x >> ( 64 - b ) );
+    }
+
+    struct SigKeyHash
+    {
+        std::uint64_t k0;
+        std::uint64_t k1;
+
+        size_t operator() ( const SigKey &key ) const
+        {
+            std::uint64_t v0 = k0 ^ 0x736f6d6570736575ULL;
+            std::uint64_t v1 = k1 ^ 0x646f72616e646f6dULL;
+            std::uint64_t v2 = k0 ^ 0x6c7967656e657261ULL;
+            std::uint64_t v3 = k1 ^ 0x7465646279746573ULL;
+#define P2P_SIPROUND                                                         \
+            do {                                                             \
+                v0 += v1; v1 = SipRotl ( v1, 13 ); v1 ^= v0;                 \
+                v0 = SipRotl ( v0, 32 );                                     \
+                v2 += v3; v3 = SipRotl ( v3, 16 ); v3 ^= v2;                 \
+                v0 += v3; v3 = SipRotl ( v3, 21 ); v3 ^= v0;                 \
+                v2 += v1; v1 = SipRotl ( v1, 17 ); v1 ^= v2;                 \
+                v2 = SipRotl ( v2, 32 );                                     \
+            } while ( 0 )
+            //  Native byte order, deliberately: the value never leaves this
+            //  process, so it only has to agree with itself.
+            static_assert ( sizeof(SigKey) % 8 == 0, "whole 64-bit words" );
+            for ( size_t i = 0; i < sizeof(SigKey); i += 8 )
+            {
+                std::uint64_t m;
+                std::memcpy ( &m, key.data ( ) + i, 8 );
+                v3 ^= m; P2P_SIPROUND; P2P_SIPROUND; v0 ^= m;
+            }
+            const std::uint64_t b = (std::uint64_t)sizeof(SigKey) << 56;
+            v3 ^= b; P2P_SIPROUND; P2P_SIPROUND; v0 ^= b;
+            v2 ^= 0xff;
+            P2P_SIPROUND; P2P_SIPROUND; P2P_SIPROUND; P2P_SIPROUND;
+#undef P2P_SIPROUND
+            return (size_t)( v0 ^ v1 ^ v2 ^ v3 );
+        }
+    };
+
+    //  A replay cache: the ORDERED entries exactly as before (the relay cache
+    //  trims them by age and evicts from the front, the seal cache rings over
+    //  them - both rules read the order), plus an index by signature so the
+    //  "seen?" question stops being a scan (plan T1j, F-P0-14: the scan was
+    //  up to 4,096 x 64 B per message, ~140 us and 9.6% of process CPU in a
+    //  sealed chain). Every change to v goes through Add / Drop so the two
+    //  cannot disagree. The index holds a COUNT per signature rather than
+    //  assuming uniqueness: today's callers only note what they just checked
+    //  was unseen, but a count stays right if that ever stops being true.
+    //
+    //  The lookup compares with operator== rather than ConstTimeEqual. That
+    //  is safe here and was never what the constant-time compare protected:
+    //  both operands are signatures received off the wire, neither is secret.
+    struct SigCache
+    {
+        SeenSigVec v;
+        std::unordered_map<SigKey, std::uint32_t, SigKeyHash> idx;
+
+        static SigKeyHash MakeHash ( )
+        {
+            SigKeyHash h;
+            std::uint64_t k[2] = { 0, 0 };
+            if ( !p2pcng::CngRandom ( k, (unsigned long)sizeof(k) ) )
+            {
+                //  No RNG: still a correct cache, only an aimable one - and
+                //  aiming it buys back the old scan, nothing worse.
+                k[0] = (std::uint64_t)(std::uintptr_t)&k ^ (std::uint64_t)std::time ( 0 );
+                k[1] = ~k[0];
+            }
+            h.k0 = k[0];
+            h.k1 = k[1];
+            return h;
+        }
+
+        SigCache ( ) : idx ( kSeenMax + 1, MakeHash ( ) ) { }
+
+        static SigKey KeyOf ( const unsigned char *pSig )
+        {
+            SigKey k;
+            std::memcpy ( k.data ( ), pSig, k.size ( ) );
+            return k;
+        }
+
+        bool Has ( const unsigned char *pSig ) const
+        {
+            return idx.find ( KeyOf ( pSig ) ) != idx.end ( );
+        }
+
+        void Add ( const unsigned char *pSig )
+        {
+            ++idx[ KeyOf ( pSig ) ];
+        }
+
+        void Drop ( const unsigned char *pSig )
+        {
+            auto it = idx.find ( KeyOf ( pSig ) );
+            if ( it == idx.end ( ) ) return;        // cannot happen; harmless
+            if ( --it->second == 0 ) idx.erase ( it );
+        }
+    };
+
+    //  Imported handles for STATIC public points (plan T1g, F-P0-3). Every
+    //  verify against an allow-listed identity and every seal to an
+    //  allow-listed agreement key used to import the point afresh, ~34 us each
+    //  on CNG, for a value that does not change between messages.
+    //
+    //  WHAT MAKES THIS SAFE is that it is keyed by the point's own bytes and
+    //  holds nothing but "the import of these 64 bytes". It is never asked
+    //  WHICH key to use - PeerKeyAt / FindAgreement still answer that from the
+    //  allow-list, skipping revoked points, on every message - so a stale
+    //  entry is unreachable rather than wrong. Flushed with the allow-list
+    //  anyway, which also bounds it by what the list can name; kKeyCacheMax is
+    //  only the backstop for a list that keeps being edited without a reload.
+    //
+    //  A failed import is NOT cached: Get returns null, the caller falls back
+    //  to the raw-point path, and that path reports the refusal it always did.
+    //
+    //  Not locked: AuthPolicy runs under the hub's m_oCSectionHub (header), so
+    //  one handle is never used by two threads at once.
+    const size_t kKeyCacheMax = 1024;
+
+    static_assert ( kEcdsaPubLen == p2pcng::kEcdsaSigLen &&
+                    kEcdhPubLen  == p2pcng::kEcdsaSigLen,
+                    "points and signatures share the 64-byte key type" );
+
+    struct KeyCache
+    {
+        std::unordered_map<SigKey, std::unique_ptr<EcdsaP256>, SigKeyHash> ids;
+        std::unordered_map<SigKey, std::unique_ptr<p2pcng::EcdhP256>,
+                           SigKeyHash> agrees;
+
+        KeyCache ( )
+            : ids    ( 16, SigCache::MakeHash ( ) )
+            , agrees ( 16, SigCache::MakeHash ( ) )
+        { }
+
+        void Clear ( ) { ids.clear ( ); agrees.clear ( ); }
+
+        template <class Key, class Map>
+        static Key *Get ( Map &m, const unsigned char *pPoint )
+        {
+            const SigKey k = SigCache::KeyOf ( pPoint );
+            auto it = m.find ( k );
+            if ( it != m.end ( ) ) return it->second.get ( );
+
+            //  Full: stop growing rather than evict. A caller may be holding
+            //  pointers from earlier calls (Seal gathers up to eight readers
+            //  before using any), so nothing returned may die before the next
+            //  allow-list reload. Null sends the caller down the raw-point
+            //  path, which is exactly the cost this cache existed to save.
+            if ( m.size ( ) >= kKeyCacheMax ) return nullptr;
+
+            std::unique_ptr<Key> p ( new Key ( ) );
+            if ( !p->ImportPublic ( pPoint ) ) return nullptr;
+            Key *pRaw = p.get ( );
+            m.emplace ( k, std::move ( p ) );
+            return pRaw;
+        }
+
+        EcdsaP256 *Identity ( const unsigned char *pPub )
+        {
+            return Get<EcdsaP256> ( ids, pPub );
+        }
+
+        p2pcng::EcdhP256 *Agreement ( const unsigned char *pPub )
+        {
+            return Get<p2pcng::EcdhP256> ( agrees, pPub );
+        }
+    };
     //  Configured extra readers, by ADDRESS. Resolved through the allow-list
     //  at seal time rather than stored as points, so revoking a reader's
     //  agreement key takes effect without anyone editing this list.
@@ -135,7 +322,8 @@ namespace
 
     inline AllowVec   *Allow  ( void *p ) { return (AllowVec   *)p; }
     inline SeenVec    *Seen   ( void *p ) { return (SeenVec    *)p; }
-    inline SeenSigVec *SeenRel( void *p ) { return (SeenSigVec *)p; }
+    inline SigCache   *SeenRel( void *p ) { return (SigCache   *)p; }
+    inline KeyCache   *Keys   ( void *p ) { return (KeyCache   *)p; }
     inline RevVec     *Revs   ( void *p ) { return (RevVec     *)p; }
     inline ReaderVec  *Readers( void *p ) { return (ReaderVec  *)p; }
 
@@ -528,6 +716,7 @@ AuthPolicy::AuthPolicy ( )
     , m_pSeenRel ( nullptr )
     , m_pSeenSeal ( nullptr )
     , m_nSealNext ( 0 )
+    , m_pKeyCache ( nullptr )
     , m_pszAllowPath ( nullptr )
     //  Meaningless until a path is configured; IsAllowUsable() reads it only
     //  when one is, so the initial value is never the answer to anything.
@@ -568,8 +757,9 @@ AuthPolicy::AuthPolicy ( )
     m_pAllow    = new AllowVec   ( );
     m_pSealReaders = new ReaderVec ( );
     m_pSeen     = new SeenVec    ( );
-    m_pSeenRel  = new SeenSigVec ( );
-    m_pSeenSeal = new SeenSigVec ( );
+    m_pSeenRel  = new SigCache   ( );
+    m_pSeenSeal = new SigCache   ( );
+    m_pKeyCache = new KeyCache   ( );
     m_pRevoked  = new RevVec     ( );
 }
 
@@ -581,6 +771,7 @@ AuthPolicy::~AuthPolicy ( )
     delete Seen   ( m_pSeen  );
     delete SeenRel( m_pSeenRel );
     delete SeenRel( m_pSeenSeal );
+    delete Keys   ( m_pKeyCache );
     delete Revs   ( m_pRevoked );
     delete Readers( m_pSealReaders );
     if ( m_pszAllowPath )  std::free ( m_pszAllowPath );
@@ -661,6 +852,9 @@ AuthPolicy::ReloadAllowList ( )
 
     Allow ( m_pAllow )->swap ( vNew );
     m_bAllowUsable = true;
+    //  Not needed for correctness (KeyCache is keyed by the point itself) -
+    //  this is what keeps it bounded by what the list can name.
+    Keys ( m_pKeyCache )->Clear ( );
     return p2pcng::IdOk;
 }
 
@@ -1317,9 +1511,18 @@ AuthPolicy::VerifyAgainstPeer ( const wchar_t *pAddr,
     for ( size_t i = 0; i < nLive; i++ )
     {
         if ( !PeerKeyAt ( pAddr, i, pub ) ) break;
-        EcdsaP256 oPeer;
-        if ( !oPeer.ImportPublic ( pub ) ) return AuthErrInternal;
-        if ( oPeer.Verify ( pTr, cbTr, pSig ) ) return AuthOk;
+        //  The import comes from KeyCache (T1g); WHICH key is still decided
+        //  by PeerKeyAt above, revocation included, every time. Null is a
+        //  point that will not import, or a full cache - try the old way so
+        //  the outcome is whatever it always was.
+        EcdsaP256 *pPeer = Keys ( m_pKeyCache )->Identity ( pub );
+        EcdsaP256  oPeer;
+        if ( !pPeer )
+        {
+            if ( !oPeer.ImportPublic ( pub ) ) return AuthErrInternal;
+            pPeer = &oPeer;
+        }
+        if ( pPeer->Verify ( pTr, cbTr, pSig ) ) return AuthOk;
     }
     //  Every listed key was tried and none of them signed this. During a
     //  rollover that is still just a bad signature - there is no "wrong key of
@@ -1486,8 +1689,16 @@ AuthPolicy::Seal ( const wchar_t *pSrc, const wchar_t *pDst,
         nReaders++;
     }
 
-    return p2pseal::SealTo ( *m_pIdentity, aReaders, nReaders, pSrc, pDst,
-                             pPlain, cbPlain, pOut, cbOut, pcbOut, llWhen );
+    //  Each reader's point imported once and kept (T1g). A null entry - a
+    //  point that will not import, or a full cache - is imported inside
+    //  SealToKeyed exactly as SealTo always did, refusal included.
+    p2pcng::EcdhP256 *apKeys[p2pseal::kSealMaxReaders];
+    for ( size_t r = 0; r < nReaders; r++ )
+        apKeys[r] = Keys ( m_pKeyCache )->Agreement ( aReaders + r * kEcdhPubLen );
+
+    return p2pseal::SealToKeyed ( *m_pIdentity, aReaders, apKeys, nReaders,
+                                  pSrc, pDst, pPlain, cbPlain,
+                                  pOut, cbOut, pcbOut, llWhen );
 }
 
 p2pseal::SealResult
@@ -1517,9 +1728,14 @@ AuthPolicy::Open ( const wchar_t *pSrc, const wchar_t *pDst,
     {
         if ( !PeerKeyAt ( pSrc, i, sender ) ) break;
         long long llWhen = 0;
-        p2pseal::SealResult e = p2pseal::Open ( *m_pAgreement, sender, pSrc, pDst,
-                                                pIn, cbIn, pOut, cbOut, pcbOut,
-                                                &llWhen );
+        //  Sender's identity import from KeyCache (T1g); null falls back to
+        //  the raw-point Open, which reproduces its own refusal.
+        EcdsaP256 *pSenderKey = Keys ( m_pKeyCache )->Identity ( sender );
+        p2pseal::SealResult e = pSenderKey
+            ? p2pseal::OpenKeyed ( *m_pAgreement, *pSenderKey, pSrc, pDst,
+                                   pIn, cbIn, pOut, cbOut, pcbOut, &llWhen )
+            : p2pseal::Open      ( *m_pAgreement, sender, pSrc, pDst,
+                                   pIn, cbIn, pOut, cbOut, pcbOut, &llWhen );
         if ( e == p2pseal::SealOk )
         {
             //  Everything below runs only for a body that actually OPENED - so
@@ -1630,16 +1846,13 @@ bool AuthPolicy::FindIdentity ( const wchar_t *pAddr, unsigned char *pPubOut )
 
 bool AuthPolicy::SeenRelaySig ( const unsigned char *pSig ) const
 {
-    const SeenSigVec *pVec = SeenRel ( m_pSeenRel );
-    for ( size_t i = 0; i < pVec->size ( ); i++ )
-        if ( p2pcng::ConstTimeEqual ( (*pVec)[i].s, pSig, p2pcng::kEcdsaSigLen ) )
-            return true;
-    return false;
+    return SeenRel ( m_pSeenRel )->Has ( pSig );
 }
 
 bool AuthPolicy::NoteRelaySig ( const unsigned char *pSig, time_t tNow )
 {
-    SeenSigVec *pVec = SeenRel ( m_pSeenRel );
+    SigCache   *pCache = SeenRel ( m_pSeenRel );
+    SeenSigVec *pVec   = &pCache->v;
 
     //  Trimmed by age on exactly the terms NoteNonce is, and for the same
     //  reason: an entry has to outlive every timestamp that could still be
@@ -1657,6 +1870,8 @@ bool AuthPolicy::NoteRelaySig ( const unsigned char *pSig, time_t tNow )
                 if ( w != i ) (*pVec)[w] = (*pVec)[i];
                 w++;
             }
+            else
+                pCache->Drop ( (*pVec)[i].s );
         }
         pVec->resize ( w );
     }
@@ -1689,28 +1904,29 @@ bool AuthPolicy::NoteRelaySig ( const unsigned char *pSig, time_t tNow )
     //  NoteSealSig which rings instead, because this cache cannot: the age trim
     //  above walks the entries in order, so their order has to mean something.
     if ( pVec->size ( ) >= kSeenMax )
-        pVec->erase ( pVec->begin ( ),
-                      pVec->begin ( ) + ( pVec->size ( ) - kSeenMax + 1 ) );
+    {
+        const size_t nDrop = pVec->size ( ) - kSeenMax + 1;
+        for ( size_t i = 0; i < nDrop; i++ ) pCache->Drop ( (*pVec)[i].s );
+        pVec->erase ( pVec->begin ( ), pVec->begin ( ) + nDrop );
+    }
 
     SigMark m;
     std::memcpy ( m.s, pSig, p2pcng::kEcdsaSigLen );
     m.t = tNow;
     pVec->push_back ( m );
+    pCache->Add ( pSig );
     return true;
 }
 
 bool AuthPolicy::SeenSealSig ( const unsigned char *pSig ) const
 {
-    const SeenSigVec *pVec = SeenRel ( m_pSeenSeal );
-    for ( size_t i = 0; i < pVec->size ( ); i++ )
-        if ( p2pcng::ConstTimeEqual ( (*pVec)[i].s, pSig, p2pcng::kEcdsaSigLen ) )
-            return true;
-    return false;
+    return SeenRel ( m_pSeenSeal )->Has ( pSig );
 }
 
 bool AuthPolicy::NoteSealSig ( const unsigned char *pSig, long long llWhen )
 {
-    SeenSigVec *pVec = SeenRel ( m_pSeenSeal );
+    SigCache   *pCache = SeenRel ( m_pSeenSeal );
+    SeenSigVec *pVec   = &pCache->v;
 
     //  STILL BOUNDED BY COUNT ONLY - but that is no longer the whole story,
     //  and the reason it used to be is worth keeping because it explains the
@@ -1748,6 +1964,7 @@ bool AuthPolicy::NoteSealSig ( const unsigned char *pSig, long long llWhen )
         //  the oldest entry the moment it becomes full, which is where eviction
         //  has to start.
         pVec->push_back ( m );
+        pCache->Add ( pSig );
         m_nSealNext = 0;
         return true;
     }
@@ -1757,7 +1974,9 @@ bool AuthPolicy::NoteSealSig ( const unsigned char *pSig, long long llWhen )
     const long long llEvicted = (long long)(*pVec)[m_nSealNext].t;
     if ( llEvicted > m_llSealFloor ) m_llSealFloor = llEvicted;
 
+    pCache->Drop ( (*pVec)[m_nSealNext].s );
     (*pVec)[m_nSealNext++] = m;
+    pCache->Add ( pSig );
     return true;
 }
 

@@ -3487,6 +3487,31 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
          pMsg->Map_MatchName ( P2Pmsg_CypherEx )    )
       return true;
 
+    // The scope, read ONCE, and the last-hop test FIRST (plan T1i, F-P0-11)
+    // NOTES: Measured on a direct link where no seal can ever happen: this
+    //        function cost +22 allocs and up to 86 CPU us per message (-39%
+    //        throughput, Linux), and GetScopeOrDestin - called TWICE below,
+    //        once to test and once to copy - was 55% of it, IsSealed 20%.
+    //        On a direct link the answer was always the last-hop test, and it
+    //        ran last
+    //      : REORDERING CHANGES NO DECISION.  Every exit above the seal is
+    //        "return true, send as is" and none of the tests has a side
+    //        effect, so the set of messages that reach the seal is the same
+    //        whichever order they are asked in.  The handshake names stay
+    //        above this because they are cheap and because GetScopeOrDestin
+    //        has never been run against a login block
+    //      : COPIED before anything else reads the message.  Off Windows
+    //        c_wstr() hands out a ring of thread-local buffers that the next
+    //        accessor recycles (refer GetScopeOrDestin), so the pointer is
+    //        compared straight away and held as a CString from then on
+    P2PaddrSTR strScopeNow = pMsg->GetScopeOrDestin ( );
+    if ( !strScopeNow || !*strScopeNow )
+      return true;
+    if ( m_oThatP2Paddr == strScopeNow )
+      return true;
+    CString    strScopeHeld = strScopeNow;
+    P2PaddrSTR strScope     = (P2PaddrSTR)strScopeHeld;
+
     // Already sealed?
     // NOTES: The relay case, and the common one.  A hub forwarding a sealed
     //        body must pass it on untouched - re-sealing would substitute this
@@ -3545,7 +3570,7 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     if ( pMsg->HasUpScope ( ) && !pHub -> IsSealUpcastRequired ( ) )
       return true;
 
-    // Is there an intermediate hub at all?
+    // Is there an intermediate hub at all?  ANSWERED ABOVE, since T1i
     // NOTES: The peer on the far end is m_oThatP2Paddr.  Equal to the
     //        message's SCOPE means this link IS the last hop
     //      : SCOPE AND NOT Dst, which is the defect this replaced.  A
@@ -3557,14 +3582,6 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     //        keys of any kind.  Refer TMsg_Scp in P2PeerMsg.h
     //      : For a unicast nothing is stamped and GetScopeOrDestin() IS
     //        GetDestin(), so this path is byte-for-byte what it was
-    CString    strScopeHeld = pMsg->GetScopeOrDestin ( )
-                                ? pMsg->GetScopeOrDestin ( ) : L"";
-    P2PaddrSTR strScope     = (P2PaddrSTR)strScopeHeld;
-    if ( !strScope || !*strScope )
-      return true;
-
-    if ( m_oThatP2Paddr == strScope )
-      return true;
 
     // Is the destination a hub in THIS process, on a hub that has waived?
     // NOTES: securityRevision.md §6.3, and it is the ONE exemption on this

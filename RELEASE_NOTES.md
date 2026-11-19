@@ -3,6 +3,38 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.5.0
+
+A minor release that makes the security path faster. Every accept/refuse decision is the same,
+the wire is unchanged and so are the sealed bytes. The flat C API (103 symbols) and every exported
+class layout are unchanged too.
+
+New exported C++ entry points, all non-virtual:
+- `p2pcng::EcdhP256::DeriveRawSecret(const EcdhP256&)` agrees with a peer key that was already
+  imported.
+- `p2pseal::SealToKeyed` and `p2pseal::OpenKeyed` seal and open with reader and sender keys that
+  were already imported. `p2pseal::SealTo` and `p2pseal::Open` behave as before.
+
+What changed:
+
+- **Replay checks are now constant-time per message.** The relay and seal replay caches used to
+  compare each arriving signature against every cached one, up to 4,096 of them. They are now
+  indexed, with the same age trim and the same eviction order.
+- **Static public keys are imported once.** A reader's agreement key and a sender's identity key
+  used to be re-imported for every message. They are now cached by the policy and cleared
+  whenever the allow-list is reloaded.
+- Together, those two changes cut CPU per message on a sealed relay chain by 10–11% on Windows and
+  15–17% on Linux.
+- **Windows: hashing and AES providers are opened once per process.** SHA-256, HMAC and AES-GCM
+  now share a provider, as ECDH and ECDSA have since 3.4.5. HKDF is 46% faster, which saves about
+  11–16 µs per seal or open.
+- **Linux: the link cypher keys AES once per direction** instead of on every frame. That saves
+  about 1 µs per seal and 0.9 µs per open. An `AesGcm` object can still be used from two threads
+  at once, and allocation counts are unchanged.
+- **`RequireSeal` costs much less on a link that never seals.** The last-hop test now runs first
+  and the scope is read once. On a direct link the overhead is about half what it was on Windows,
+  and under a third on Linux.
+
 ## 3.4.9
 
 A patch release: an oversized message no longer drops the link. The flat C API (103 symbols),

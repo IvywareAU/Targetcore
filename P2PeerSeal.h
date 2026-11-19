@@ -337,6 +337,37 @@ namespace p2pseal
                       unsigned char *pOut, size_t cbOut, size_t *pcbOut,
                       long long llWhen = 0 );
 
+    // ---- The same two, with the STATIC keys already imported ------------
+    //  Plan T1g. Byte-identical output and the same refusals; what they save
+    //  is the per-message import of a point that does not change from one
+    //  message to the next (~34 us each on CNG) - the readers' agreement
+    //  points on seal, the sender's identity point on open. The caller keeps
+    //  the imported keys (p2pauth::AuthPolicy caches them by point).
+    //
+    //  SealToKeyed: apReaderKeys[r] is reader r's point imported with
+    //  EcdhP256::ImportPublic, or null to import pReaders' entry r here as
+    //  SealTo does. pReaders is still required: the slot tags and the
+    //  duplicate check are computed over the raw points, and a key passed
+    //  here MUST be the import of the point at the same index - nothing below
+    //  can check that, and a mismatch seals to a reader the tag does not name.
+    //
+    //  OpenKeyed: oSenderKey is the sender's identity point imported with
+    //  EcdsaP256::ImportPublic, used in place of pSenderId.
+    P2PCNG_EXT SealResult SealToKeyed ( p2pcng::EcdsaP256 &oSender,
+                      const unsigned char *pReaders,
+                      p2pcng::EcdhP256 *const *apReaderKeys, size_t nReaders,
+                      const wchar_t *pSrc, const wchar_t *pDst,
+                      const void *pPlain, size_t cbPlain,
+                      unsigned char *pOut, size_t cbOut, size_t *pcbOut,
+                      long long llWhen = 0 );
+
+    P2PCNG_EXT SealResult OpenKeyed ( p2pcng::EcdhP256 &oRecipAgree,
+                      p2pcng::EcdsaP256 &oSenderKey,
+                      const wchar_t *pSrc, const wchar_t *pDst,
+                      const unsigned char *pIn, size_t cbIn,
+                      void *pOut, size_t cbOut, size_t *pcbOut,
+                      long long *pllWhenOut = 0 );
+
     // How many readers a sealed block names, without opening it and without
     // any key at all. 0 if the buffer is not a block this build understands.
     // For diagnostics and for buffer sizing on a relay - never a trust

@@ -51,21 +51,56 @@ namespace p2pcng
     //         the next caller rather than cached as a failure
     //       : Windows 10's BCRYPT_*_ALG_HANDLE pseudo-handles would make this
     //         free, and are out of reach: the floor is 8.1 (targetver.h)
-    static BCRYPT_ALG_HANDLE SharedAlg ( LPCWSTR pszAlgId )
+    //       : EXTENDED 2026-11-19 (plan T1h, F-P0-4) to SHA-256, HMAC-SHA256
+    //         and AES-GCM, which were still opened per CALL (SHA/HMAC - HKDF
+    //         alone opened 2+ per derive) or per OBJECT (AesGcm - and p2pseal
+    //         makes 1 + readers of those per seal, 2 per open). AES needs its
+    //         chaining mode set, which IS a BCryptSetProperty: it is done once,
+    //         here, under the mutex and before the handle is published, and
+    //         never again - so the "nothing sets a property" rule above holds
+    //         for every handle any caller can see
+    enum SharedAlgId { kAlgEcdh, kAlgEcdsa, kAlgSha256, kAlgHmacSha256, kAlgAesGcm,
+                       kAlgCount };
+
+    static BCRYPT_ALG_HANDLE SharedAlgById ( SharedAlgId eId )
     {
         static std::mutex        s_oMutex;
-        static BCRYPT_ALG_HANDLE s_hEcdh  = nullptr;
-        static BCRYPT_ALG_HANDLE s_hEcdsa = nullptr;
-        BCRYPT_ALG_HANDLE *ph = ( wcscmp ( pszAlgId, BCRYPT_ECDH_P256_ALGORITHM ) == 0 )
-                              ? &s_hEcdh : &s_hEcdsa;
+        static BCRYPT_ALG_HANDLE s_ah[kAlgCount] = { };
         std::lock_guard<std::mutex> oLock ( s_oMutex );
-        if ( !*ph )
+        if ( !s_ah[eId] )
         {
+            LPCWSTR pszAlg = BCRYPT_SHA256_ALGORITHM;
+            ULONG   dwFlags = 0;
+            switch ( eId )
+            {
+              case kAlgEcdh:       pszAlg = BCRYPT_ECDH_P256_ALGORITHM;  break;
+              case kAlgEcdsa:      pszAlg = BCRYPT_ECDSA_P256_ALGORITHM; break;
+              case kAlgSha256:     pszAlg = BCRYPT_SHA256_ALGORITHM;     break;
+              case kAlgHmacSha256: pszAlg = BCRYPT_SHA256_ALGORITHM;
+                                   dwFlags = BCRYPT_ALG_HANDLE_HMAC_FLAG; break;
+              case kAlgAesGcm:     pszAlg = BCRYPT_AES_ALGORITHM;        break;
+              default:             return nullptr;
+            }
             BCRYPT_ALG_HANDLE h = nullptr;
-            if ( ok ( BCryptOpenAlgorithmProvider ( &h, pszAlgId, nullptr, 0 ) ) )
-                *ph = h;
+            if ( !ok ( BCryptOpenAlgorithmProvider ( &h, pszAlg, nullptr, dwFlags ) ) )
+                return nullptr;          // not cached: the next caller retries
+            if ( eId == kAlgAesGcm &&
+                 !ok ( BCryptSetProperty ( h, BCRYPT_CHAINING_MODE,
+                                           (PUCHAR)BCRYPT_CHAIN_MODE_GCM,
+                                           sizeof(BCRYPT_CHAIN_MODE_GCM), 0 ) ) )
+            {
+                BCryptCloseAlgorithmProvider ( h, 0 );
+                return nullptr;
+            }
+            s_ah[eId] = h;
         }
-        return *ph;
+        return s_ah[eId];
+    }
+
+    static BCRYPT_ALG_HANDLE SharedAlg ( LPCWSTR pszAlgId )
+    {
+        return SharedAlgById ( wcscmp ( pszAlgId, BCRYPT_ECDH_P256_ALGORITHM ) == 0
+                               ? kAlgEcdh : kAlgEcdsa );
     }
 
     // -------------------------------------------------------------------
@@ -86,13 +121,13 @@ namespace p2pcng
     {
         if ( !pHashOut ) return false;
 
-        BCRYPT_ALG_HANDLE  hAlg  = nullptr;
+        //  The process's shared provider (T1h) - refer SharedAlgById. Never
+        //  closed here.
+        BCRYPT_ALG_HANDLE  hAlg  = SharedAlgById ( kAlgSha256 );
         BCRYPT_HASH_HANDLE hHash = nullptr;
         bool bOk = false;
 
-        if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_SHA256_ALGORITHM,
-                                                 nullptr, 0 ) ) )
-            return false;
+        if ( !hAlg ) return false;
         if ( !ok ( BCryptCreateHash ( hAlg, &hHash, nullptr, 0, nullptr, 0, 0 ) ) )
             goto done;
         if ( cbData &&
@@ -104,7 +139,6 @@ namespace p2pcng
 
     done:
         if ( hHash ) BCryptDestroyHash ( hHash );
-        if ( hAlg )  BCryptCloseAlgorithmProvider ( hAlg, 0 );
         return bOk;
     }
 
@@ -115,13 +149,14 @@ namespace p2pcng
                       const unsigned char *pData, size_t cbData,
                       unsigned char pMacOut[] )
     {
-        BCRYPT_ALG_HANDLE  hAlg  = nullptr;
+        //  Shared provider (T1h), opened with the HMAC flag - refer
+        //  SharedAlgById. The key goes to BCryptCreateHash per call, so one
+        //  handle serves every key. Never closed here.
+        BCRYPT_ALG_HANDLE  hAlg  = SharedAlgById ( kAlgHmacSha256 );
         BCRYPT_HASH_HANDLE hHash = nullptr;
         bool bOk = false;
 
-        if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_SHA256_ALGORITHM,
-                                                 nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG ) ) )
-            return false;
+        if ( !hAlg ) return false;
 
         // pbHashObject == NULL lets CNG manage the object store (Win8.1+).
         if ( !ok ( BCryptCreateHash ( hAlg, &hHash, nullptr, 0,
@@ -136,7 +171,6 @@ namespace p2pcng
 
     done:
         if ( hHash ) BCryptDestroyHash ( hHash );
-        if ( hAlg )  BCryptCloseAlgorithmProvider ( hAlg, 0 );
         return bOk;
     }
 
@@ -210,7 +244,8 @@ namespace p2pcng
     {
         if ( m_hKey )    BCryptDestroyKey ( (BCRYPT_KEY_HANDLE)m_hKey );
         if ( m_pKeyObj ) { SecureZeroMemory ( m_pKeyObj, m_cbKeyObj ); free ( m_pKeyObj ); }
-        if ( m_hAlg )    BCryptCloseAlgorithmProvider ( (BCRYPT_ALG_HANDLE)m_hAlg, 0 );
+        //  m_hAlg is the process's shared AES-GCM provider (T1h) - refer
+        //  SharedAlgById - and is not this object's to close
     }
 
     bool AesGcm::SetKey ( const unsigned char *pKey, size_t cbKey )
@@ -228,16 +263,10 @@ namespace p2pcng
         BCRYPT_ALG_HANDLE hAlg = (BCRYPT_ALG_HANDLE)m_hAlg;
         if ( !hAlg )
         {
-            if ( !ok ( BCryptOpenAlgorithmProvider ( &hAlg, BCRYPT_AES_ALGORITHM,
-                                                     nullptr, 0 ) ) )
-                return false;
-            if ( !ok ( BCryptSetProperty ( hAlg, BCRYPT_CHAINING_MODE,
-                                           (PUCHAR)BCRYPT_CHAIN_MODE_GCM,
-                                           sizeof(BCRYPT_CHAIN_MODE_GCM), 0 ) ) )
-            {
-                BCryptCloseAlgorithmProvider ( hAlg, 0 );
-                return false;
-            }
+            //  Shared, chaining mode already GCM (T1h) - refer SharedAlgById.
+            //  It was opened per OBJECT, and p2pseal builds fresh objects for
+            //  every seal and open.
+            if ( !( hAlg = SharedAlgById ( kAlgAesGcm ) ) ) return false;
             m_hAlg = hAlg;
         }
 
@@ -488,6 +517,30 @@ namespace p2pcng
     done:
         if ( hSecret ) BCryptDestroySecret ( hSecret );
         if ( hPeer )   BCryptDestroyKey ( hPeer );
+        return bOk;
+    }
+
+    bool EcdhP256::DeriveRawSecret ( const EcdhP256 &oPeer,
+                                     unsigned char pSecretOut[] )
+    {
+        //  Same guard as above, and for the same crash: only THIS instance has
+        //  to hold a private half. oPeer's handle is the import the raw-point
+        //  overload makes and throws away; here the caller kept it.
+        if ( !m_hKey || !m_hAlg || !m_bPrivate || !oPeer.m_hKey || !pSecretOut )
+            return false;
+
+        BCRYPT_SECRET_HANDLE hSecret = nullptr;
+        bool bOk = false;
+        if ( ok ( BCryptSecretAgreement ( (BCRYPT_KEY_HANDLE)m_hKey,
+                                          (BCRYPT_KEY_HANDLE)oPeer.m_hKey,
+                                          &hSecret, 0 ) ) )
+        {
+            ULONG cb = 0;
+            bOk = ok ( BCryptDeriveKey ( hSecret, BCRYPT_KDF_RAW_SECRET, nullptr,
+                                         pSecretOut, (ULONG)kEcdhSecLen, &cb, 0 ) ) &&
+                  cb == kEcdhSecLen;
+        }
+        if ( hSecret ) BCryptDestroySecret ( hSecret );
         return bOk;
     }
 
