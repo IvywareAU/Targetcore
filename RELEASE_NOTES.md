@@ -3,6 +3,21 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.5.1
+
+A patch release that takes a repeated check off the message pump. Nothing exported, no class
+layout and nothing on the wire changed.
+
+- **Each message's tree is now checked once on the pump, not twice.** In Release the pump walked
+  every message's whole tree when the message was queued, and walked it again when it was
+  dispatched, though nothing changes the message in between. The repeat now runs only in Debug
+  builds, or in Release when the environment variable `P2P_PUMP_VERIFY` is set to anything but
+  `0`. That variable is read once at start-up and brings back the old behaviour.
+- **The check when a message is queued stays on.** Every message received from the network passes
+  it.
+- Measured on Windows on a direct link (`perf_ab`, security posture A): throughput +7.5% and about 6 µs
+  less CPU per message. No measurable change on Linux.
+
 ## 3.5.0
 
 A minor release that makes the security path faster. Every accept/refuse decision is the same,

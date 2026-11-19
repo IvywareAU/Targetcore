@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.5.0 is tag
-//         v3.5.0. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.5.1 is tag
+//         v3.5.1. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,21 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.5.1.0, a PATCH on 3.5.0. Nothing exported, no layout and nothing on the
+//  wire moved; one file, P2Pwin32.cpp. T6 (p2p_performance P1): the pump
+//  verified every message TWICE in Release - VerifyP2Pmsg ends in
+//  P2PeerMsg::AssertValid, Msgcore's recursive walk of the whole message tree
+//  - once in PutP2Pmsg and again at dispatch, with nothing touching the
+//  message in between (PutP2Pmsg is the only way into the FIFO). The dispatch
+//  repeat, and SwapP2PmsgContext's target check, now run only in Debug or when
+//  P2P_PUMP_VERIFY is set (read once). THE PutP2Pmsg WALK STAYS ON: every
+//  message received off the wire passes it after ingress, its tree checks are
+//  not obviously covered by the ingress heap walk, and no fuzz harness reaches
+//  it - so it is not removed from the untrusted path. Also gone: two
+//  P2PeerTarget::AssertValid calls in PutP2Pmsg that duplicated the one inside
+//  VerifyP2Pmsg and ran ahead of its null test. Windows posture A +7.5%
+//  throughput, -6 us CPU per message; Linux within noise.
+//  BELOW IS THE 3.5.0 RATIONALE.
 //  3.5.0.0, a MINOR on 3.4.9, informed - not compelled - by an ADDITIVE
 //  exported C++ surface. The covered surface did not move (103 symbols,
 //  abi-flat.manifest and Targetcore_c.h unchanged), no exported class layout
@@ -417,23 +432,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  5
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,5,0,0
+#define TARGETCORE_VERSION_COMMAS 3,5,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.5.0.0"
+#define TARGETCORE_VERSION_STRING "3.5.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03050000 is 3.5.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03050100 is 3.5.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03050000
+#define TARGETCORE_VERSION_HEX    0x03050100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -449,7 +464,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.5.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.5.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

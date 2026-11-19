@@ -191,6 +191,34 @@ P2PmsgFactory ( )
     return  pP2Pmsg;
 }
 
+//
+//  Whether the pump RE-validates a message it already validated on post
+//  NOTES: T6 (p2p_performance.md). VerifyP2Pmsg ends in P2PeerMsg::AssertValid,
+//         which in Msgcore is a RECURSIVE walk of the whole message tree
+//         (P3PmsgNode::AssertValid visits every child), and the pump ran it in
+//         Release on post AND again on dispatch - twice per message, with
+//         nothing touching the message in between (PutP2Pmsg is the only way
+//         into the FIFO).  The verify on post stays unconditional (refer
+//         PutP2Pmsg); this switch governs only the repeats: the dispatch-side
+//         verify and SwapP2PmsgContext's target check.
+//       : Debug always repeats.  Release does when P2P_PUMP_VERIFY is set to
+//         anything but "0", read ONCE - which restores the pre-T6 two walks
+//         per message, and is how the A/B in p2p_performance_progress.md was run
+//
+static bool
+PumpVerifyOn ( )
+{
+#ifdef _DEBUG
+    return true;
+#else
+    static const bool s_bOn = [] {
+      const char *psz = getenv ( "P2P_PUMP_VERIFY" );
+      return psz && *psz && strcmp ( psz, "0" ) != 0;
+    } ( );
+    return s_bOn;
+#endif
+}
+
 bool
 VerifyP2Pmsg ( P2Pmsg *pP2Pmsg )
 {
@@ -570,13 +598,17 @@ ASSERT(pQue->m_nThreadId<pQue->m_pQueNext->m_nThreadId);
       UINT
         PutP2Pmsg ( P2Pmsg *pP2Pmsg, bool bPrepend )
         {
-ASSERT(VerifyP2Pmsg(pP2Pmsg));
-auto *pTarget = reinterpret_cast<P2PeerTarget *>(pP2Pmsg->pTarget);
-pTarget->P2PeerTarget::AssertValid();
-auto *pTarget2 = (P2PeerTarget *)pP2Pmsg->pTarget;
-pTarget2->P2PeerTarget::AssertValid();
           if ( pP2Pmsg )               // Skip NULL pointers
           {
+            //  THE ONE PUMP VERIFY THAT STAYS ON IN RELEASE (T6).  This is where
+            //  every message enters the FIFO - nothing else adds to
+            //  m_oCListP2Pmsg - including every message received off the wire,
+            //  and P2PeerMsg::AssertValid's tree walk (parent links, item
+            //  counts) is not obviously covered by the ingress heap walk.  So
+            //  it stays on the untrusted path, unconditionally, as before.
+            //  What T6 removed here: ASSERT(VerifyP2Pmsg) - a second walk in
+            //  Debug - and two P2PeerTarget::AssertValid calls that duplicated
+            //  the one inside VerifyP2Pmsg and ran ahead of the null test above
             VerifyP2Pmsg ( pP2Pmsg );
             if ( pP2Pmsg->pTarget == nullptr )
               pP2Pmsg -> pTarget = m_pTarget;
@@ -5458,8 +5490,8 @@ TOP:if ( pP2Pmsg == nullptr )
     if ( pP2Pmsg )
     {
       dwTimeout = 0;                   // Negate subsequent delay
-      //P2PeerTarget *pTarget = (P2PeerTarget *)pP2Pmsg->pTarget;
-      VerifyP2Pmsg ( pP2Pmsg );
+      if ( PumpVerifyOn ( ) )          // T6, refer PumpVerifyOn
+        VerifyP2Pmsg ( pP2Pmsg );
       if ( PreTranslateP2Pmsg(pP2Pmsg) )
       {
         TranslateP2Pmsg ( pP2Pmsg );
@@ -5501,7 +5533,8 @@ TOP:if ( pP2Pmsg == nullptr )
         }
         if ( !pBatch )
           break;
-        VerifyP2Pmsg ( pBatch );
+        if ( PumpVerifyOn ( ) )        // T6, refer PumpVerifyOn
+          VerifyP2Pmsg ( pBatch );
         if ( PreTranslateP2Pmsg(pBatch) )
         {
           TranslateP2Pmsg ( pBatch );
@@ -6571,7 +6604,8 @@ SwapP2PmsgContext  ( P2PeerTarget *pTarget, P2PumpID nPumpID
     // Locals
     P2Pmsg_Context *pContext    = 0;
     P2PmsgPump     *pP2PmsgPump = 0;
-pTarget->P2PeerTarget::AssertValid();
+    if ( PumpVerifyOn ( ) )            // T6, refer PumpVerifyOn
+      pTarget->P2PeerTarget::AssertValid();
 
     // Swap context
     // NOTES: Swaps are only ever valid from a PumpP2Pmsg context
