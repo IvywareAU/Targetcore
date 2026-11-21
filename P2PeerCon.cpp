@@ -44,8 +44,9 @@ static std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddr
 //         for what is live: the bytes that were not the body before the seal
 //         (nOverhead, measured by the caller), plus the sealed body, plus a
 //         margin for the seal marker and anything the send path adds after
-//         this. Too small only costs a grow - the heap extends itself, by at
-//         most a fifth - and the assignment copies the live items alone, as
+//         this. Too small only costs a grow - the heap extends itself (it
+//         doubles since Msgcore 3.5.1, and the send path trims what is left
+//         over since 3.7.0) - and the assignment copies the live items alone, as
 //         the copy constructor's does
 //       : NOT the copy constructor itself: it reserves the source's used
 //         count plus 4 KB, and the frame being the whole heap, it came out

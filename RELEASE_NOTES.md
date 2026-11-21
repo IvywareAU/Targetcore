@@ -3,6 +3,20 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.1
+
+A patch release: a message quoted inside another one is quoted without its unused space. The
+flat C API, every exported class layout and every wire format are unchanged. Use it with
+**Msgcore 3.5.1**; it also runs on 3.5.0.
+
+- **Error and exception reports, and timer wraps, embed the live message.** These embed the
+  wrapped message's whole image, and that image is its heap, free space included. They now trim
+  it first, as sending has since 3.7.0. An embedded message is smaller, so fewer reports reach
+  the size bound where the body is left out.
+- **Why now:** from Msgcore 3.5.1 a message's heap doubles when it grows, so an untrimmed report
+  could have quoted up to half its message in free space.
+- Unwrapping is unchanged. A trimmed embedded image is read the way any received image is.
+
 ## 3.7.0
 
 A minor release: unsealed frames are much smaller. **Requires Msgcore 3.5.0.** The flat C API,

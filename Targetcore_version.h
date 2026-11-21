@@ -58,6 +58,18 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.1.0, a PATCH on 3.7.0: a wrapped message is embedded at its live bytes.
+//  WrapFactory and WrappedResponseFactory (exception and error reports, timer
+//  wraps) quote a message's whole image, and that image is its heap, so they
+//  now trim it first, as SendP2PeerMsg has since 3.7.0. Paired with Msgcore
+//  3.5.1, whose message heaps double when they grow: untrimmed, a report
+//  would have quoted up to half its message in slack and reached the
+//  MAX_P2PmsgWrapEmbed elision bound sooner. Runs on Msgcore 3.5.0 as well
+//  (no new call). The covered surface and every wire format are unchanged;
+//  UnwrapFactory reads a trimmed embedded image as any receiver reads one.
+//
+//  BELOW IS THE 3.7.0 RATIONALE.
+//
 //  3.7.0.0, a MINOR on 3.6.0: an unsealed frame carries its message's live
 //  bytes, not its whole heap (p2p_performance.md M1). NEEDS MSGCORE 3.5.0,
 //  whose P3PmsgBSTR::TrimP2Piomage it calls; built against older headers it
@@ -481,23 +493,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,0,0
+#define TARGETCORE_VERSION_COMMAS 3,7,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.0.0"
+#define TARGETCORE_VERSION_STRING "3.7.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070000 is 3.7.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070100 is 3.7.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070000
+#define TARGETCORE_VERSION_HEX    0x03070100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -513,7 +525,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

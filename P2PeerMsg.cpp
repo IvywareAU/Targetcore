@@ -500,6 +500,12 @@ P2PeerMsg::WrappedResponseFactory ( P2PmsgID pszMsg
     //        stub is a VALID message carrying the original name, source and
     //        destination, so IsWrapped(), UnwrapFactory() and the stock
     //        On_MsgCatch handler all behave exactly as they did
+    //      : TRIMMED first (3.7.1), as the send path has been since 3.7.0: the
+    //        embedded image is this heap, and since Msgcore 3.5.1 a message
+    //        arena doubles when it grows, so untrimmed it would quote up to
+    //        half its size in slack and reach the elision bound sooner. A
+    //        trimmed image is what every receiver already takes off a socket
+    TrimP2Piomage ( );
     PrepareP2Piomage ( ~(DWORD)0 );
     const UINT nP2PiomageSize = P2PiomageSize ( );
     if ( nP2PiomageSize <= (UINT)MAX_P2PmsgWrapEmbed )
@@ -643,6 +649,8 @@ P2PeerMsg::WrapFactory ( P2PmsgID szMsg
 
     // Copy in details of the wrapped message
     // TODO:LJM This can be optimised
+    // Trimmed first, for the reason WrappedResponseFactory gives
+    TrimP2Piomage ( );
     PrepareP2Piomage ( ~(DWORD)0 );
 //UINT nSizeIOmage=this->IOmageSize();
     P3PmsgData oData ( (void *)P2Piomage(), P2PiomageSize(), VBLockData_BLOB16 );
