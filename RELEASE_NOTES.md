@@ -3,6 +3,27 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.0
+
+A minor release: unsealed frames are much smaller. **Requires Msgcore 3.5.0.** The flat C API,
+every exported class layout and the receive path are unchanged, and peers on older releases accept
+the new frames.
+
+- **A frame now carries the message, not its heap.** A message's frame used to be its whole heap,
+  including about 1.4 KB of free space at the end, so a 64-byte message went out as 2,032 bytes.
+  Before sending, Targetcore now trims that free space (Msgcore's `TrimP2Piomage`). This applies
+  on every transport (TCP, pipes and in-process DMX links), before the link cypher and the frame
+  size check.
+- **Measured with a 64-byte payload, the same on Windows and Linux:** an unsealed frame is 629
+  bytes instead of 2,032 (−69%), and a sealed one 1,058 instead of 1,344 (−21%). Latency and CPU
+  per message are unchanged on loopback. The saving is bandwidth, so it shows on real links.
+- **The largest unsealed payload that fits a frame rises from 30,686 to 32,203 bytes.** A
+  message's own structure now costs 565 bytes on the wire, not about 2,082.
+- **Older peers accept the new frames, and this release accepts theirs.** A frame records only
+  its length, and a trimmed frame passes every check a receiver makes. Tested both ways against
+  3.6.0 on a real socket, with and without the link cypher, and against the C++23 bridge.
+- A message can be added to after it is sent: its heap grows again as usual.
+
 ## 3.6.0
 
 A minor release that changes one security default. The flat C API (103 symbols), every exported

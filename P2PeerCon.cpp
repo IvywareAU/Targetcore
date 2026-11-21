@@ -3777,7 +3777,8 @@ P2PeerCon::RefuseOversizedOutbound ( P2PeerMsg *pMsg, DWORD dwFrame )
            ->Advice_T ("The message was refused, not the link: the "
                        "connection stays up")
            ->Advice_T ("Split the payload. The frame is the payload plus the "
-                       "message's own overhead (about 2 KB unsealed)")
+                       "message's own structure (about 600 bytes unsealed "
+                       "since 3.7.0, ~1.3 KB sealed)")
            ->HResult(P2Pevent_UNDELIVERABLE)
            ->Group("P2P");
 

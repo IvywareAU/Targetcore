@@ -58,6 +58,26 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.0.0, a MINOR on 3.6.0: an unsealed frame carries its message's live
+//  bytes, not its whole heap (p2p_performance.md M1). NEEDS MSGCORE 3.5.0,
+//  whose P3PmsgBSTR::TrimP2Piomage it calls; built against older headers it
+//  does not compile, so the floor cannot be missed silently. Nothing exported
+//  moved (abi-flat.manifest unchanged) and no receive path changed.
+//  P2Peerio::SendP2PeerMsg and P2PeerioDmx::SendP2PeerMsg trim before they
+//  prepare, so the frame-cap check and the link cypher both see the short
+//  frame. Measured (perf_fanout chain 4, 64 B, both platforms identical):
+//  unsealed 2,032 -> 629 bytes, sealed 1,344 -> 1,058 (CompactSealed's margin
+//  is what the trim takes there); latency and CPU per message flat on
+//  loopback. The frame overhead over the payload is 565 bytes, not ~2,082, so the largest unsealed
+//  payload that fits a 32,768-byte frame rises from 30,686 to 32,203 bytes
+//  (p2p_oversize now MEASURES its sizes instead of carrying the old constants).
+//  AN OLD RECEIVER TAKES THE SHORT FRAME: the image carries only its length,
+//  and what is left of the free list is exact - the shape the C++23 bridge
+//  already sends old peers. Run, not argued: perf_ab's B7 roles with a
+//  3.6.0/3.4.7 build on one end and this on the other, both ways round,
+//  plain and with the link cypher, all four exit 0; and the C++23 bridge
+//  (679591e4) against this old line, tools/ci/bridge-smoke.sh all green.
+//  BELOW IS THE 3.6.0 RATIONALE.
 //  3.6.0.0, a MINOR on 3.5.1, earned by a BEHAVIOURAL change no symbol
 //  records, as 3.4.0's and 3.2.0's were: WaiveEndToEndInProcess is now ON BY
 //  DEFAULT (p2p_performance.md decision 2). The covered surface did not move
@@ -460,24 +480,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  6
+#define TARGETCORE_VERSION_MINOR  7
 #define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,6,0,0
+#define TARGETCORE_VERSION_COMMAS 3,7,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.6.0.0"
+#define TARGETCORE_VERSION_STRING "3.7.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03060000 is 3.6.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070000 is 3.7.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03060000
+#define TARGETCORE_VERSION_HEX    0x03070000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -493,7 +513,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.6.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

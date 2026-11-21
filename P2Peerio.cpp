@@ -205,6 +205,12 @@ P2Peerio::SendP2PeerMsg ( HANDLE hFile
            ->Message(_T("OVERLAPPEDsend buffer already in use") )
            ->Advice (_T("Internal conflict (Bug)") )
            ->Group(_T("P2P"))->Throw();
+    //  Live bytes only (p2p_performance.md M1, 3.7.0): the frame is the whole
+    //  heap, so drop its free tail first. BEFORE the prepare, which stamps the
+    //  length, so the frame-cap check and the cypher below both see the short
+    //  frame. An old receiver takes it - the image carries no capacity, only
+    //  its length. Refer P2PmsgHeap_TrimIOMAGE
+    pMsg -> TrimP2Piomage     ( );
     pMsg -> PrepareP2Piomage  ( GetIFmask() );   // Mandatory
 
     // Prepare IMAGE type message exchanges

@@ -119,6 +119,9 @@ P2PeerioDmx::SendP2PeerMsg ( HANDLE hFile
     //        locally until the receiver becomes available.
     if ( pMsg )
     {
+      //  Live bytes only (M1, 3.7.0); the receiver copies dwBytes, so this
+      //  is the copy shrinking. Refer P2Peerio::SendP2PeerMsg
+      pMsg -> TrimP2Piomage     ( );
       pMsg -> PrepareP2Piomage  ( GetIFmask() );      // Mandatory
       P2Piomage *pP2Piomage = pMsg->P2Piomage();
                  pOVERLAPPEDsend -> pBuffer = (char *)pP2Piomage;
