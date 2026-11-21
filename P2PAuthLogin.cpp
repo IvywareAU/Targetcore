@@ -703,10 +703,14 @@ AuthPolicy::AuthPolicy ( )
     //  that its broadcasts are not confidential - see the header.
     , m_bSealBroadcastRequired ( true )
     , m_bSealUpcastRequired ( true )
-    //  OFF, and it stays off unless an operator writes it down. This is the
-    //  one setting whose correctness rests on a deployment assumption rather
-    //  than on a mechanism, so its default is the assumption NOT being made.
-    , m_bWaiveE2EInProcess ( false )
+    //  ON since Targetcore 3.6.0 (p2p_performance.md decision 2). It was OFF
+    //  while its correctness rested on a deployment assumption - in-process
+    //  hubs form one subtree. It no longer does: P2PeerCon waives only on a
+    //  link that stays in this process, admits an unsigned source only off
+    //  such a link, and refuses to let a waived body leave the process on a
+    //  relay. A deployment that broke the assumption gets a refusal where it
+    //  used to get clear text. Refer P2PeerHub::WaiveEndToEndInProcess
+    , m_bWaiveE2EInProcess ( true )
     , m_pSealReaders ( nullptr )
     , m_nWindow ( kAuthWindowDefault )
     , m_nSealWindow ( kSealWindowDefault )

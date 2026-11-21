@@ -865,6 +865,29 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
             //  Sealed HERE, just now: send a compact copy.  Refer CompactSealed
             else if ( !bWasSealed && m_pP2PeerMsgSend->IsSealed ( ) )
               m_pP2PeerMsgSend = CompactSealed ( m_pP2PeerMsgSend, nOverhead );
+            //  A body the end-to-end waiver left unsealed, about to leave the
+            //  process (3.6.0, guard 3).  AFTER the seal, so a relay that
+            //  seals has done so and passes.  Refused like a seal that could
+            //  not be made, and for the same reason - it would be clear text
+            //  the origin asked to be hidden.  Refer WaivedBodyLeavesProcess
+            else if ( WaivedBodyLeavesProcess ( m_pP2PeerMsgSend ) )
+            {
+              CString strSrcW = m_pP2PeerMsgSend->GetSource ( )
+                                  ? m_pP2PeerMsgSend->GetSource ( ) : L"";
+              CString strDstW = m_pP2PeerMsgSend->GetScopeOrDestin ( )
+                                  ? m_pP2PeerMsgSend->GetScopeOrDestin ( ) : L"";
+              EVWRN->Module (__FUNCTION__)->AFPcon(this)
+                   ->Message(_T("Refused [%s] -> [%s]: its origin waived the "
+                                "seal for an in-process destination, and this "
+                                "link leaves the process")
+                            , (P2PaddrSTR)strSrcW, (P2PaddrSTR)strDstW )
+                   ->Advice_T ("The route between two hubs in this process "
+                               "crosses another one; seal on this relay, or "
+                               "WaiveEndToEndInProcess(false) on the origin")
+                   ->Display()->SetLast();
+              delete m_pP2PeerMsgSend;
+              m_pP2PeerMsgSend = 0;
+            }
           }
 
           // Origin attestation
@@ -3583,16 +3606,18 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     //      : For a unicast nothing is stamped and GetScopeOrDestin() IS
     //        GetDestin(), so this path is byte-for-byte what it was
 
-    // Is the destination a hub in THIS process, on a hub that has waived?
-    // NOTES: securityRevision.md §6.3, and it is the ONE exemption on this
-    //        path whose correctness rests on a deployment assumption rather
-    //        than on something the library can check.  Refer
-    //        P2PeerHub::WaiveEndToEndInProcess for the A-B-C failure mode; the
-    //        short version is that the DESTINATION being in this process is a
-    //        fact, and the ROUTE staying in this process is not
-    //      : OFF BY DEFAULT, so this branch does nothing at all unless an
-    //        operator has written the assumption down - the same shape as the
-    //        broadcast exemption above it, and for the same reason
+    // Is the destination a hub in THIS process, on a hub that has waived, and
+    // does THIS LINK stay in this process?
+    // NOTES: securityRevision.md §6.3.  Refer P2PeerHub::WaiveEndToEndInProcess
+    //        for the A-B-C failure mode; the short version is that the
+    //        DESTINATION being in this process is a fact, and the ROUTE
+    //        staying in this process is not
+    //      : ON BY DEFAULT since 3.6.0, and safe to be because of the link
+    //        test (guard 1): the route is unknown, but whether THIS hop leaves
+    //        the process is known, and a hop that leaves is sealed as if the
+    //        waiver were off.  In A-B-C, A's link to B leaves.  A body waived
+    //        over an in-process first hop and relayed out later is guard 3's -
+    //        refer WaivedBodyLeavesProcess, asked by the caller after this
     //      : NOT A FAN-OUT, and the test is IsFannedOut() rather than a
     //        comparison, in the spirit of the exemptions above.  A broadcast
     //        scope names a SUBTREE and an upcast scope names a CHAIN OF
@@ -3613,9 +3638,19 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     //        its declaration in P2Pwin32.h.  Written as two statements rather
     //        than one && so that the order is not a matter of how the compiler
     //        sequences it
-    if ( !pMsg->IsFannedOut ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    //      : AND THE SOURCE IS A HUB IN THIS PROCESS (3.6.0), the same pair
+    //        AttestAppMsgOutbound asks and GateRelayInbound keys on.  A body
+    //        from any other source - remote, or rewritten by a VNet mount - is
+    //        treated exactly as before 3.6.0.  It also makes guard 3 exact:
+    //        every body left unsealed by this branch has an in-process origin,
+    //        so WaivedBodyLeavesProcess can ask THAT hub whether it wanted
+    //        sealing
+    if ( !pMsg->IsFannedOut ( ) && StaysInProcess ( ) &&
+         pHub -> IsEndToEndWaivedInProcess ( ) )
     {
-      if ( IsP2PmsgHubInProcess ( strScope ) )
+      CString strSrcWaive = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+      if ( IsP2PmsgHubInProcess ( strScope ) &&
+           IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrcWaive ) )
         return true;
     }
 
@@ -3968,14 +4003,19 @@ P2PeerCon::GateRelayInbound ( P2PeerMsg *pMsg )
     //        hub has waived - waiving a protection for some destinations must
     //        not make an unsupported configuration look supported for all of
     //        them
-    //      : THE RESIDUAL IS THE ASSUMPTION ITSELF, stated rather than hidden:
-    //        a remote peer claiming a source that IS an in-process hub is
-    //        admitted here.  Under the deployment rule the waiver requires -
-    //        in-process hubs form one subtree - such a message cannot arise,
-    //        and if that rule does not hold the operator has already accepted
-    //        a larger hole on the send side.  Refer
-    //        P2PeerHub::WaiveEndToEndInProcess
-    if ( pHub -> IsEndToEndWaivedInProcess ( ) )
+    //      : AND THE MESSAGE ARRIVED ON A LINK THAT STAYS IN THIS PROCESS
+    //        (3.6.0, guard 2).  Until then the residual was the assumption
+    //        itself: a remote peer claiming a source that IS an in-process hub
+    //        was admitted here, on the operator's word that it could not
+    //        arise.  With the waiver a default that word was nobody's.  The
+    //        source AND the arrival link are both required, and the
+    //        registry-not-class note above still holds: the link alone would
+    //        admit a remote origin relayed in over a last in-process hop.
+    //        With both, a forged in-process source entering from a wire is
+    //        checked at the first in-process hub it reaches - which is the hub
+    //        whose link leaves - and every hop after that one only ever sees
+    //        it if that hub admitted it
+    if ( StaysInProcess ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
     {
       CString strSrcWaive = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
       if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrcWaive ) )
@@ -4182,9 +4222,25 @@ P2PeerCon::AttestAppMsgOutbound ( P2PeerMsg *pMsg )
     //      : SILENT, unlike the "could not sign" ending below.  A waived
     //        message is not a failure to attest, it is a decision not to, and
     //        an operator who wants to see it reads WaiveE2E off TryReadPosture
-    if ( !pMsg->IsFannedOut ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
+    //      : ONLY ON A LINK THAT STAYS IN THIS PROCESS (3.6.0, guard 1), for
+    //        the reason SealAppMsgOutbound gives.  A hop that leaves is signed
+    //        as if the waiver were off
+    //      : AND ONLY WHEN THE SOURCE IS A HUB IN THIS PROCESS TOO (3.6.0).
+    //        The receive side exempts an unsigned message on its SOURCE being
+    //        an in-process hub (GateRelayInbound); this side skipped signing
+    //        on the DESTINATION alone.  The two agree when the signer is the
+    //        origin, and disagree when a hub signs for a source below it that
+    //        is not itself a registered hub - a VNet gateway signing for
+    //        In:Out.L.Leaf after the mount rewrote it.  Then this skipped the
+    //        signature and the destination refused the unsigned message:
+    //        p2p_vnetmount phase 2, red the first time the waiver was a
+    //        default, and broken for any opt-in user with a mount before.
+    //        Asking the receiver's question here too keeps the pair matched
+    if ( !pMsg->IsFannedOut ( ) && StaysInProcess ( ) &&
+         pHub -> IsEndToEndWaivedInProcess ( ) )
     {
-      if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strDst ) )
+      if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strDst ) &&
+           IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrc ) )
         return;
     }
 
@@ -6217,6 +6273,72 @@ P2PeerCon::LeavesProcess ( )
 {
     P2Peerio *pIO = GetP2Peerio ( );
     return pIO ? pIO -> LeavesProcess ( ) : false;
+}
+
+//
+//  Do this connection's frames stay inside this process?  (waiver guards 1, 2)
+//  NOTES: The FAIL-CLOSED reading of the question above, and the reason it is
+//         a second accessor rather than !LeavesProcess(): that one answers
+//         false for no io object, which is right for a snapshot and wrong for
+//         a waiver.  No transport, or one that has not said otherwise (the
+//         P2Peerio default is true), reads as LEAVING.  Only P2PeerioDmx
+//         declares that it does not
+//
+bool
+P2PeerCon::StaysInProcess ( ) const
+{
+    const P2Peerio *pIO = m_pP2Peerio;
+    return pIO && !pIO -> LeavesProcess ( );
+}
+
+//
+//  Is a body the waiver left unsealed about to leave this process?  (guard 3)
+//  NOTES: Refer P2PeerHub::WaiveEndToEndInProcess, case A-A2-B-C.  Guard 1
+//         stops the ORIGIN waiving on a link that leaves; it cannot stop a
+//         body waived over an in-process first hop being relayed out by a hub
+//         that does not seal.  This does, at that relay
+//       : ASKED AFTER SealAppMsgOutbound, so a relay that seals has already
+//         sealed it and this answers false on IsSealed().  The only hub it
+//         refuses for is one whose own policy let an unsealed body through
+//       : EVERY CONDITION BELOW IS ONE THE WAIVER ITSELF REQUIRED, so nothing
+//         the waiver did not touch is refused here: not a fan-out, not an
+//         empty body, not handshake traffic, not the last hop (the peer IS the
+//         destination, so nothing in between reads it), the destination a hub
+//         in this process, and the ORIGIN a hub in this process that requires
+//         sealing and waived it.  An origin that does not require sealing
+//         never sealed anything, so its bodies pass as they always have
+//       : The origin's policy is read through the registry WITHOUT its lock -
+//         refer IsP2PmsgHubSealWaivedInProcess.  A toggle racing this read
+//         gives either answer for one message, and either is a decision the
+//         operator made
+//       : No message on a link that stays in this process is refused: the
+//         body has not left yet, and the next hop asks again
+//
+bool
+P2PeerCon::WaivedBodyLeavesProcess ( P2PeerMsg *pMsg )
+{
+    if ( !pMsg || StaysInProcess ( ) )
+      return false;
+    if ( pMsg->IsSealed ( ) || pMsg->IsFannedOut ( ) || pMsg->DataSize ( ) == 0 )
+      return false;
+    if ( pMsg->Map_MatchName ( P2Pmsg_Login    ) ||
+         pMsg->Map_MatchName ( P2Pmsg_LoginAck ) ||
+         pMsg->Map_MatchName ( P2Pmsg_CypherEx )    )
+      return false;
+
+    //  COPIES, for the reason SealAppMsgOutbound gives: off Windows the
+    //  accessors hand out slots in a recycled ring
+    P2PaddrSTR strScopeNow = pMsg->GetScopeOrDestin ( );
+    if ( !strScopeNow || !*strScopeNow )
+      return false;
+    if ( m_oThatP2Paddr == strScopeNow )
+      return false;
+    CString strScope = strScopeNow;
+    CString strSrc   = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+
+    if ( !IsP2PmsgHubInProcess ( (P2PaddrSTR)strScope ) )
+      return false;
+    return IsP2PmsgHubSealWaivedInProcess ( (P2PaddrSTR)strSrc ) != FALSE;
 }
 
 //

@@ -2842,6 +2842,21 @@ P2PeerHub::IsEndToEndWaivedInProcess ( )
                          : false;
 }
 
+//
+//  ...lock-free, for the registry's relay guard
+//  NOTES: Refer the declaration.  No policy reads FALSE, and FALSE here means
+//         "this origin never waived a seal", which lets a body through the
+//         relay guard - but a hub with no policy object requires no seal
+//         either, so its bodies were never going to be sealed
+//
+bool
+P2PeerHub::IsSealWaivedInProcessNoLock ( ) const
+{
+    const p2pauth::AuthPolicy *pPolicy = m_pAuthPolicy;
+    return pPolicy && pPolicy -> IsSealRequired ( )
+                   && pPolicy -> IsEndToEndWaivedInProcess ( );
+}
+
 p2pcng::IdResult
 P2PeerHub::AddSealReader ( const wchar_t *pAddr )
 {

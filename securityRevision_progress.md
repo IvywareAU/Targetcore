@@ -1304,9 +1304,11 @@ Finding 7 stays **OPEN** and its rate line is updated rather than its conclusion
 - **An out-of-process destination, gated behaviourally.** That needs a second **process** — no
   address this harness can invent distinguishes an in-process hub from an out-of-process one, which
   is the entire point of the predicate. Phase 0 tests the predicate directly instead.
-- **The attestation half on the receive side.** `GateRelayInbound` is never reached in a chain,
-  because the relay is a common ancestor of both ends — finding 11, already measured. Gating it
-  wants the `p2p_authancestor` shape.
+- ~~**The attestation half on the receive side.**~~ **Gated 2026-11-21 (Targetcore 3.6.0),
+  `p2p_e2ewaive` phase 7.** `GateRelayInbound` is still never reached in a chain (finding 11), so
+  phase 7 uses the `p2p_authancestor` shape: Top -DMX- Src, Top -DMX- P, Dst below P. 7a (Dst on
+  DMX) asserts the exemption admits Src's unsigned body; 7b (Dst on TCP) asserts 3.6.0's guard 2
+  refuses it. Both halves falsified.
 - **`examples.md`** — still finding 8, and now with a second thing to say.
 
 ---

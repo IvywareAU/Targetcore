@@ -3,6 +3,37 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.6.0
+
+A minor release that changes one security default. The flat C API (103 symbols), every exported
+class layout and the wire are unchanged.
+
+- **`WaiveEndToEndInProcess` is now on by default.** A message to a hub in the same process,
+  carried over links inside the process, is no longer sealed or signed end to end. Those two
+  protections were 93% of the CPU per message on a default hub. Per-hop protections (key
+  agreement, the signed login and the link cypher) are unaffected.
+- **The waiver is now checked on every hop, which is what makes it safe as a default.** Until now
+  it was opt-in, because it trusted that a route between two hubs in one process never left the
+  process. With hubs A and C in one process and B on another host, wired A-B-C, A's message to C
+  crossed to B in clear text. Now:
+  - A hub waives only on a link that stays in the process, and only when both the sender and the
+    destination are hubs in this process. In A-B-C, A seals and signs as before. Messages from
+    any other source, including ones rewritten by a VNet mount, are handled as before.
+  - An unsigned message from a hub in this process is accepted only if it also arrived over a
+    link that stays in the process.
+  - A relay refuses a waived, still-unsealed message rather than send it over a link that leaves
+    the process. It logs a warning saying so.
+  - Only in-process (DMX) links count as staying in the process. Every other transport, including
+    TCP on loopback, counts as leaving.
+- **Behaviour change:** in a tree where the route between two in-process hubs passes through
+  another process, such messages can now be refused instead of delivered. Before 3.6.0 they were
+  either sealed (waiver off) or sent in clear (waiver on). Call `WaiveEndToEndInProcess(false)` on
+  the sending hub to have them sealed and signed at the origin as before. The flat C equivalent is
+  `p2peerhub_waive_end_to_end_in_process(h, 0)`.
+- New exported C++ entry points, all non-virtual: `IsP2PmsgHubSealWaivedInProcess`,
+  `P2PeerHub::IsSealWaivedInProcessNoLock`, `P2PeerCon::StaysInProcess` and
+  `P2PeerCon::WaivedBodyLeavesProcess`.
+
 ## 3.5.1
 
 A patch release that takes a repeated check off the message pump. Nothing exported, no class

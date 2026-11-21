@@ -2591,6 +2591,41 @@ IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr )
     return FALSE;
 }
 
+//
+//  Is this address a hub held by THIS process that requires sealing and
+//  waives it in process?
+//  NOTES: Refer the declaration.  The walk is IsP2PmsgHubInProcess's, kept a
+//         copy rather than a shared helper returning the manager, because a
+//         manager pointer must not outlive this lock and a helper that handed
+//         one out would invite exactly that
+//       : An entry with no hub object reads FALSE.  CreateP2PmsgHub sets
+//         m_pHub in the same locked block that names the entry, so this is
+//         the "not a P2PeerHub" case, not a race
+//
+BOOL
+IsP2PmsgHubSealWaivedInProcess ( P2PaddrSTR strP2Paddr )
+{
+    if ( !strP2Paddr || !*strP2Paddr )
+      return FALSE;
+
+    P2PsafeCS oSafeCS = s_oCSectionP2PmsgHub;
+
+    POSITION pos = s_ThreadID_P2PmsgHub.GetStartPosition ( );
+    while ( pos )
+    {
+      P2PmsgHubMgr *pHubMgr = 0;
+      DWORD         nMapID  = 0;
+      s_ThreadID_P2PmsgHub.GetNextAssoc ( pos, nMapID, pHubMgr );
+      if ( !pHubMgr || pHubMgr->m_oP2Paddr.IsNull ( ) )
+        continue;
+      if ( pHubMgr->m_oP2Paddr == strP2Paddr )
+        return ( pHubMgr->m_pHub &&
+                 pHubMgr->m_pHub->IsSealWaivedInProcessNoLock ( ) )
+               ? TRUE : FALSE;
+    }
+    return FALSE;
+}
+
 P2PaddrSTR
 GetP2PmsgHubName ( P2PmsgHubID nHubID )
 {

@@ -89,6 +89,18 @@ GetP2PmsgHubConCount ( P2PmsgHubID nHubID = 0 );
 //         alone and calls nothing while it holds it
 Targetcore_EXT BOOL
 IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr );
+//  ...and does that hub require sealing AND waive it in process?  (3.6.0)
+//  NOTES: The relay guard behind the waiver's default - refer
+//         P2PeerCon::WaivedBodyLeavesProcess.  The same exact-match walk as
+//         above, and TRUE only when the hub exists and its policy says a body
+//         it originated may be unsealed BECAUSE of the waiver
+//       : READS THAT HUB'S POLICY WITHOUT ITS LOCK (two atomics, refer
+//         P2PeerHub::IsSealWaivedInProcessNoLock), so the lock rule above is
+//         unchanged: the process hub lock alone, nothing nested inside it.
+//         The policy is alive for as long as the entry is: CloseP2PmsgHub
+//         removes the entry under this lock before ~P2PeerHub frees it
+Targetcore_EXT BOOL
+IsP2PmsgHubSealWaivedInProcess ( P2PaddrSTR strP2Paddr );
 //  Hub observability (Stage 4 step 13)
 //  NOTES: Aggregates over ONE hub, for a monitor holding that hub's snapshot
 //         and nothing else.  P2PeerHub::Serialise() reports all three as the

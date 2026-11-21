@@ -300,8 +300,10 @@ One line per hub, and it must be an explicit one:
   three `LinkPol` fields, which is what makes it a stated decision rather than the omission the
   arming gate exists to catch. Take either half away — a class above the floor still `Full`, or the
   floor removed — and it reports `ArmNoIdentity` again.
-- **`WaiveEndToEndInProcess(true)` is the only switch that reaches the end-to-end cost, and it is
-  the only one in this file whose correctness rests on an assumption rather than a mechanism.**
+- **`WaiveEndToEndInProcess` is the only switch that reaches the end-to-end cost, and since
+  Targetcore 3.6.0 it is ON BY DEFAULT — opt-out, guarded per hop.** It was opt-in from 2026-09-04
+  because its correctness rested on a deployment assumption; 3.6.0 replaced the assumption with
+  three per-hop guards (below) and made it the default (`p2p_performance.md` decision 2).
   `SetLinkPolicy` above relaxes a *hop*; the two end-to-end protections are properties of an origin
   and a destination, so an opened link still signs and still seals — and that is not a technicality.
   **Measured** (`p2p_linkcost`, five postures, three runs): the default posture costs 14× the CPU
@@ -314,17 +316,37 @@ One line per hub, and it must be an explicit one:
   `Alice.Bob`, which may be a child hub on another host.
 
   ```cpp
-      oHub.WaiveEndToEndInProcess ( true );   // off by default
+      oHub.WaiveEndToEndInProcess ( false );  // ON by default since 3.6.0; this opts out
   ```
 
-  **Read the assumption before turning it on.** It holds only if a message to an in-process hub
-  never transits an out-of-process one — true of a tree whose in-process hubs form one subtree, and
-  not guaranteed otherwise. The failure mode in full, because a paraphrase is not enough to decide
-  by: hubs A and C in one process, B on another host, wired A-B-C. A sends to C, C is in this
-  process, so nothing is sealed or signed — and the body crosses the wire to B **in clear**, because
-  the destination being local is a fact and the *route* staying local is not. Nothing in the library
-  can tell those two apart, which is why this is opt-in: the assumption becomes something an
-  operator wrote down rather than something the library made on their behalf.
+  **The failure mode it had, and what closes it.** Hubs A and C in one process, B on another host,
+  wired A-B-C. A sends to C, C is in this process — and until 3.6.0 nothing was sealed or signed and
+  the body crossed the wire to B **in clear**, because the destination being local is a fact and
+  the *route* staying local is not. The route is still unknown. What every hop does know is whether
+  *its own link* leaves the process (`P2Peerio::LeavesProcess`, true for every transport that has
+  not said otherwise; only DMX says it does not), so the waiver is applied per hop and fails closed
+  per hop:
+
+  1. **Send.** A hub waives only on a link that stays in the process, and only when the source is
+     a hub in this process as well as the destination (the receive side's own key, so the two ends
+     agree; a message from a remote or mount-rewritten source is handled as before 3.6.0). In
+     A-B-C, A's link to B leaves, so A seals and signs as if the waiver were off.
+  2. **Receive.** `GateRelayInbound` admits an unsigned in-process source only when the message
+     also arrived on a link that stays in the process. A remote peer claiming an in-process source
+     is checked at the first in-process hub it reaches.
+  3. **Relay.** A body waived over an in-process first hop (A-A2-B-C, A2 in this process) is
+     refused by any relay about to put it, still unsealed, on a link that leaves the process — after
+     that relay's own seal, so a relay that seals is unaffected. `P2PeerCon::WaivedBodyLeavesProcess`.
+
+  **What is left.** A tree whose route between two in-process hubs crosses another host loses
+  *delivery* for those messages (case 3; and case 2 when the leaving relay is not entitled to sign
+  for the origin), not confidentiality. `WaiveEndToEndInProcess(false)` on the origin restores the
+  pre-3.6.0 behaviour for them: sealed and signed at the origin. One residual on attestation alone:
+  in that same broken shape, a remote hub whose *address subtree* contains an in-process hub is
+  trusted for that address by the ordinary descendant rule at its first in-process hop, and with the
+  waiver on, the in-process destination does not then demand the origin's signature. It needs an
+  in-process hub addressed below a remote one, and it gives that remote hub nothing it could not
+  already say as the ancestor of that address.
 
   It waives nothing for a **broadcast** (a scope names a subtree, and a subtree cannot be shown to
   be in this process even when its root is — that is `RequireSealBroadcast`'s decision), and the
@@ -332,7 +354,8 @@ One line per hub, and it must be an explicit one:
   link's trust class**: keyed on the class, a remote ancestor could forward an unattested message
   down an in-process link and be admitted. `TryReadPosture` reports it as `WaiveE2E`, so a hub
   reading `SealRequired=1` beside `WaiveE2E=1` — requires sealing, does not always do it — is
-  legible without reading the source. Gated by `p2p_e2ewaive`, falsified three times.
+  legible without reading the source — and since 3.6.0 that pair is the default posture. Gated by
+  `p2p_e2ewaive` (falsified three times in 2026-09; the guards were added to it in 3.6.0).
 - **`SetIdentity` alone makes a hub sign; `RequireAuth` makes it demand.** A peer that signs to a
   hub which does not require authentication has its block handed to the application, and the stock
   `On_ConLogin` refuses the payload loudly. Configure both ends.

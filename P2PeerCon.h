@@ -916,6 +916,18 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
         SealAppMsgOutbound ( P2PeerMsg *pMsg );
       void
         OpenAppMsgInbound  ( P2PeerMsg *pMsg );
+      // The end-to-end waiver's per-hop guards (Targetcore 3.6.0, the waiver's
+      // default).  Refer P2PeerHub::WaiveEndToEndInProcess for all three.
+      // NOTES: StaysInProcess() is NOT !LeavesProcess(): that accessor answers
+      //        false for a connection with no io object, for the snapshot's
+      //        sake, and here "no transport" must read as "leaves"
+      //      : WaivedBodyLeavesProcess() is guard 3, asked AFTER the seal so a
+      //        relay that seals is never refused by it.  TRUE means the caller
+      //        drops the message
+      bool
+        StaysInProcess          ( ) const;
+      bool
+        WaivedBodyLeavesProcess ( P2PeerMsg *pMsg );
       // F-P0-15: a message whose frame exceeds the transport's send limit
       // (P2Peerio::SendP2PeerMsg returned kSendRefusedFrame).  Diagnoses it
       // and reports it to its source

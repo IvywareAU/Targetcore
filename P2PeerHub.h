@@ -754,29 +754,51 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
         IsSealUpcastRequired    ( );
 
       // Waive the two END-TO-END protections - relay attestation and the seal
-      // - for a destination that is a hub in THIS process. OFF by default.
+      // - for a destination that is a hub in THIS process, on a link that
+      // stays in this process. ON BY DEFAULT since Targetcore 3.6.0
+      // (p2p_performance.md decision 2); opt-in from 2026-09-04 until then.
       //
-      // READ THE ASSUMPTION BEFORE TURNING IT ON. It holds only if a message
-      // to an in-process hub never transits an out-of-process one. That is
-      // true of a tree whose in-process hubs form one subtree, and it is NOT
-      // guaranteed otherwise.
+      // THE FAILURE MODE IT USED TO HAVE, in full, because it is what the
+      // guards below are for: hubs A and C in this process, hub B on another
+      // host, wired A-B-C. A sends to C. C is a hub in this process, so A
+      // neither sealed nor attested - and the body crossed the wire to B IN
+      // CLEAR, unsigned, because B is where the route actually goes. The
+      // destination is a fact this process knows; the ROUTE is not. Until
+      // 3.6.0 the answer was a deployment rule (in-process hubs form one
+      // subtree) written down by whoever turned this on.
       //
-      // THE FAILURE MODE, in full, because a paraphrase of it is not enough to
-      // decide by: hubs A and C in this process, hub B on another host, wired
-      // A-B-C. A sends to C. C is a hub in this process, so with this on A
-      // neither seals nor attests - and the body then crosses the wire to B
-      // IN CLEAR, unsigned, because B is where the route actually goes. The
-      // waiver's condition was true and its assumption was false, and nothing
-      // in the library can tell the two apart: the destination is a fact this
-      // process knows, the ROUTE is not.
+      // WHAT MADE IT SAFE TO BE A DEFAULT is that every hop knows one thing
+      // the origin does not: whether ITS OWN link leaves the process
+      // (P2Peerio::LeavesProcess, true for any transport that has not said
+      // otherwise - only P2PeerioDmx answers false). So the waiver is applied
+      // per hop, and fails closed per hop:
       //
-      // So this is the one setting here whose correctness cannot be made
-      // fail-closed by construction. Everything else in this class refuses
-      // when it cannot prove something; this one is an operator asserting a
-      // deployment property the library cannot check - the same shape as
-      // RequireAuth(false) and RequireSealBroadcast(false), and like those it
-      // is opt-in so that the assumption is something somebody WROTE DOWN
-      // rather than something the library assumed on their behalf.
+      //   1. SEND. SealAppMsgOutbound and AttestAppMsgOutbound waive only on
+      //      a link that stays in the process, and only when the SOURCE is a
+      //      hub in this process as well as the destination - the receive
+      //      side's own key, so the two ends cannot disagree (a VNet gateway
+      //      signing for a rewritten source did, and p2p_vnetmount caught
+      //      it). In A-B-C, A's link to B leaves, so A seals and signs exactly
+      //      as with the waiver off. A message from any other source is
+      //      treated exactly as before 3.6.0.
+      //   2. RECEIVE. GateRelayInbound admits an unsigned in-process source
+      //      only when the message ALSO arrived on a link that stays in the
+      //      process. A remote peer claiming an in-process source is checked
+      //      at the first in-process hub it reaches, like any other.
+      //   3. RELAY. A waived body is waived for its first hops only. If a
+      //      relay is about to put a body on a link that leaves the process,
+      //      and the body is unsealed, and its origin is a hub in this process
+      //      that requires sealing and waived it, the relay REFUSES it - after
+      //      trying its own seal, so a relay that seals is not affected. That
+      //      is A-A2-B-C, A2 in this process and not sealing: refused where it
+      //      used to be clear text. Refer P2PeerCon::WaivedBodyLeavesProcess.
+      //
+      // WHAT IS LEFT: a deployment that breaks the old rule loses DELIVERY
+      // for messages whose route leaves the process after an in-process hop
+      // (case 3, and attestation in case 2 when the relay is not entitled to
+      // sign for the origin). It no longer loses confidentiality. Turn the
+      // waiver off on the origin and those messages are sealed and signed at
+      // the origin and arrive as before 3.6.0.
       //
       // WHAT IT IS WORTH, measured rather than estimated (securityRevision.md
       // §8.4, and the p2p_linkcost harness): the two end-to-end protections
@@ -804,6 +826,16 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
         WaiveEndToEndInProcess     ( bool bWaive );
       bool
         IsEndToEndWaivedInProcess  ( );
+
+      // For the process registry ONLY (IsP2PmsgHubSealWaivedInProcess): does
+      // this hub require sealing AND waive it in process - i.e. may a body it
+      // originated be travelling unsealed BECAUSE of the waiver. TAKES NO
+      // LOCK: both bits are atomics, and the caller holds the process hub
+      // lock, which must never have this hub's lock nested inside it. The
+      // policy object outlives the registry entry (CloseHub waits for the hub
+      // thread, which removes the entry, before ~P2PeerHub frees the policy)
+      bool
+        IsSealWaivedInProcessNoLock ( ) const;
 
       // Name a hub that may ALSO read what this hub seals - the answer to
       // "an intermediate hub has to see the body".

@@ -37,8 +37,8 @@
 //         the sibling component. The two version identities are deliberately
 //         INDEPENDENT - Targetcore links Msgcore but does not ship as it, and
 //         a shared number would force a lockstep release neither wants.
-//       : Keep the release tag and this file in step: version 3.5.1 is tag
-//         v3.5.1. A build whose DLL reports a version no tag matches cannot
+//       : Keep the release tag and this file in step: version 3.6.0 is tag
+//         v3.6.0. A build whose DLL reports a version no tag matches cannot
 //         be traced back to a source state, which defeats the point.
 //       : WHAT THIS NUMBER PROMISES is written down in the versioning policy,
 //         and has been a policy rather than a habit since 0.10.0. The short
@@ -58,6 +58,35 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.6.0.0, a MINOR on 3.5.1, earned by a BEHAVIOURAL change no symbol
+//  records, as 3.4.0's and 3.2.0's were: WaiveEndToEndInProcess is now ON BY
+//  DEFAULT (p2p_performance.md decision 2). The covered surface did not move
+//  (103 symbols, abi-flat.manifest unchanged; Targetcore_c.h changed in a
+//  comment only), no exported class layout moved (AuthPolicy's two bools
+//  became std::atomic<bool>, same size, held by pointer and not exported) and
+//  nothing on the wire changed. Added, exported and non-virtual:
+//  IsP2PmsgHubSealWaivedInProcess, P2PeerHub::IsSealWaivedInProcessNoLock,
+//  P2PeerCon::StaysInProcess and P2PeerCon::WaivedBodyLeavesProcess.
+//  Until now the waiver was opt-in because it rested on a deployment rule
+//  (in-process hubs form one subtree): hubs A and C here, B on another host,
+//  wired A-B-C, sent A's body to C across the wire in clear. The default is
+//  safe because the waiver is now applied PER HOP, keyed on whether that
+//  hop's link leaves the process (P2Peerio::LeavesProcess; only DMX says no):
+//  (1) a hub waives only on a link that stays, and only when source AND
+//  destination are hubs in this process (the receive side's key; without it
+//  a VNet gateway skipped signing for a rewritten source and p2p_vnetmount
+//  went red - a defect opt-in users with a mount already had); (2) GateRelayInbound
+//  exempts an in-process source only when it also arrived on such a link;
+//  (3) a relay refuses an unsealed body whose origin waived it rather than
+//  put it on a link that leaves. A deployment that broke the old rule now
+//  loses DELIVERY for those messages, not confidentiality;
+//  WaiveEndToEndInProcess(false) on the origin restores the old behaviour.
+//  It reaches the 93% of per-message CPU the two end-to-end protections cost
+//  on a default hub (p2p_linkcost) for every in-process destination.
+//  Guarded by p2p_e2ewaive phases 5 (A-B-C) and 6 (A-A2-B-C), TCP loopback
+//  standing in for a leaving link; mutation-checked - guards 1 and 3 both off
+//  reproduce the clear-text leak.
+//  BELOW IS THE 3.5.1 RATIONALE.
 //  3.5.1.0, a PATCH on 3.5.0. Nothing exported, no layout and nothing on the
 //  wire moved; one file, P2Pwin32.cpp. T6 (p2p_performance P1): the pump
 //  verified every message TWICE in Release - VerifyP2Pmsg ends in
@@ -431,24 +460,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  5
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_MINOR  6
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,5,1,0
+#define TARGETCORE_VERSION_COMMAS 3,6,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.5.1.0"
+#define TARGETCORE_VERSION_STRING "3.6.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03050100 is 3.5.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03060000 is 3.6.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03050100
+#define TARGETCORE_VERSION_HEX    0x03060000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -464,7 +493,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.5.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.6.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

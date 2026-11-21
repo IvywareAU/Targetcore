@@ -77,6 +77,7 @@
 
 #include <cstddef>
 #include <ctime>
+#include <atomic>            // the two bits the process registry reads lock-free
 
 namespace p2pauth
 {
@@ -1084,7 +1085,7 @@ namespace p2pauth
         // SetRelayRequired is not one - but it is warned about once at arm
         // time and refused loudly per message at the send path.
         void SetSealRequired ( bool bRequire );
-        bool IsSealRequired  ( ) const { return m_bSealRequired; }
+        bool IsSealRequired  ( ) const { return m_bSealRequired.load ( ); }
 
         // Does the seal requirement above extend to BROADCASTS? On by
         // default, so it does.
@@ -1136,17 +1137,23 @@ namespace p2pauth
              { return m_bSealUpcastRequired; }
 
         // Waive the two END-TO-END protections - relay attestation and the
-        // seal - for a destination that is a hub in THIS process. OFF by
-        // default, and it is the one setting in this class whose correctness
-        // rests on a deployment assumption rather than on a mechanism.
+        // seal - for a destination that is a hub in THIS process, on a link
+        // that stays in this process. ON by default since Targetcore 3.6.0
+        // (p2p_performance.md decision 2); it was opt-in until then.
         //
-        // Refer P2PeerHub::WaiveEndToEndInProcess for the assumption, the
-        // failure mode, and why it is opt-in. This class only holds the bit;
-        // P2PeerCon applies it, and the registry lookup that keys it lives in
-        // P2Pwin32.
+        // Refer P2PeerHub::WaiveEndToEndInProcess for what it waives, the
+        // three per-link guards that let it be a default, and what is left.
+        // This class only holds the bit; P2PeerCon applies it, and the
+        // registry lookup that keys it lives in P2Pwin32.
+        //
+        // ATOMIC, this bit and m_bSealRequired, because the process registry
+        // reads both WITHOUT this hub's lock (IsP2PmsgHubSealWaivedInProcess):
+        // the relay guard asks about the ORIGIN hub from another hub's IO
+        // thread, and taking the origin's lock there would nest it inside the
+        // process hub lock, which nothing else does
         void SetEndToEndWaivedInProcess ( bool bWaive );
         bool IsEndToEndWaivedInProcess  ( ) const
-             { return m_bWaiveE2EInProcess; }
+             { return m_bWaiveE2EInProcess.load ( ); }
 
         // Hubs this peer will name as ADDITIONAL readers on everything it
         // seals - the answer to "we need an intermediate hub to read the
@@ -1201,7 +1208,7 @@ namespace p2pauth
         bool               m_bRelayReplay;
         bool               m_bSealReplay;
         //  Sealing (2026-08-21). Intent, and the reader list the intent uses.
-        bool               m_bSealRequired;
+        std::atomic<bool>  m_bSealRequired;      // atomic: refer the waiver
         //  Does that intent extend to broadcasts (2026-08-25)? Separate
         //  because a broadcast has an audience rather than a destination, so
         //  it is a different question with a different answer.
@@ -1212,10 +1219,11 @@ namespace p2pauth
         //  posture that could not distinguish them would be reporting a
         //  decision nobody made.
         bool               m_bSealUpcastRequired;
-        //  The end-to-end waiver (securityRevision.md §6.3, 2026-09-04). OFF,
-        //  and the default is the whole of its safety: every other member here
-        //  fails closed on a mechanism, this one fails closed on being unset.
-        bool               m_bWaiveE2EInProcess;
+        //  The end-to-end waiver (securityRevision.md §6.3, 2026-09-04). ON
+        //  since Targetcore 3.6.0. Until then its default was the whole of its
+        //  safety; now the per-link guards in P2PeerCon are, and the bit is
+        //  only the operator's way to turn the waiver off
+        std::atomic<bool>  m_bWaiveE2EInProcess;
         //  std::vector<std::wstring> behind a void*, the same pimpl shape the
         //  allow-list and the caches use - this header is included by TUs that
         //  must not pull in <vector>.
