@@ -58,6 +58,30 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.3.0, a PATCH on 3.7.2: a pump visit takes no process-wide lock
+//  (p2p_performance.md T5). PumpP2Pmsg and WaitForP2Pmsg found their own pump
+//  under s_oCSectionP2PmsgPump, the lock every thread posting to that pump
+//  also takes; strace -k put the contended waits there, pump against poster.
+//  Each pump thread now finds its pump through t_pP2PmsgPumpSelf (set and
+//  cleared on that thread), and a visit holds only the pump's own m_oCSection.
+//  THE DEFECT ALONG THE WAY: the timer queue was read under
+//  s_oCSectionP2PmsgPump while SetP2PmsgTimer for a P2Peerio or a P2PeerTarget,
+//  and NextP2PmsgTimer, wrote and read it under s_oCSectionP2Pmsg - two locks
+//  around one CList. Latent: those two overloads only ever act on their own
+//  thread's pump, so it needed a connection timer armed off the pump at the
+//  same moment. Every timer-queue access (the four SetP2PmsgTimer overloads,
+//  NextP2PmsgTimer, KillP2PmsgTimer, CancelP2PmsgTimer, the pump's visit) is
+//  now under the pump's m_oCSection, nested inside the lock each already took.
+//  Cross-thread posts and signals keep the global lock, which is also what
+//  keeps their target pump alive.
+//  RESULT: no throughput or latency change outside noise (profiled ceiling:
+//  all mutex time ~1.6% of library CPU); futex calls -28% at the median. TSan
+//  clean (ten timer-heavy gates and teardown_stress). The covered surface,
+//  every exported symbol and class layout, and every wire format are
+//  unchanged. Runs on Msgcore 3.5.1 and later.
+//
+//  BELOW IS THE 3.7.2 RATIONALE.
+//
 //  3.7.2.0, a PATCH on 3.7.1: the router picks its connection in one walk
 //  (p2p_performance.md T4). P2PeerHub::RouteP2PeerMsg walked the hub with
 //  EnumP2PmsgCon, and every EnumP2PmsgCon step re-took the process-wide
@@ -515,23 +539,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  2
+#define TARGETCORE_VERSION_PATCH  3
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,2,0
+#define TARGETCORE_VERSION_COMMAS 3,7,3,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.2.0"
+#define TARGETCORE_VERSION_STRING "3.7.3.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070200 is 3.7.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070300 is 3.7.3.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070200
+#define TARGETCORE_VERSION_HEX    0x03070300
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -547,7 +571,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.2.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.3.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

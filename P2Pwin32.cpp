@@ -351,6 +351,23 @@ bool             m_bP2PmsgExplorer_Pump = false;
 
 class  P2PmsgHubMgr;
 class  P2PmsgPump;
+//  This thread's own pump, or null (p2p_performance T5).
+//  NOTES: WHY. A pump visit (PumpP2Pmsg, WaitForP2Pmsg) found its own pump by
+//         taking the process-wide s_oCSectionP2PmsgPump and looking its thread
+//         id up in the registry - and every POSTER to that pump takes the same
+//         lock to find it. Measured (Linux, perf_fanout fan, strace -k): the
+//         contended waits on it were the pump at its visit's top against the
+//         thread posting to it, producer against consumer.
+//       : SET by the pump's constructor and CLEARED by its destructor, both on
+//         the pump's own thread: a pump is constructed on its thread (the
+//         constructor registers GetCurrentThreadId()), and destroyed either
+//         there (CloseP2PmsgHub, on the hub's thread) or after its thread is
+//         joined (~P2PmsgHubMgr, refer the join note there). So this never
+//         names a deleted pump on a thread that is still running.
+//       : The SAME answer as the registry for this thread - the two are
+//         written together - read without a lock. Other threads' pumps are
+//         still found in the registry, under the locks that keep them alive.
+static thread_local P2PmsgPump *t_pP2PmsgPumpSelf = nullptr;
 //  The thread-id -> pump registry, with a lock of its OWN.
 //  NOTES: Looked up from every thread - each post, timer and signal resolves
 //         its pump here - and written by pump construction and destruction on
@@ -421,6 +438,7 @@ class P2PmsgPump
           m_pP2PmsgHubMgr    = 0;
           s_ThreadID_P2PmsgPump.SetAt( m_nThreadId, this );
           InitializeCriticalSection  ( &m_oCSection );
+          t_pP2PmsgPumpSelf = this;    // T5, refer t_pP2PmsgPumpSelf
         };
        ~P2PmsgPump ( )
         {
@@ -468,6 +486,8 @@ class P2PmsgPump
             CloseHandle ( m_hQueEvent );
           if ( m_pOVERLAPPED )
             delete m_pOVERLAPPED;
+          if ( t_pP2PmsgPumpSelf == this ) // T5: only ever true on our thread
+            t_pP2PmsgPumpSelf = nullptr;
           s_ThreadID_P2PmsgPump.RemoveKey ( m_nThreadId );
         };
       void
@@ -496,6 +516,11 @@ class P2PmsgPump
         GetP2PmsgPump ( P2PumpID nPumpID = 0 )
         {
           // Introduce locals
+          // NOTES: Deliberately NOT short-cut through t_pP2PmsgPumpSelf (T5).
+          //        Its callers hold their own lock already, so it would save a
+          //        shared-lock lookup and nothing contended - and a short cut
+          //        that answered for the wrong id passed every test (mutant M3),
+          //        because no test asks one pump's thread for another pump here
           if ( nPumpID == 0 )
             nPumpID = GetCurrentThreadId ( );
           P2PmsgPump *pP2PmsgPump = 0;
@@ -5395,13 +5420,16 @@ WaitForP2Pmsg ( DWORD dwTimeout )
     //      : Observe isolation
 TOP:if ( pP2Pmsg == nullptr )
     {
-      P2PsafeCS oSafeCS = s_oCSectionP2PmsgPump;
-      s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump);
+      // This thread's pump, and its timer and message queues under its own
+      // m_oCSection - refer PumpP2Pmsg (T5). The count below was read under
+      // the global lock while posters wrote it under this one
+      pP2PmsgPump = t_pP2PmsgPumpSelf;
       if ( !pP2PmsgPump )
         EVERR->MODULE->AFP(dwTimeout)
              ->Message_T("P2Pmsg pump not started" )
              ->Advice_T ("Refer StartupP2Pmsg() for further details" )
              ->Throw();
+      P2PsafeCS oSafeCS = pP2PmsgPump -> m_oCSection;
 
       // Timers monitoring
       P2Pmsecs_t wNext = pP2PmsgPump -> PollTimer ( );
@@ -5476,8 +5504,13 @@ PumpP2Pmsg ( DWORD dwTimeout, P2PsigID& nSigID )
     //      : Observe isolation
 TOP:if ( pP2Pmsg == nullptr )
     {
-      P2PsafeCS oSafeCS = s_oCSectionP2PmsgPump;
-      s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump);
+      // This thread's pump, WITHOUT the global lock (p2p_performance T5)
+      // NOTES: It took s_oCSectionP2PmsgPump and a registry lookup, once per
+      //        visit, and every thread posting to this pump takes that lock
+      //        too: the contended waits on it were this line against the
+      //        poster. Refer t_pP2PmsgPumpSelf for why reading it bare is
+      //        sound
+      pP2PmsgPump = t_pP2PmsgPumpSelf;
       if ( !pP2PmsgPump )
         EVERR->MODULE->AFP(dwTimeout)->AFP(nSigID)
              ->Message("P2Pmsg pump not started" )
@@ -5485,6 +5518,15 @@ TOP:if ( pP2Pmsg == nullptr )
              ->Throw();
 
       // Timers monitoring
+      // NOTES: THE PUMP'S OWN m_oCSection guards the timer queue since T5,
+      //        and every producer takes it (SetP2PmsgTimer x4, KillP2PmsgTimer,
+      //        CancelP2PmsgTimer, NextP2PmsgTimer). Before, this reader held
+      //        s_oCSectionP2PmsgPump while two of the SetP2PmsgTimer overloads
+      //        and NextP2PmsgTimer held s_oCSectionP2Pmsg - two different locks
+      //        around one CList, the defect the message queue below had and
+      //        lost. Harmless only while every such timer was set from this
+      //        pump's own thread
+      P2PsafeCS oSafeCS = pP2PmsgPump -> m_oCSection;
       P2Pmsecs_t wNext = pP2PmsgPump -> PollTimer ( );
       if ( wNext <= 0 )
         pP2Pmsg = pP2PmsgPump -> GetTimer ( );
@@ -5492,17 +5534,13 @@ TOP:if ( pP2Pmsg == nullptr )
         dwTimeout = (DWORD)wNext;
 
       // Event monitoring
-      // NOTES: Downgrade from the global pump-registry lock to the pump's own
-      //        m_oCSection before touching m_oCListP2Pmsg.  Producers guard the
-      //        message queue with pP2PmsgPump->m_oCSection (see PostP2Pmsg),
-      //        whereas this reader previously held only the global lock - two
+      // NOTES: Under the pump's own m_oCSection, as its producers are (see
+      //        PostP2Pmsg). This reader once held only the global lock - two
       //        different critical sections around the same non-thread-safe MFC
       //        CList, which corrupted the list and crashed inside GetP2Pmsg().
-      //        The timer queue above stays under the global lock, matching its
-      //        producers (Set/KillTimer).
+      //        Already held from the timers above
       if ( !pP2Pmsg )
       {
-        oSafeCS = pP2PmsgPump -> m_oCSection;
         pP2Pmsg = pP2PmsgPump -> GetP2Pmsg ( );
         if (  pP2Pmsg &&
               pP2Pmsg->pCon &&
@@ -6331,6 +6369,11 @@ SetP2PmsgTimer ( P2PaddrSTR strP2Paddr, UINT nCode, P2Pmsg_t nMsg
            ->Throw();
 
     // Outstanding Timers
+    // NOTES: The timer queue is the pump's, under its m_oCSection (T5; refer
+    //        PumpP2Pmsg), held from the count to the insert. Nested inside the
+    //        lock above, which finds the pump and keeps it alive: outer, then
+    //        pump, the order PostP2Pmsg takes
+    P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
     if ( pP2PmsgPump->m_oCListP2PmsgPit.GetCount() > 1024 )
       EVERR->MODULE
            ->Message("P2Pmsg pump outstanding timer limit (%i) reached\n" 
@@ -6373,6 +6416,11 @@ SetP2PmsgTimer ( DWORD nPumpID, P2Peerio *pPeerio
            ->Throw();
 
     // Outstanding Timers
+    // NOTES: The timer queue is the pump's, under its m_oCSection (T5; refer
+    //        PumpP2Pmsg), held from the count to the insert. Nested inside the
+    //        lock above, which finds the pump and keeps it alive: outer, then
+    //        pump, the order PostP2Pmsg takes
+    P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
     if ( pP2PmsgPump->m_oCListP2PmsgPit.GetCount() > 1024 )
       EVERR->MODULE
            ->Message("P2Pmsg pump outstanding timer limit (%i) reached\n" 
@@ -6413,6 +6461,11 @@ SetP2PmsgTimer ( DWORD nPumpID, P2PeerCon *pCon
            ->Throw();
 
     // Outstanding Timers
+    // NOTES: The timer queue is the pump's, under its m_oCSection (T5; refer
+    //        PumpP2Pmsg), held from the count to the insert. Nested inside the
+    //        lock above, which finds the pump and keeps it alive: outer, then
+    //        pump, the order PostP2Pmsg takes
+    P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
     if ( pP2PmsgPump->m_oCListP2PmsgPit.GetCount() > 1024 )
       EVERR->MODULE
            ->Message("P2Pmsg pump outstanding timer limit (%i) reached\n" 
@@ -6455,6 +6508,11 @@ SetP2PmsgTimer ( DWORD nPumpID, P2PeerTarget *pTarget
            ->Throw();
 
     // Outstanding Timers
+    // NOTES: The timer queue is the pump's, under its m_oCSection (T5; refer
+    //        PumpP2Pmsg), held from the count to the insert. Nested inside the
+    //        lock above, which finds the pump and keeps it alive: outer, then
+    //        pump, the order PostP2Pmsg takes
+    P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
     if ( pP2PmsgPump->m_oCListP2PmsgPit.GetCount() > 1024 )
       EVERR->MODULE
            ->Message("P2Pmsg pump outstanding timer limit (%i) reached\n" 
@@ -6505,6 +6563,8 @@ NextP2PmsgTimer( DWORD nPumpID )
            ->Throw();
 
     // Delegate
+    // NOTES: Under the pump's m_oCSection, as every timer-queue access (T5)
+    P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
     return pP2PmsgPump -> PollTimer ( );
 }
 
@@ -6542,7 +6602,13 @@ KillP2PmsgTimer( UINT nTimerID, DWORD nPumpID )
            ->Throw();
 
     // Implementation
-    P2Pmsg *pP2Pmsg = pP2PmsgPump->KillTimer ( nTimerID );
+    // NOTES: The timer queue under the pump's m_oCSection (T5); the release
+    //        stays outside it, since a last Release() can delete a connection
+    P2Pmsg *pP2Pmsg = 0;
+    {
+      P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;
+      pP2Pmsg = pP2PmsgPump->KillTimer ( nTimerID );
+    }
     if ( !pP2Pmsg )
       return nTimerID;
     ReleaseP2Pmsg ( pP2Pmsg );
@@ -6585,7 +6651,10 @@ CancelP2PmsgTimer( UINT nPITimerID, bool bCallback )
                                  "details\n"
                              "\t: Corrupted PITimerID")
              ->Throw();
-      pP2Pmsg = pP2PmsgPump->KillTimer ( nPITimerID );
+      {
+        P2PsafeCS oSafePump = pP2PmsgPump -> m_oCSection;   // T5, as Kill
+        pP2Pmsg = pP2PmsgPump->KillTimer ( nPITimerID );
+      }
       if ( !pP2Pmsg )
       {
         // NOT an error, and it used to throw here as "Corrupted PITimerID".

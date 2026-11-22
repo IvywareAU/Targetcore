@@ -3,6 +3,21 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.3
+
+A patch release: a message pump no longer takes a process-wide lock on every visit, and a hub's
+timers are guarded by one lock instead of two. The flat C API, every exported class layout and
+every wire format are unchanged. It runs on the same Msgcore as 3.7.2 (3.5.1 or later).
+
+- **Fixed: timers set from two threads could corrupt the pump's timer list.** Timers set for a
+  connection, and the pump reading its timers, used one lock; timers set for a `P2Peerio` or a
+  `P2PeerTarget`, and `NextP2PmsgTimer`, used another. It needed a connection timer armed from
+  another thread at the same moment and has not been seen to fire. All timer operations now
+  take the pump's own lock.
+- **A pump visit takes no process-wide lock.** Each pump finds itself without the lock that
+  every thread posting to it also takes. Throughput and latency are unchanged within
+  measurement noise; contended lock waits fall.
+
 ## 3.7.2
 
 A patch release: routing a message to a hub's later connections no longer slows down with the
