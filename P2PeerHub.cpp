@@ -1014,6 +1014,78 @@ P2PeerHub::ConQuery ( P2PaddrSTR strP2Paddress, SafeP2PeerCon& rSafeCon )
 ///////////////////////////////////////////////////////////////////////
 //  P2PeerMsg operations
 
+//  P2Pwin32.cpp, internal to this DLL: the first connection a predicate picks,
+//  one walk under one lock (p2p_performance T4). Not in P2Pwin32.h, so the
+//  public surface does not move.
+P2PeerCon*
+PickP2PmsgCon ( P2PmsgHubID nHubID
+              , BOOL (*pfnPick)( P2PeerCon *pCon, void *pvPick ), void *pvPick );
+
+namespace
+{
+    //  What RouteP2PeerMsg asks of each connection, and the asking. The body
+    //  is the EnumP2PmsgCon loop's, test for test; it runs under the hub
+    //  lock, so it takes no lock and posts nothing (refer PickP2PmsgCon).
+    struct RouteHub_Ask
+    {
+        const P2Paddr& oHub;
+        P2PaddrSTR     pDst;
+        bool           bDstMounted;
+    };
+
+    BOOL
+    RouteHub_Pick ( P2PeerCon *pCon, void *pvAsk )
+    {
+        const RouteHub_Ask& a = *static_cast<const RouteHub_Ask *>( pvAsk );
+        const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
+
+        // NOTES: EnumP2PmsgCon() is deliberately unfiltered - it is the
+        //        "every connection on this hub" primitive, and the
+        //        loops in this file each apply their own predicate to it.
+        //        A listener is not a routing candidate, so the
+        //        test belongs here and not in the enumerator
+        if ( pCon->GetMode() == P2PeerCon_SERVICE )
+          return FALSE;
+
+        // VNet mount - R4 in RouteP2PeerMsg
+        // NOTES: The mount whose own address covers the destination first: a
+        //        hub mounting two trees reaches H:R1.x through the client
+        //        connection it named H:R1.  The second pass takes any
+        //        mount, which is the accepting side's case - its connection is
+        //        named by the far hub's claim and the far network is all of it
+        if ( pCon->IsVNetMount() )
+          return ( a.bDstMounted && oP2PaddrCon.IsRable ( a.pDst ) ) ? TRUE : FALSE;
+                                       // nothing else crosses a mount
+
+        // Immediate
+        if ( oP2PaddrCon == a.pDst )
+          return TRUE;
+
+        // Children
+        // NOTES: P2PeerCon is our network child, and
+        //        P2PeerMsg is routable down through P2PeerCon
+        if ( a.oHub.IsChild(oP2PaddrCon) &&
+             oP2PaddrCon.IsRable(a.pDst)    )
+          return TRUE;
+
+        // Parent
+        // NOTES: P2PeerCon is our network parent, and
+        //        P2PeerMsg is not routable down through this P2Peer
+        if (    oP2PaddrCon.IsChild(a.oHub) &&
+             !a.oHub.IsRable(a.pDst)           )
+          return TRUE;
+
+        return FALSE;
+    }
+
+    BOOL
+    RouteHub_AnyMount ( P2PeerCon *pCon, void * )
+    {
+        return ( pCon->GetMode() != P2PeerCon_SERVICE && pCon->IsVNetMount() )
+               ? TRUE : FALSE;
+    }
+}
+
 //
 //  Routes P2PeerMsg's through P2PeerCon objects posted to this hub
 //  NOTES: Local P2PeerMsg routing previously handled
@@ -1068,59 +1140,22 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
 
     // P2PeerCon routing
     // NOTES: Connections manage their own routing logic
-    P2PeerCon *pCon = 0;
-    while ( EnumP2PmsgCon(m_nHubID,&pCon) )
-    {
-      const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
-      // NOTES: EnumP2PmsgCon() is deliberately unfiltered - it is the
-      //        "every connection on this hub" primitive, and the ten
-      //        loops in this file each apply their own predicate to it.
-      //        A listener is not a routing candidate, so the
-      //        test belongs at this call site and not in the enumerator
-      if ( pCon->GetMode() == P2PeerCon_SERVICE )
-      {
-        continue;
-      }
-
-      // VNet mount - R4 above
-      // NOTES: The mount whose own address covers the destination first: a
-      //        hub mounting two trees reaches H:R1.x through the client
-      //        connection it named H:R1.  The second pass below takes any
-      //        mount, which is the accepting side's case - its connection is
-      //        named by the far hub's claim and the far network is all of it
-      if ( pCon->IsVNetMount() )
-      {
-        if ( bDstMounted && oP2PaddrCon.IsRable ( pP2PaddrMsg ) )
-          return P2PeerContextSwap ( pCon, pMsg );
-        continue;                    // nothing else crosses a mount
-      }
-
-      // Immediate
-      if ( oP2PaddrCon == pP2PaddrMsg )
-        return P2PeerContextSwap ( pCon, pMsg );
-
-      // Children
-      // NOTES: P2PeerCon is our network child, and
-      //        P2PeerMsg is routable down through P2PeerCon
-      if ( m_oP2PaddrHub.IsChild(oP2PaddrCon) &&
-             oP2PaddrCon.IsRable(pP2PaddrMsg)    )
-        return P2PeerContextSwap ( pCon, pMsg );
-
-      // Parent
-      // NOTES: P2PeerCon is our network parent, and
-      //        P2PeerMsg is not routable down through this P2Peer
-      if (    oP2PaddrCon.IsChild(m_oP2PaddrHub) &&
-           !m_oP2PaddrHub.IsRable(pP2PaddrMsg)      )
-        return P2PeerContextSwap ( pCon, pMsg );
-    }
+    //      : ONE WALK UNDER ONE LOCK, PickP2PmsgCon (p2p_performance T4). It
+    //        was an EnumP2PmsgCon loop, whose every step re-took the global
+    //        hub lock and re-scanned from the head: C^2/2 steps to reach the
+    //        C-th connection (B5, F-P0-12). RouteHub_Pick is that loop's body
+    //        unchanged, in the same order, and the first pick still wins
+    RouteHub_Ask oAsk = { m_oP2PaddrHub, pP2PaddrMsg, bDstMounted };
+    P2PeerCon   *pCon = PickP2PmsgCon ( m_nHubID, RouteHub_Pick, &oAsk );
+    if ( pCon )
+      return P2PeerContextSwap ( pCon, pMsg );
 
     // VNet mount, any - refer the first pass
     if ( bDstMounted )
     {
-      pCon = 0;
-      while ( EnumP2PmsgCon(m_nHubID,&pCon) )
-        if ( pCon->GetMode() != P2PeerCon_SERVICE && pCon->IsVNetMount() )
-          return P2PeerContextSwap ( pCon, pMsg );
+      pCon = PickP2PmsgCon ( m_nHubID, RouteHub_AnyMount, 0 );
+      if ( pCon )
+        return P2PeerContextSwap ( pCon, pMsg );
     }
 
     // Undeliverable

@@ -3131,6 +3131,74 @@ RetainP2PmsgCons ( P2PmsgHubID nHubID, std::vector<P2PeerCon *>& vCons )
     return vCons.size ( );
 }
 
+//
+//  The first of the hub's connections a predicate picks, in one walk under one
+//  lock (p2p_performance T4).
+//  NOTES: WHY. P2PeerHub::RouteP2PeerMsg walked the hub with EnumP2PmsgCon,
+//         and each EnumP2PmsgCon step re-takes s_oCSectionP2PmsgHub, looks
+//         the hub up again and re-scans the list FROM THE HEAD to find where
+//         it was. Routing to the C-th connection was C lock acquisitions and
+//         ~C^2/2 list steps, all under the process-wide hub lock: B5's fan at
+//         250 connections paid 63 us (Windows) and 133 us (Linux) more to the
+//         last connection than to the first (F-P0-12).
+//       : THE SAME LIST, THE SAME ORDER, THE SAME FIRST MATCH as the
+//         EnumP2PmsgCon loop, so the routing answer cannot change. It is
+//         taken under the lock DropP2PmsgCon() unlinks under, so the walk
+//         itself cannot step onto an unlinked node - which an EnumP2PmsgCon
+//         walk could not promise either way: it ENDED, as if the list were
+//         exhausted, when the connection it stood on was dropped between two
+//         steps.
+//       : The predicate runs UNDER s_oCSectionP2PmsgHub. It must take no lock
+//         and post nothing: it reads the connection's mode, mount flag and
+//         GetP2Paddress() and compares addresses, the reads the old loop did
+//         between its steps.
+//       : The connection comes back as a RAW pointer, as EnumP2PmsgCon's did,
+//         and for the same reason it is enough: the router hands it to
+//         SwapP2PmsgContext, which keeps it raw until the dispatcher posts to
+//         it. A reference taken here and dropped on return would cover none
+//         of that. Its lifetime rules are the router's, unchanged.
+//
+//  Parameters:  P2PmsgHubID nHubID
+//                 0.. The hub of the calling thread (EnumP2PmsgCon's rule)
+//               pfnPick, pvPick
+//                 Predicate and its state; the first TRUE wins
+//
+//  Returns:     P2PeerCon*
+//               The picked connection, or 0
+P2PeerCon*
+PickP2PmsgCon    ( P2PmsgHubID nHubID
+                 , BOOL (*pfnPick)( P2PeerCon *pCon, void *pvPick ), void *pvPick )
+{
+    if ( nHubID <= 0 )
+    {
+      P2PmsgPump *pP2PmsgPump = 0;
+      P2PsafeCS   oSafeCS     = s_oCSectionP2PmsgPump;
+      if ( !s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
+           !pP2PmsgPump                                                       )
+        EVERR->MODULE
+             ->Message("ThreadID=%i has no P2PmsgPump context"
+                      , GetCurrentThreadId() )
+             ->Throw  ( );
+      nHubID = pP2PmsgPump -> m_nHubID;
+    }
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCS    = s_oCSectionP2PmsgHub;
+    if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
+         !pP2PmsgHub                                        )
+      EVERR->MODULE
+           ->Message("nHubID=%i has no P2PmsgHub context"
+                    , nHubID )
+           ->Throw  ( );
+    POSITION pos = pP2PmsgHub->m_oCListP2PmsgCon.GetHeadPosition();
+    while ( pos )
+    {
+      P2PeerCon *pCon = pP2PmsgHub->m_oCListP2PmsgCon.GetNext(pos);
+      if ( pCon && pfnPick ( pCon, pvPick ) )
+        return pCon;
+    }
+    return 0;
+}
+
 P2PeerCon*
 NextP2PmsgCon    ( DWORD eMsgCon );
 

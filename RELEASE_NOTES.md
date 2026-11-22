@@ -3,6 +3,19 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.2
+
+A patch release: routing a message to a hub's later connections no longer slows down with the
+square of the connection count. The flat C API, every exported class layout and every wire
+format are unchanged. It runs on the same Msgcore as 3.7.1 (3.5.1 or later).
+
+- **One walk per route.** Finding the connection a message leaves by used to take the
+  process-wide hub lock and re-scan the hub's list from the start once per connection passed.
+  It is now one pass under one lock. Which connection a message takes is unchanged.
+- **Measured** (`perf_fanout fan`, 250 connections, p50): the extra cost of reaching the last
+  connection fell from 75 to 18 µs on Windows and from 131 to 28 µs on Linux; throughput to it
+  rose 54% and 75%. Hubs with a handful of connections see no change.
+
 ## 3.7.1
 
 A patch release: a message quoted inside another one is quoted without its unused space. The

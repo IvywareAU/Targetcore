@@ -58,6 +58,28 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.2.0, a PATCH on 3.7.1: the router picks its connection in one walk
+//  (p2p_performance.md T4). P2PeerHub::RouteP2PeerMsg walked the hub with
+//  EnumP2PmsgCon, and every EnumP2PmsgCon step re-took the process-wide
+//  s_oCSectionP2PmsgHub, looked the hub up again and re-scanned the list from
+//  the head: routing to the C-th connection was C lock acquisitions and
+//  ~C^2/2 list steps. It now asks PickP2PmsgCon (P2Pwin32.cpp, internal to the
+//  DLL), one walk under one acquisition, with the old loop body as its
+//  predicate: same list, same order, first match wins, so no routing answer
+//  changes. The pick stays a raw pointer, as it was, because SwapP2PmsgContext
+//  holds it raw past the route. A walk that lost its place when the connection
+//  it stood on was dropped no longer ends early.
+//  RESULT (perf_fanout fan, posture A, Wsa loopback, p50): at 250 connections
+//  the extra cost of reaching the last one 75.4 -> 17.9 us on Windows (7
+//  rounds) and 131.4 -> 28.1 us on the Linux VM (5 rounds); lat_last 240 ->
+//  183 us and 340 -> 240 us; throughput to it +54% and +75%. Unchanged at 1-8
+//  connections. TSan clean (p2p_conreap, p2p_vnetmount, p2p_sealhop,
+//  p2p_e2ewaive, p2p_ucastgate, teardown_stress, the fan at 64).
+//  The covered surface, every exported symbol and class layout, and every
+//  wire format are unchanged. Runs on Msgcore 3.5.1 and later, as 3.7.1 did.
+//
+//  BELOW IS THE 3.7.1 RATIONALE.
+//
 //  3.7.1.0, a PATCH on 3.7.0: a wrapped message is embedded at its live bytes.
 //  WrapFactory and WrappedResponseFactory (exception and error reports, timer
 //  wraps) quote a message's whole image, and that image is its heap, so they
@@ -493,23 +515,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_PATCH  2
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,1,0
+#define TARGETCORE_VERSION_COMMAS 3,7,2,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.1.0"
+#define TARGETCORE_VERSION_STRING "3.7.2.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070100 is 3.7.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070200 is 3.7.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070100
+#define TARGETCORE_VERSION_HEX    0x03070200
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -525,7 +547,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.2.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
