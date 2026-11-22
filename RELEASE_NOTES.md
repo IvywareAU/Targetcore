@@ -3,6 +3,17 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.4
+
+A patch release that changes build settings only. The Visual Studio project now builds Release
+with full inlining (`/Ob2`) instead of explicit-inline-only (`/Ob1`), matching the CMake build.
+The source, the flat C API, every exported class layout and every wire format are unchanged.
+
+| `perf_ab`, 64 B, Windows Release, Visual Studio-built DLLs | 3.7.3 + Msgcore 3.6.1 | 3.7.4 + Msgcore 3.6.2 |
+|---|---|---|
+| one-way latency p50 | 105.0 µs | ~94 µs |
+| throughput | 21.9k msg/s | ~26.4k msg/s |
+
 ## 3.7.3
 
 A patch release: a message pump no longer takes a process-wide lock on every visit, and a hub's

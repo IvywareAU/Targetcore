@@ -58,6 +58,18 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.4.0, a PATCH on 3.7.3: BUILD SETTINGS ONLY, no source change. The
+//  Visual Studio project's Release and ReleaseLib configurations were
+//  compiled /Ob1 (InlineFunctionExpansion=OnlyExplicitInline) where the CMake
+//  build is /Ob2; they are /Ob2 (AnySuitable) now. /Ob1 alone made the
+//  msbuild DLLs ~20% slower than the CMake DLLs of the same code (MSCS
+//  performance log F-P4-8: perf_ab throughput 22.1k against 27.9k msg/s).
+//  With Msgcore 3.6.2 the msbuild DLLs read one-way ~94 us and ~26.4k msg/s,
+//  ~4% from CMake (Msgcore keeps /sdl). Exports, layouts, wire formats same;
+//  runs on Msgcore 3.5.1 or later as before.
+//
+//  BELOW IS THE 3.7.3 RATIONALE.
+//
 //  3.7.3.0, a PATCH on 3.7.2: a pump visit takes no process-wide lock
 //  (p2p_performance.md T5). PumpP2Pmsg and WaitForP2Pmsg found their own pump
 //  under s_oCSectionP2PmsgPump, the lock every thread posting to that pump
@@ -539,23 +551,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  3
+#define TARGETCORE_VERSION_PATCH  4
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,3,0
+#define TARGETCORE_VERSION_COMMAS 3,7,4,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.3.0"
+#define TARGETCORE_VERSION_STRING "3.7.4.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070300 is 3.7.3.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070400 is 3.7.4.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070300
+#define TARGETCORE_VERSION_HEX    0x03070400
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -571,7 +583,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.3.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.4.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
