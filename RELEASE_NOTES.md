@@ -3,6 +3,15 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.9.1
+
+A patch release with no library code changes: the source is 3.9.0's, and the DLL differs only
+in the version it reports. Everything that changed is in the repository's CI. A push to master
+no longer re-runs the sanitizer and solution-build workflows for a commit that already passed
+on its branch, tags no longer start a CI run of their own, and the release workflow now names
+the newest run that actually tested the commit. Upgrading from 3.9.0 is optional. It runs on
+Msgcore 3.5.1 or later.
+
 ## 3.9.0
 
 A minor release: a connection sends everything waiting in its queue with one write, up to 64

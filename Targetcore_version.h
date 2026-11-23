@@ -58,6 +58,21 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.9.1.0, a PATCH on 3.9.0: NO LIBRARY CODE CHANGES. The source of every
+//  shipped file is the 3.9.0 source; the binary differs only in this version
+//  identity. What changed is the repository's CI (a563c0a): a push to master
+//  no longer re-runs the sanitizer and solution-build workflows for a commit
+//  that already went green on its branch, tags trigger no CI at all, and the
+//  release workflow names the newest run that actually TESTED the commit
+//  rather than the newest one that merely succeeded (a skipped run concludes
+//  success too). 3.9.1 is cut so that path is exercised by a real tag.
+//    : Two P3 levers were tried on top of 3.9.0 and dropped, so they are not
+//      here either: T3 step 2 (direct idle send) and GetQueuedCompletionStatusEx
+//      batching (p2p_performance_progress.md, F-P3-6 - the pump must drain its
+//      FIFO between completions).
+//
+//  BELOW IS THE 3.9.0 RATIONALE.
+//
 //  3.9.0.0, a MINOR on 3.8.0: gather send (p2p_performance.md T3, step 1).
 //  A connection wrote ONE frame per transport write and took the next message
 //  off its queue only when that write completed. On the stock transport
@@ -647,23 +662,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  9
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,9,0,0
+#define TARGETCORE_VERSION_COMMAS 3,9,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.9.0.0"
+#define TARGETCORE_VERSION_STRING "3.9.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
 //  0x03080000 is 3.8.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03090000
+#define TARGETCORE_VERSION_HEX    0x03090100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -679,7 +694,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.9.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.9.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
