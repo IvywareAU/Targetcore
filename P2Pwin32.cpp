@@ -21,6 +21,26 @@
 #include "P2Pwin32.h"
 #include "P2PeerExplorer.h"
 #include <shared_mutex>
+#include <chrono>
+
+//
+//  The pump's timer clock: monotonic milliseconds
+//  NOTES: Timer deadlines were _time64(0)*1000 + delay - wall-clock SECONDS
+//         scaled to milliseconds, so a 50 ms timer fired anywhere from 50 to
+//         1050 ms after it was set, depending on where in the second it was
+//         armed, and a wall-clock step moved every deadline with it (MSCS
+//         performance plan T8). steady_clock is monotonic and immune to clock
+//         changes; only differences of it mean anything, which is all the
+//         timer queue ever takes (PollTimer answers deadline - now)
+//       : Every iPitime is written and read through this one function, so the
+//         queue never mixes the two clocks
+//
+static inline __int64
+P2PtimerNowMs ( )
+{
+    return (__int64)std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch() ).count();
+}
 
 ///////////////////////////////////////////////////////////////////////
 //  Private P2Peer definitions
@@ -738,7 +758,7 @@ TOP:      UINT     uiPitimerID = m_nThreadId*0x100+m_nPitimeID++;
         {
           if ( m_oCListP2PmsgPit.IsEmpty() )
             return 0xFFFFFFFF;
-          return m_oCListP2PmsgPit.GetHead()->iPitime - _time64(0)*1000;
+          return m_oCListP2PmsgPit.GetHead()->iPitime - P2PtimerNowMs();
         }
       P2Pmsg*
         GetTimer ( )
@@ -6392,7 +6412,7 @@ SetP2PmsgTimer ( P2PaddrSTR strP2Paddr, UINT nCode, P2Pmsg_t nMsg
               pCon -> AddRef ( );
             pP2Pmsg -> pMsg         =  pMsg;
             pP2Pmsg -> bNotify      =  false;
-            pP2Pmsg -> iPitime      = _time64(0)*1000 + uElapse;
+            pP2Pmsg -> iPitime      = P2PtimerNowMs() + uElapse;
 
     // Implementation
     return pP2PmsgPump -> SetTimer ( pP2Pmsg );
@@ -6436,7 +6456,7 @@ SetP2PmsgTimer ( DWORD nPumpID, P2Peerio *pPeerio
             pP2Pmsg -> nMsg         =  P2P_PITimer;
             pP2Pmsg -> pPeerio      =  pPeerio;
             pP2Pmsg -> bNotify      =  false;
-            pP2Pmsg -> iPitime      = _time64(0)*1000 + uMSecDelay;
+            pP2Pmsg -> iPitime      = P2PtimerNowMs() + uMSecDelay;
             pP2Pmsg -> dwUserKey    = dwUserKey;
 
     // Implementation
@@ -6483,7 +6503,7 @@ SetP2PmsgTimer ( DWORD nPumpID, P2PeerCon *pCon
             if ( pCon )
               pCon -> AddRef ( );
             pP2Pmsg -> bNotify      =  false;
-            pP2Pmsg -> iPitime      = _time64(0)*1000 + uMSecDelay;
+            pP2Pmsg -> iPitime      = P2PtimerNowMs() + uMSecDelay;
             pP2Pmsg -> dwUserKey    = dwUserKey;
 
     // Implementation
@@ -6528,7 +6548,7 @@ SetP2PmsgTimer ( DWORD nPumpID, P2PeerTarget *pTarget
             pP2Pmsg -> nMsg         =  P2P_PITimer;
             pP2Pmsg -> pTarget      =  pTarget;
             pP2Pmsg -> bNotify      =  false;
-            pP2Pmsg -> iPitime      = _time64(0)*1000 + uMSecDelay;
+            pP2Pmsg -> iPitime      = P2PtimerNowMs() + uMSecDelay;
             pP2Pmsg -> dwUserKey    =  dwUserKey;
 
     // Implementation

@@ -3,6 +3,20 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.6
+
+A patch release: timers fire on time. A PITimer's deadline used to be counted in whole seconds
+of wall-clock time, so a timer set for 50 ms fired anywhere from almost immediately to a full
+second later, and a change of the system clock moved every pending timer. Deadlines now use a
+monotonic millisecond clock. The one-second wait for a connection in the demultiplexer had the
+same fault and is fixed the same way. The flat C API, every exported class layout and every wire
+format are unchanged. It runs on Msgcore 3.5.1 or later.
+
+| 50 ms timer, re-armed 10 times | 3.7.5 | 3.7.6 |
+|---|---|---|
+| time to fire, Windows | 708–1014 ms | 49–51 ms |
+| time to fire, Linux VM | — | 50–64 ms |
+
 ## 3.7.5
 
 A patch release: reading a message's source, destination or scope address takes one lookup

@@ -24,6 +24,7 @@
 #include "P2PeerConDmx.h"
 #include "P2PeerioDmx.h"
 #include "P2Pwin32.h"
+#include <chrono>
 
 ///////////////////////////////////////////////////////////////////////
 //  Constructors and destructor
@@ -893,7 +894,15 @@ P2PeerConDmx::Connect ( )
     //        3.3.2
   auto     ConThat  = [this] ( ) { P2PsafeCS oSafeCS = g_oCSectP2PeerConDmx;
                                    return m_pConThat; };
-  __time64_t uTimeout = _time64(0)*1000 + 100;
+    //  A MONOTONIC deadline, and one second of it. This read
+    //  _time64(0)*1000 + 100: whole seconds scaled to milliseconds, so the
+    //  "100 ms" ran until the wall clock next turned a second - anywhere from
+    //  0 to 1000 ms, depending on when the connect was asked for (MSCS
+    //  performance plan T8). One real second is at least what the old wait
+    //  ever gave, so no connect that used to find its listener now gives up
+    //  sooner; the loop only spins when no listener is there at all
+  using DmxClock    = std::chrono::steady_clock;
+  const DmxClock::time_point tDeadline = DmxClock::now() + std::chrono::milliseconds ( 1000 );
 TOP:if ( !ConThat() )
     {
       SwitchToThread ( );
@@ -939,7 +948,7 @@ TOP:if ( !ConThat() )
 
       // Yield and try again
       if ( !m_pConThat                 &&
-           _time64(0)*1000 <= uTimeout    )
+           DmxClock::now() <= tDeadline    )
         goto TOP;
     }
 

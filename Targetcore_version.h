@@ -58,6 +58,27 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.6.0, a PATCH on 3.7.5: timers in milliseconds (p2p_performance.md
+//  T8). Every PITimer deadline was _time64(0)*1000 + delay - wall-clock
+//  SECONDS scaled to milliseconds - and PollTimer compared against the same
+//  clock, so "now" moved once a second: a timer with a delay under 1000 ms
+//  fired when the second turned, anywhere from ~0 to 1000 ms after it was set,
+//  and a wall-clock step moved every deadline with it. The deadlines use
+//  P2PtimerNowMs() now, steady_clock in milliseconds: monotonic, millisecond
+//  resolution. They are only ever compared with each other and with that
+//  clock, so nothing outside the timer queue sees the change. The connect
+//  wait in P2PeerConDmx had the same shape (0..1000 ms for "one second") and
+//  is a steady_clock deadline 1000 ms ahead. Left alone on purpose:
+//  P2PeerCon's iRestartTime (an informational value no caller reads; the
+//  restart timer itself is relative) and P2PeerService's 5 s waits.
+//
+//  RESULT: MscsUnitTests p2p_timerres (50 ms timer, re-armed ten times, each
+//  fire in [49, 250] ms) is red on 3.7.5 - 10 of 10 fires at 708..1014 ms -
+//  and green here: 49..51 ms Windows, 50..64 ms Linux VM. Flat C API,
+//  exports, layouts and wire formats unchanged; runs on Msgcore 3.5.1 or later.
+//
+//  BELOW IS THE 3.7.5 RATIONALE.
+//
 //  3.7.5.0, a PATCH on 3.7.4: the address getters read in one lookup
 //  (p2p_performance.md T7, step 2). P2PeerMsg::GetSource, GetDestin and
 //  GetScopeOrDestin asked Exists(name) and then fetched through operator[]:
@@ -571,7 +592,7 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  5
+#define TARGETCORE_VERSION_PATCH  6
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
@@ -582,12 +603,12 @@
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.5.0"
+#define TARGETCORE_VERSION_STRING "3.7.6.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070500 is 3.7.5.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070600 is 3.7.6.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070500
+#define TARGETCORE_VERSION_HEX    0x03070600
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -603,7 +624,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.5.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.6.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
