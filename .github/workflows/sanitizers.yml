@@ -234,7 +234,11 @@
 name: sanitizers
 
 on:
+  # Branches only (2026-11-23): a bare `push:` also fired on every tag, so a
+  # release re-ran this whole workflow a third time on a commit already green
+  # on its branch and on master, and release.yml waited for it.
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -254,6 +258,7 @@ on:
 
 permissions:
   contents: read
+  actions: read     # already-green looks up earlier runs of this workflow
 
 env:
   SOLUTION_REPO: IvywareAU/MscsSolution
@@ -287,7 +292,48 @@ env:
   # one is ever needed again, the banner above says what shape to rebuild it in.
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Skip a master push whose commit is already green (added 2026-11-23). Master
+  # only ever fast-forwards to a commit that went through a branch first
+  # (tools/hooks/pre-push), so the push-to-master run re-tested a commit this
+  # workflow had already passed - ~12 minutes of runner time to learn nothing.
+  # If a SUCCESSFUL run of THIS workflow exists for the same commit on another
+  # branch, or by workflow_dispatch, every job below is skipped and this run
+  # concludes success. Anything else runs everything: any ref but master, a
+  # master push whose branch run failed or never happened, an API error.
+  # release.yml publishes the run that actually tested the commit, never a
+  # skipped one.
+  # ---------------------------------------------------------------------------
+  already-green:
+    name: already green on a branch?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.look.outputs.skip }}
+    steps:
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          skip=false
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/master ]; then
+            wf="${GITHUB_WORKFLOW_REF%%@*}"; wf="${wf##*/}"
+            prior="$(gh api "repos/${{ github.repository }}/actions/workflows/$wf/runs?head_sha=${{ github.sha }}&status=success&per_page=50" \
+                       --jq '[.workflow_runs[] | select(.head_branch != "master" and .id != ${{ github.run_id }}) | .html_url] | first // empty' \
+                     2>/dev/null)" || prior=""
+            if [ -n "$prior" ]; then
+              skip=true
+              echo "::notice::${{ github.sha }} already passed $wf in $prior - skipping the master re-run"
+            else
+              echo "No earlier green $wf run for ${{ github.sha }}; running everything."
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   windows-asan:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: Windows / MSVC + ASan
     runs-on: windows-2025-vs2026
     steps:
@@ -441,6 +487,8 @@ jobs:
           if-no-files-found: warn
 
   linux-sanitizers:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: Linux / GCC + ASan+UBSan+LSan
     # Pinned, for the reason spelled out on the TSan leg below: what a sanitiser
     # reports is a property of its toolchain, and `ubuntu-latest` migrates to
@@ -588,6 +636,8 @@ jobs:
           if-no-files-found: warn
 
   linux-tsan:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: Linux / GCC + TSan (pump/hub race gate)
     # Pinned, and this is the pin that matters most. `ubuntu-latest` migrates to
     # Ubuntu 26 on 2026-10-19 (actions/runner-images#14748). What a sanitiser

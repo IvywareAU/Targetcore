@@ -76,12 +76,52 @@ on:
 
 permissions:
   contents: read
+  actions: read     # already-green looks up earlier runs of this workflow
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Skip a master push whose commit is already green (added 2026-11-23). Master
+  # only ever fast-forwards to a commit that went through a branch first
+  # (tools/hooks/pre-push), so the push-to-master run re-tested a commit this
+  # workflow had already passed - ~12 minutes of runner time to learn nothing.
+  # If a SUCCESSFUL run of THIS workflow exists for the same commit on another
+  # branch, or by workflow_dispatch, every job below is skipped and this run
+  # concludes success. Anything else runs everything: any ref but master, a
+  # master push whose branch run failed or never happened, an API error.
+  # release.yml publishes the run that actually tested the commit, never a
+  # skipped one.
+  # ---------------------------------------------------------------------------
+  already-green:
+    name: already green on a branch?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.look.outputs.skip }}
+    steps:
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          skip=false
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/master ]; then
+            wf="${GITHUB_WORKFLOW_REF%%@*}"; wf="${wf##*/}"
+            prior="$(gh api "repos/${{ github.repository }}/actions/workflows/$wf/runs?head_sha=${{ github.sha }}&status=success&per_page=50" \
+                       --jq '[.workflow_runs[] | select(.head_branch != "master" and .id != ${{ github.run_id }}) | .html_url] | first // empty' \
+                     2>/dev/null)" || prior=""
+            if [ -n "$prior" ]; then
+              skip=true
+              echo "::notice::${{ github.sha }} already passed $wf in $prior - skipping the master re-run"
+            else
+              echo "No earlier green $wf run for ${{ github.sha }}; running everything."
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
   # ---------------------------------------------------------------------------
   # Bookkeeping the repository can check about itself. See the header of
   # .github/ci/check_repo_invariants.py for the full proves/does-not-prove list.
@@ -92,6 +132,8 @@ jobs:
   # the same failure mode going unnoticed for 14 days on a test suite.
   # ---------------------------------------------------------------------------
   invariants:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: repository invariants (no compiler)
     # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
     # (actions/runner-images#14748); a label that changes the image under a
@@ -121,6 +163,8 @@ jobs:
   # between the two ship unnoticed.
   # ---------------------------------------------------------------------------
   crypto-selftest:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: crypto core self-test (OpenSSL backend, 4 of 30 TUs)
     # Pinned. `ubuntu-latest` migrates to Ubuntu 26 on 2026-10-19
     # (actions/runner-images#14748); a label that changes the image under a
@@ -168,6 +212,8 @@ jobs:
   # parse-check would fail for a reason that is not a defect.
   # ---------------------------------------------------------------------------
   cmake-parse:
+    needs: already-green
+    if: needs.already-green.outputs.skip != 'true'
     name: CMakeLists.txt generates (stub siblings, configure only)
     # windows-2025-vs2026, NOT windows-latest. The label moved off the VS 2026 image and
     # the step below asks for the "Visual Studio 18 2026" generator by name, so on

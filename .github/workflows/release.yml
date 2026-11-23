@@ -30,9 +30,10 @@
 #   * Then one line per CI workflow naming the green run for the tagged commit.
 #
 # CI it requires: a SUCCESSFUL run, on the tagged commit, of each of
-#   repo-invariants.yml, solution-build.yml and sanitizers.yml. All three run
-#   on push. One still running is waited for; one missing, failed or cancelled
-#   fails the job and nothing is published. That is stricter than
+#   repo-invariants.yml, solution-build.yml and sanitizers.yml - the newest
+#   run of each that actually tested the commit (branch push, dispatch, or a
+#   master run that was not skipped as already green). Runs still going are
+#   waited for; none, or a failure, fails the job and nothing is published. That is stricter than
 #   tools/hooks/pre-push, which gates master on repo-invariants.yml alone --
 #   a release says the build was checked, not only the bookkeeping.
 #
@@ -108,23 +109,46 @@ jobs:
           : > "$runs"
 
           # --- CI: every workflow green on this exact commit ------------------
+          # Any run of the workflow on this commit counts - its branch push, a
+          # workflow_dispatch (how a cross-repo change is proven against a test
+          # branch), or master. Runs still going are waited for first. Then,
+          # newest first, cancelled runs are passed over (no verdict) and so
+          # are runs whose already-green job skipped everything (they tested
+          # nothing); the newest run that DID test the commit must be a
+          # success. Until 2026-11-23 this took the newest PUSH run, which was
+          # the tag's own re-run of the whole workflow (now gone: CI no longer
+          # runs on tags).
           for wf in repo-invariants.yml solution-build.yml sanitizers.yml; do
-            id="$(gh run list --workflow "$wf" --commit "$sha" --event push \
-                    --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-            if [ -z "$id" ]; then
+            ids="$(gh run list --workflow "$wf" --commit "$sha" --limit 30 \
+                     --json databaseId,status --jq '.[] | "\(.databaseId) \(.status)"')"
+            if [ -z "$ids" ]; then
               echo "::error::No $wf run for $TAG ($sha). Push that commit, let CI finish, then re-run this workflow for $TAG."
               exit 1
             fi
-            if [ "$(gh run view "$id" --json status --jq .status)" != "completed" ]; then
-              echo "Waiting for $wf run $id ..."
-              gh run watch "$id" --interval 30 >/dev/null || true
+            while read -r rid st; do
+              if [ "$st" != "completed" ]; then
+                echo "Waiting for $wf run $rid ..."
+                gh run watch "$rid" --interval 30 >/dev/null || true
+              fi
+            done <<< "$ids"
+            id=""; conclusion=""
+            for rid in $(cut -d' ' -f1 <<< "$ids"); do
+              c="$(gh run view "$rid" --json conclusion --jq .conclusion)"
+              [ "$c" = "cancelled" ] && continue
+              tested="$(gh run view "$rid" --json jobs \
+                          --jq '[.jobs[] | select(.name != "already green on a branch?" and .conclusion != "skipped")] | length')"
+              [ "$tested" -gt 0 ] || continue
+              id="$rid"; conclusion="$c"; break
+            done
+            if [ -z "$id" ]; then
+              echo "::error::No $wf run that tested $TAG ($sha); not publishing."
+              exit 1
             fi
-            read -r conclusion name < <(gh run view "$id" --json conclusion,workflowName \
-                                          --jq '"\(.conclusion) \(.workflowName)"')
             if [ "$conclusion" != "success" ]; then
               echo "::error::$wf run $id for $TAG finished as '$conclusion'; not publishing."
               exit 1
             fi
+            name="$(gh run view "$id" --json workflowName --jq .workflowName)"
             # Display names carry a parenthetical ("repo invariants (standalone,
             # ...)"); the release line keeps the part before it.
             printf -- '- %s: %s/%s/actions/runs/%s\n' "${name%% (*}" \
