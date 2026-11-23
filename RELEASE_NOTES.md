@@ -5,12 +5,23 @@ including the ones before this file existed, is kept in `Targetcore_version.h`.
 
 ## 3.9.1
 
-A patch release with no library code changes: the source is 3.9.0's, and the DLL differs only
-in the version it reports. Everything that changed is in the repository's CI. A push to master
-no longer re-runs the sanitizer and solution-build workflows for a commit that already passed
-on its branch, tags no longer start a CI run of their own, and the release workflow now names
-the newest run that actually tested the commit. Upgrading from 3.9.0 is optional. It runs on
-Msgcore 3.5.1 or later.
+A patch release: routing to a hub with many connections is faster. The flat C API, every
+exported class layout and every wire format are unchanged. It runs on Msgcore 3.5.1 or later.
+
+- **The route walk measures each address once.** Finding the connection a message leaves by
+  tests every connection in turn, and each test re-measured the destination, the hub and the
+  connection's address. The lengths, and whether the hub itself covers the destination, are
+  now taken once per message and once per connection. The tests, their order and the
+  connection a message takes are unchanged; Debug builds check every answer against the 3.9.0
+  test and stop on a disagreement.
+- **Measured** (`perf_fanout fan`, the last of 250 connections, p50): throughput to it rose
+  30% on Windows (19.8k → 25.8k msg/s) and 26% on Linux (10.3k → 13.0k). One connection and
+  64 connections move by 5% or less. The walk is still one pass over the connections, so
+  throughput still falls as a hub gains connections.
+- **CI.** A push to master no longer re-runs the sanitizer and solution-build workflows for a
+  commit that already passed on its branch, tags no longer start a CI run of their own, and
+  the release workflow names the newest run that actually tested the commit. This is the
+  first release made that way.
 
 ## 3.9.0
 

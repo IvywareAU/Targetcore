@@ -58,14 +58,31 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
-//  3.9.1.0, a PATCH on 3.9.0: NO LIBRARY CODE CHANGES. The source of every
-//  shipped file is the 3.9.0 source; the binary differs only in this version
-//  identity. What changed is the repository's CI (a563c0a): a push to master
+//  3.9.1.0, a PATCH on 3.9.0: the route walk measures each address once
+//  (p2p_performance F-P4-9, option (a)). P2PeerHub::RouteP2PeerMsg tests the
+//  hub's connections in list order (T4, 3.7.2), and every test re-ran wcslen
+//  on the destination, the hub and the connection and compared the full
+//  strings: at 250 connections the walk was ~85% of the router pump's extra
+//  time, ~35 us per message (Linux perf). RouteHub_Ask now carries the hub's
+//  and the destination's lengths and hub.IsRable(dst), once per message, and
+//  each connection's address is measured once; RouteHub_IsChild / _IsRable
+//  are P2Paddr::IsChild / IsRable test for test on those lengths (the hop
+//  boundary kept in step with P2PaddrIsHopBoundary). Same tests, same order,
+//  first match wins. Assumes no embedded NUL in an address. Debug builds
+//  check every answer against the 3.9.0 predicate (RouteHub_PickRef) and
+//  throw on a disagreement; a mutant inverting the parent test was caught by
+//  it in p2p_e2ewaive.
+//  RESULT (perf_fanout fan C 500 10000, p50 medians; Windows 7 rounds, Linux
+//  VM 5): thr_last at C=250 19.8k -> 25.8k msg/s (+30%) and 10.3k -> 13.0k
+//  (+26%); C=1 and 64 within 5% (Linux C=64 +11%); all_round at 250 -8% and
+//  -12.5%; latency unchanged (10-round recheck). Still O(C): throughput still
+//  falls with C. The covered surface and the export table do not move.
+//  CI (a563c0a), first exercised by this tag: a push to master
 //  no longer re-runs the sanitizer and solution-build workflows for a commit
 //  that already went green on its branch, tags trigger no CI at all, and the
 //  release workflow names the newest run that actually TESTED the commit
 //  rather than the newest one that merely succeeded (a skipped run concludes
-//  success too). 3.9.1 is cut so that path is exercised by a real tag.
+//  success too).
 //    : Two P3 levers were tried on top of 3.9.0 and dropped, so they are not
 //      here either: T3 step 2 (direct idle send) and GetQueuedCompletionStatusEx
 //      batching (p2p_performance_progress.md, F-P3-6 - the pump must drain its

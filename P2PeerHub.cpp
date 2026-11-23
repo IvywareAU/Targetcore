@@ -1031,13 +1031,97 @@ namespace
         const P2Paddr& oHub;
         P2PaddrSTR     pDst;
         bool           bDstMounted;
+        //  Per MESSAGE, asked once before the walk (B5, F-P4-9): the walk used
+        //  to re-measure the destination and the hub on every connection
+        P2PaddrSTR     pHub;          // oHub's characters
+        size_t         nHub;          // _tcslen ( pHub )
+        size_t         nDst;          // _tcslen ( pDst )
+        bool           bHubRableDst;  // oHub.IsRable ( pDst )
     };
 
+    //  P2Paddr::IsChild / IsRable (P2Peer.cpp), test for test, on lengths the
+    //  caller already has.  Keep the hop boundary in step with
+    //  P2PaddrIsHopBoundary there.
+    inline bool
+    RouteHub_IsBoundary ( T_ADDR c ) { return c == '.' || c == ':'; }
+
+    inline bool
+    RouteHub_IsChild ( P2PaddrSTR pThis, size_t nThis, P2PaddrSTR pChild, size_t nChild )
+    {
+        if ( nThis >= nChild )
+          return false;
+        if ( memcmp(pChild,pThis,nThis*sizeof(T_ADDR)) )
+          return false;
+        return RouteHub_IsBoundary ( pChild[nThis] );
+    }
+
+    inline bool
+    RouteHub_IsRable ( P2PaddrSTR pThis, size_t nThis, P2PaddrSTR pDst, size_t nDst )
+    {
+        if ( nThis > nDst )
+          return false;
+        if ( memcmp(pDst,pThis,nThis*sizeof(T_ADDR)) )
+          return false;
+        return pDst[nThis] == '\0' || RouteHub_IsBoundary ( pDst[nThis] );
+    }
+
+#ifdef _DEBUG
+    //  The predicate as it was through 3.9.0, kept as the Debug cross-check's
+    //  reference for RouteHub_Pick below
+    BOOL
+    RouteHub_PickRef ( P2PeerCon *pCon, const RouteHub_Ask& a )
+    {
+        const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
+        if ( pCon->GetMode() == P2PeerCon_SERVICE )
+          return FALSE;
+        if ( pCon->IsVNetMount() )
+          return ( a.bDstMounted && oP2PaddrCon.IsRable ( a.pDst ) ) ? TRUE : FALSE;
+        if ( oP2PaddrCon == a.pDst )
+          return TRUE;
+        if ( a.oHub.IsChild(oP2PaddrCon) &&
+             oP2PaddrCon.IsRable(a.pDst)    )
+          return TRUE;
+        if (    oP2PaddrCon.IsChild(a.oHub) &&
+             !a.oHub.IsRable(a.pDst)           )
+          return TRUE;
+        return FALSE;
+    }
+
+#endif
+
+    BOOL
+    RouteHub_PickFast ( P2PeerCon *pCon, const RouteHub_Ask& a );
+
+    //  NOTES: B5 / F-P4-9.  At 250 connections this predicate was ~85% of the
+    //         router pump's extra time (Linux perf, 2026-11-24): every test
+    //         re-ran wcslen on the destination, the hub and the connection.
+    //         RouteHub_PickFast is the same tests in the same order on lengths
+    //         measured once - per message (RouteHub_Ask) and per connection.
+    //       : The one assumption: an address holds no embedded NUL, so its
+    //         _tcslen is its length.  Every P2Paddr is built from a C string
+    //         or a copy of one.  Debug builds check every answer against the
+    //         reference above and throw on a disagreement
     BOOL
     RouteHub_Pick ( P2PeerCon *pCon, void *pvAsk )
     {
         const RouteHub_Ask& a = *static_cast<const RouteHub_Ask *>( pvAsk );
+        BOOL bPick = RouteHub_PickFast ( pCon, a );
+#ifdef _DEBUG
+        if ( bPick != RouteHub_PickRef ( pCon, a ) )
+          EVERR->MODULE
+               ->Message ( L"RouteHub_Pick disagrees with its reference for %s via %s"
+                         , a.pDst, pCon->GetP2Paddress().c_wstr() )
+               ->Throw   ( );
+#endif
+        return bPick;
+    }
+
+    BOOL
+    RouteHub_PickFast ( P2PeerCon *pCon, const RouteHub_Ask& a )
+    {
         const P2Paddr& oP2PaddrCon = pCon -> GetP2Paddress();
+        P2PaddrSTR     pCon_       = oP2PaddrCon.c_wstr ( );
+        size_t         nCon        = _tcslen ( pCon_ );
 
         // NOTES: EnumP2PmsgCon() is deliberately unfiltered - it is the
         //        "every connection on this hub" primitive, and the
@@ -1054,25 +1138,25 @@ namespace
         //        mount, which is the accepting side's case - its connection is
         //        named by the far hub's claim and the far network is all of it
         if ( pCon->IsVNetMount() )
-          return ( a.bDstMounted && oP2PaddrCon.IsRable ( a.pDst ) ) ? TRUE : FALSE;
+          return ( a.bDstMounted && RouteHub_IsRable ( pCon_, nCon, a.pDst, a.nDst ) ) ? TRUE : FALSE;
                                        // nothing else crosses a mount
 
         // Immediate
-        if ( oP2PaddrCon == a.pDst )
+        if ( nCon == a.nDst && !memcmp(pCon_,a.pDst,nCon*sizeof(T_ADDR)) )
           return TRUE;
 
         // Children
         // NOTES: P2PeerCon is our network child, and
         //        P2PeerMsg is routable down through P2PeerCon
-        if ( a.oHub.IsChild(oP2PaddrCon) &&
-             oP2PaddrCon.IsRable(a.pDst)    )
+        if ( RouteHub_IsChild ( a.pHub, a.nHub, pCon_, nCon ) &&
+             RouteHub_IsRable ( pCon_, nCon, a.pDst, a.nDst )    )
           return TRUE;
 
         // Parent
         // NOTES: P2PeerCon is our network parent, and
         //        P2PeerMsg is not routable down through this P2Peer
-        if (    oP2PaddrCon.IsChild(a.oHub) &&
-             !a.oHub.IsRable(a.pDst)           )
+        if (    RouteHub_IsChild ( pCon_, nCon, a.pHub, a.nHub ) &&
+             !a.bHubRableDst                                  )
           return TRUE;
 
         return FALSE;
@@ -1145,7 +1229,10 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     //        hub lock and re-scanned from the head: C^2/2 steps to reach the
     //        C-th connection (B5, F-P0-12). RouteHub_Pick is that loop's body
     //        unchanged, in the same order, and the first pick still wins
-    RouteHub_Ask oAsk = { m_oP2PaddrHub, pP2PaddrMsg, bDstMounted };
+    P2PaddrSTR   pHubAddr = m_oP2PaddrHub.c_wstr ( );
+    RouteHub_Ask oAsk = { m_oP2PaddrHub, pP2PaddrMsg, bDstMounted
+                        , pHubAddr, _tcslen ( pHubAddr ), _tcslen ( pP2PaddrMsg )
+                        , m_oP2PaddrHub.IsRable ( pP2PaddrMsg ) };
     P2PeerCon   *pCon = PickP2PmsgCon ( m_nHubID, RouteHub_Pick, &oAsk );
     if ( pCon )
       return P2PeerContextSwap ( pCon, pMsg );
