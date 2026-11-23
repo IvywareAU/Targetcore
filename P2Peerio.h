@@ -143,6 +143,76 @@ typedef struct
 } OVERLAPPEDcon;
 
 //
+//  THE RECEIVE RING - how P2Peerio::RecvP2PeerMsg lays out a receive OVERLAPPEDcon
+//  NOTES: p2p_performance.md T2, Targetcore 3.8.0.  Until then every frame took
+//         TWO transport reads - the 8-byte oSync header into pUserDB1, then the
+//         body into a pUserDB2 sized from it - so two submissions and two
+//         completions per message however many frames the socket already held.
+//         Now ONE read takes whatever the transport has, up to the ring's
+//         capacity, and every complete frame in it is handed out before the next
+//         read is issued.  The caller's loop (P2PeerCon::On_QueuedCompletionStatus)
+//         is unchanged: it calls RecvP2PeerMsg until that returns nullptr, and a
+//         frame still in the ring when it stops for login hold or backpressure is
+//         handed out by the next call, ahead of any read.
+//       : pUserDB1 is the ring: a P2PeerioRecvRing followed by dwCap data bytes.
+//         dwBytes is one past the last byte received INTO THE DATA AREA (so the
+//         completion's `dwBytes += n` stays right: every read appends there) and
+//         dwHead the first byte not yet handed out.
+//       : A frame LARGER THAN THE RING is the one exception: its bytes so far
+//         move into a pUserDB2 of its own size and the rest is read straight
+//         into it, as before 3.8.0.  pUserDB2 non-null means exactly that mode;
+//         dwBytes then counts into pUserDB2 and dwBytesMax is the frame size.
+//       : These helpers are the ONE statement of that layout.  The parser takes
+//         its read requests from P2PeerioRecvRequest, and p2p_fuzzframe, which
+//         plays the transport, delivers through the same call - so the harness
+//         cannot drift from the parser it tests.
+//
+struct P2PeerioRecvRing
+{
+    DWORD        dwCap;                // data bytes the ring holds
+    DWORD        dwHead;               // first data byte not yet handed out
+};
+//  16 KB: ~25 frames of a 64-byte message (629 B on the wire, M1).  Frames up
+//  to the 32 KB receive cap that do not fit take the own-buffer path above.
+const DWORD P2PeerioRecvRingCap = 16384;
+
+inline char *
+P2PeerioRecvRingData ( const OVERLAPPEDcon *pOv )
+{
+    return pOv->pUserDB1 + sizeof(P2PeerioRecvRing);
+}
+
+//  Where the next transport read on this receive object goes, and at most how
+//  many bytes it may take.  false: RecvP2PeerMsg has not yet run on it
+inline bool
+P2PeerioRecvRequest ( const OVERLAPPEDcon *pOv, char **ppDst, DWORD *pdwWant )
+{
+    if ( !pOv->pUserDB1 )
+      return false;
+    if ( pOv->pUserDB2 )
+    {
+      *ppDst   = pOv->pUserDB2 + pOv->dwBytes;
+      *pdwWant = pOv->dwBytesMax - pOv->dwBytes;
+      return true;
+    }
+    const P2PeerioRecvRing *pRing = (const P2PeerioRecvRing *)pOv->pUserDB1;
+    *ppDst   = P2PeerioRecvRingData ( pOv ) + pOv->dwBytes;
+    *pdwWant = pRing->dwCap - pOv->dwBytes;
+    return true;
+}
+
+//  Bytes received and not yet handed out as (or refused as part of) a frame
+inline DWORD
+P2PeerioRecvPending ( const OVERLAPPEDcon *pOv )
+{
+    if ( !pOv->pUserDB1 )
+      return 0;
+    if ( pOv->pUserDB2 )
+      return pOv->dwBytes;
+    return pOv->dwBytes - ((const P2PeerioRecvRing *)pOv->pUserDB1)->dwHead;
+}
+
+//
 //  P2Peer protocol management
 //  NOTES: Instances of these objects manage protocol translation for
 //         P2PeerMsg's exchanged between P2PeerHub's

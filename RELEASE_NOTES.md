@@ -3,6 +3,34 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.8.0
+
+A minor release: a connection reads everything that has arrived in one go and then hands out
+every complete message in it. Until now each message took two reads from the socket, one for
+its 8-byte header and one for the rest. The checks a frame must pass are unchanged and refuse
+the same frames with the same messages. The flat C API, every exported class layout and every
+wire format are unchanged. It runs on Msgcore 3.5.1 or later.
+
+| 64 B, 5 rounds, base 3.7.6 | Windows | Linux VM |
+|---|---|---|
+| one-way latency | −6.1% | −5.7% |
+| fan-out to 64 connections, throughput to the last | +14.2% | +10.2% |
+| fan-out to 64 connections, full round | −11.6% | −3.9% |
+| pipelined throughput | −1.5% | +2.0% |
+| system calls per message (Linux) | — | −27% |
+
+Pipelined throughput does not improve yet: that path is limited by the sending side, which is
+the next change.
+
+Why a minor version: `P2Peerio.h` gains the receive buffer's layout (`P2PeerioRecvRing`) and
+inline helpers (`P2PeerioRecvRequest`, `P2PeerioRecvPending`). Code that subclasses `P2Peerio`
+and writes into a receive `OVERLAPPEDcon`'s buffers itself, as a test harness might, must use
+them. Subclasses that override `RecvP2PeerMsg` are not affected. Each connection that has
+received holds a 16 KB receive buffer.
+
+Also fixed: the 3.7.6 DLL's binary file version resource read 3.7.5.0. Its version strings were
+right.
+
 ## 3.7.6
 
 A patch release: timers fire on time. A PITimer's deadline used to be counted in whole seconds

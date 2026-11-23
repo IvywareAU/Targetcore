@@ -438,59 +438,99 @@ P2Peerio::RecvP2PeerMsg ( HANDLE hFile
                         , OVERLAPPEDcon *pOVERLAPPEDrecv )
 {
     // Introduce locals
-    DWORD        dwResult;
-    VBListIOmage *pIOmage = 0;
-    //DWORD      dwBytes    = pOVERLAPPEDrecv->dwBytes;
-    //DWORD      dwBytesMax = pOVERLAPPEDrecv->dwBytesMax;
-    //char       *pBuffer   = pOVERLAPPEDrecv->pBuffer;
-    //P2Psize_t  *pMsgSize  = (P2Psize_t *)pOVERLAPPEDrecv->pBuffer;
+    // NOTES: The receive ring (p2p_performance.md T2, Targetcore 3.8.0) - its
+    //        layout, and why, is stated once in P2Peerio.h at P2PeerioRecvRing.
+    //        One transport read takes what the transport has; every complete
+    //        frame in the ring is handed out, one per call, before another read
+    //        is issued.  Until 3.8.0 this function read the 8-byte header and
+    //        then the body: two reads, two completions, every frame.
+    //      : The refusals are the ones this function always made, with the same
+    //        messages, made at the same point in a frame's arrival - the header
+    //        checks as soon as the header is in, before anything is sized from
+    //        it.  Only WHERE the bytes wait changed.
+    DWORD             dwResult;
+    VBListIOmage     *pIOmage = 0;
+    const DWORD       nSync   = (DWORD)sizeof(pIOmage->oSync);
+    UINT              nSizeof = 0;
+    bool              bOwnBuf = false;     // the frame came through its own pUserDB2
+    char             *pDst    = 0;
+    DWORD             dwWant  = 0;
 
     // Stage 0 - Initialisation
-    // NOTES: Interface works off dual buffers.  The first persistant
-    //        and the second dynamic.  Intended to be performed once
-    //        at start of data receival.
+    // NOTES: Once, at the start of receipt.  The buffer MakeOVERLAPPED gave
+    //        this object is not used for receipt and is released, as before.
     if ( pOVERLAPPEDrecv->pUserDB1 == 0 )
     {
-      pOVERLAPPEDrecv -> pUserDB1   = new char [sizeof(VBListIOmage)+4];
-      pOVERLAPPEDrecv -> dwBytesMax = sizeof(pIOmage->oSync);
-      pOVERLAPPEDrecv -> dwBytes    = 0;
       if ( pOVERLAPPEDrecv->pBuffer == pOVERLAPPEDrecv->pUserDB2 )
         pOVERLAPPEDrecv -> pBuffer = 0;
-      delete [] pOVERLAPPEDrecv -> pUserDB2;   // new char[] (see MakeOVERLAPPED / :467) -> delete[]
+      delete [] pOVERLAPPEDrecv -> pUserDB2;   // new char[] -> delete[]
              pOVERLAPPEDrecv -> pUserDB2 = 0;
-      delete [] pOVERLAPPEDrecv -> pBuffer;    // new char[] (MakeOVERLAPPED :730) -> delete[]
+      delete [] pOVERLAPPEDrecv -> pBuffer;    // new char[] (MakeOVERLAPPED) -> delete[]
              pOVERLAPPEDrecv -> pBuffer  = 0;
+      pOVERLAPPEDrecv -> pUserDB1   = new char [sizeof(P2PeerioRecvRing)
+                                               +P2PeerioRecvRingCap];
+      P2PeerioRecvRing *pRing = (P2PeerioRecvRing *)pOVERLAPPEDrecv->pUserDB1;
+      pRing -> dwCap  = P2PeerioRecvRingCap;
+      pRing -> dwHead = 0;
+      pOVERLAPPEDrecv -> dwBytesMax = P2PeerioRecvRingCap;
+      pOVERLAPPEDrecv -> dwBytes    = 0;
     }
 
-    // Stage 1 - Fetch message P2PmsgIOmage header
-    // NOTES: Utilises the first buffer and defines remaining data
-    //        stream.
-STAGE1:
-    pIOmage = (VBListIOmage *)pOVERLAPPEDrecv->pUserDB1;
-    if ( pOVERLAPPEDrecv->dwBytes < sizeof(pIOmage->oSync) )
+    // Stage 1 - A frame larger than the ring
+    // NOTES: Its header was checked in stage 2 when it arrived and its bytes so
+    //        far moved here; the rest is read straight into this buffer, exactly
+    //        as every body was read before 3.8.0
+    if ( pOVERLAPPEDrecv->pUserDB2 )
     {
-      char      *pBuffer     = pOVERLAPPEDrecv -> pUserDB1;
-      DWORD dwBytes      = (DWORD)pOVERLAPPEDrecv -> dwBytes;
-      DWORD dwBytes2Recv = (DWORD)sizeof(pIOmage->oSync)-dwBytes;
-      dwResult = Recv ( hFile, &pBuffer[dwBytes], dwBytes2Recv
-                      , pOVERLAPPEDrecv );
-      if ( dwResult )
+      // To be sure, to be sure
+      if ( pOVERLAPPEDrecv->dwBytes > pOVERLAPPEDrecv->dwBytesMax )
+        EVERR->Module (__FUNCTION__)->AFPeerio(this)
+             ->Message("Recv(%i vs %i) bytes failed\n"
+                       "Attempted buffer overrun"
+                      , pOVERLAPPEDrecv->dwBytes, pOVERLAPPEDrecv->dwBytesMax )
+             ->Group("P2P")->Throw();
+      nSizeof = pOVERLAPPEDrecv -> dwBytesMax;
+      bOwnBuf = true;
+      if ( pOVERLAPPEDrecv->dwBytes < nSizeof )
+        goto RECVNEXT;
+      goto STAGE4;
+    }
+
+    // Stage 2 - The next frame in the ring
+    {
+      P2PeerioRecvRing *pRing = (P2PeerioRecvRing *)pOVERLAPPEDrecv->pUserDB1;
+      char             *pData = P2PeerioRecvRingData ( pOVERLAPPEDrecv );
+      for ( ;; )
       {
-        if ( dwResult != ERROR_IO_PENDING )
+        // To be sure, to be sure
+        if ( pOVERLAPPEDrecv->dwBytes > pRing->dwCap  ||
+             pRing->dwHead            > pOVERLAPPEDrecv->dwBytes )
           EVERR->Module (__FUNCTION__)->AFPeerio(this)
-               ->Message("Recv(%i bytes) failed", dwBytes2Recv )
-               ->HResult( dwResult )->Throw();
-      }
-    }
+               ->Message("Recv(%i vs %i) bytes failed\n"
+                         "Attempted buffer overrun"
+                        , pOVERLAPPEDrecv->dwBytes, pRing->dwCap )
+               ->Group("P2P")->Throw();
 
-    // Stage 2 - Size message according to received header
-    // NOTES: IOCP header contains P2Pmsg size properties.  Attempt
-    //        synchronisation upon failure
-    if ( pOVERLAPPEDrecv->pUserDB2 == NULL                  &&
-         pOVERLAPPEDrecv->dwBytes  >= sizeof(pIOmage->oSync)   )
-    {
-      if ( (pIOmage->oSync.uiSync1+pIOmage->oSync.uiSync2) == ~0 )
-      {
+        const DWORD dwAvail = pOVERLAPPEDrecv->dwBytes - pRing->dwHead;
+        if ( dwAvail < nSync )
+          break;                               // header not in yet
+
+        // The header, COPIED: a frame starts wherever the last one ended, so
+        // the ring offers no alignment for the two UINTs
+        decltype(pIOmage->oSync) oSync;
+        memcpy ( &oSync, &pData[pRing->dwHead], nSync );
+
+        // Re-synchronisation
+        // NOTES: Not a header: step past one byte and look again - the slide
+        //        by one this function always did, now an index rather than a
+        //        memmove of the header buffer (the memmove was itself the fix
+        //        for an overlapping memcpy, see git history)
+        if ( (oSync.uiSync1+oSync.uiSync2) != ~0 )
+        {
+          ++pRing->dwHead;
+          continue;
+        }
+
         // LAYOUT GENERATION - THE WIRE TAKES THE CURRENT ONE ONLY.
         // NOTES: The complement relation above says "this is plausibly a
         //        header".  It cannot say "this is a header I can parse":
@@ -516,12 +556,12 @@ STAGE1:
         //        diagnostic specific.  Every one of these already ended the
         //        connection - as "Invalid VBListIOmage" raised from inside
         //        Msgcore, after the allocation below had already happened.
-        const int nSyncForm = VBLock_SyncForm ( pIOmage->oSync.uiSync1 );
+        const int nSyncForm = VBLock_SyncForm ( oSync.uiSync1 );
         if ( nSyncForm != VBLockSync_Native )
           EVERR->Module (__FUNCTION__)->AFPeerio(this)
                ->Message("Message image layout generation 0x%02X is not this "
                          "build's 0x%02X (%s)"
-                        , (UINT)VBLock_SyncGenCode ( pIOmage->oSync.uiSync1 )
+                        , (UINT)VBLock_SyncGenCode ( oSync.uiSync1 )
                         , (UINT)VBLock_SyncGenNow
                         , nSyncForm == VBLockSync_Legacy  ? "a pre-sentinel peer"
                         : nSyncForm == VBLockSync_Swapped ? "opposite endianness"
@@ -530,7 +570,7 @@ STAGE1:
                ->Advice ("Connection discontinued")
                ->Throw();
 
-        UINT nSizeof = pIOmage -> oSync.uiSync1 & 0x00FFFFFF;
+        nSizeof = oSync.uiSync1 & 0x00FFFFFF;
         if ( nSizeof > m_dwMaxRecvSize )
           EVERR->Module (__FUNCTION__)->AFPeerio(this)
                ->Message("Attempt to exceed maximum (%i) buffer size (%i)"
@@ -538,110 +578,100 @@ STAGE1:
                ->Advice ("Connection discontinued")
                ->Throw();
         // Lower bound: a valid image must at least cover a full VBListIOmage
-        // header. Without this, an undersized nSizeof (e.g. 0..7) allocates a
-        // buffer smaller than the fixed sizeof(oSync) memcpy below (heap
-        // overflow) and later underflows IOmage_Sizeof in the decrypt path.
+        // header. Without this, an undersized nSizeof (e.g. 0..7) would be
+        // taken as a frame shorter than its own header - the copy-out below
+        // reads only nSizeof bytes, but the image built from them would claim
+        // more - and later underflows IOmage_Sizeof in the decrypt path.
         if ( nSizeof < sizeof(VBListIOmage) )
           EVERR->Module (__FUNCTION__)->AFPeerio(this)
                ->Message("Undersized message (%i) below minimum header size (%i)"
                         , nSizeof, (UINT)sizeof(VBListIOmage) )
                ->Advice ("Connection discontinued")
                ->Throw();
-        pOVERLAPPEDrecv -> pUserDB2   = new char [nSizeof+4];
-        pOVERLAPPEDrecv -> dwBytesMax = nSizeof;
-        memcpy ( pOVERLAPPEDrecv->pUserDB2, pOVERLAPPEDrecv->pUserDB1
-               , sizeof(pIOmage->oSync) );
-      }
-      else                             // Re-synchronisation required
-      {//TODO: Why is this required, firing unnecessarily?
-        char *pBuffer = pOVERLAPPEDrecv -> pUserDB1;
-        // Sliding the sync window left by one byte is an OVERLAPPING copy
-        // (dst=&pBuffer[0], src=&pBuffer[1]) -> must be memmove, not memcpy.
-        // memcpy with overlap is UB: glibc's vectorised memcpy corrupts the
-        // buffer here (MSVC's CRT memcpy happened to tolerate the 1-byte
-        // forward overlap, which is why this never surfaced on Windows). Under
-        // load TCP coalesces frames so this re-sync path runs and torched the
-        // recv heap image -> later VBHeap AssertValidFree/IOMAGE aborts.
-        memmove ( &pBuffer[0], &pBuffer[1], --pOVERLAPPEDrecv->dwBytes );
-        pBuffer[pOVERLAPPEDrecv->dwBytes] = 0;
-        goto STAGE1;
-      }
-    }
 
-    // Stage 3 - Fetch message data
-    UINT nSizeof = pIOmage -> oSync.uiSync1 & 0x00FFFFFF;
-    if ( pOVERLAPPEDrecv->dwBytes >= sizeof(pIOmage->oSync) &&
-         pOVERLAPPEDrecv->dwBytes <  nSizeof                   )
-    {
-      // To be sure, to be sure
-      if ( pOVERLAPPEDrecv->dwBytes > pOVERLAPPEDrecv->dwBytesMax )
-        EVERR->Module (__FUNCTION__)->AFPeerio(this)
-             ->Message("Recv(%i vs %i) bytes failed\n"
-                       "Attempted buffer overrun"
-                      , pOVERLAPPEDrecv->dwBytes, pOVERLAPPEDrecv->dwBytesMax )
-             ->Group("P2P")->Throw();
+        // The whole frame is here: copy it out and hand it on.  The ring is
+        // rewound when it empties, so a connection that is never more than one
+        // frame behind never compacts
+        if ( dwAvail >= nSizeof )
+        {
+          pOVERLAPPEDrecv -> pUserDB2 = new char [nSizeof+4];
+          memcpy ( pOVERLAPPEDrecv->pUserDB2, &pData[pRing->dwHead], nSizeof );
+          pRing -> dwHead += nSizeof;
+          if ( pRing->dwHead == pOVERLAPPEDrecv->dwBytes )
+            pRing -> dwHead = pOVERLAPPEDrecv -> dwBytes = 0;
+          goto STAGE4;
+        }
 
-      DWORD dwBytes      = (DWORD)pOVERLAPPEDrecv -> dwBytes;
-      DWORD dwBytes2Recv = nSizeof - dwBytes;
-      dwResult = Recv ( hFile
-                      ,&pOVERLAPPEDrecv->pUserDB2[dwBytes], dwBytes2Recv
-                      , pOVERLAPPEDrecv );
-      if ( dwResult )
+        // It will never fit: move what has arrived into a buffer of its own
+        // and read the rest there (stage 1).  The ring is empty afterwards -
+        // everything in it was the start of this frame
+        if ( nSizeof > pRing->dwCap )
+        {
+          pOVERLAPPEDrecv -> pUserDB2   = new char [nSizeof+4];
+          memcpy ( pOVERLAPPEDrecv->pUserDB2, &pData[pRing->dwHead], dwAvail );
+          pRing -> dwHead = 0;
+          pOVERLAPPEDrecv -> dwBytes    = dwAvail;
+          pOVERLAPPEDrecv -> dwBytesMax = nSizeof;
+          goto RECVNEXT;
+        }
+        break;                                 // fits once the rest arrives
+      }
+
+      // Make room: what is left is the start of a frame (or of a header), so
+      // slide it to the front.  Then the read can take the whole remainder
+      if ( pRing->dwHead )
       {
-        if ( dwResult != ERROR_IO_PENDING )
-          EVERR->Module (__FUNCTION__)->AFPeerio(this)
-               ->Message("Overlapped Recv(%i bytes) failed\n"
-                        , dwBytes2Recv )
-               ->HResult( dwResult )->Throw();
+        const DWORD dwAvail = pOVERLAPPEDrecv->dwBytes - pRing->dwHead;
+        memmove ( pData, &pData[pRing->dwHead], dwAvail );
+        pRing -> dwHead = 0;
+        pOVERLAPPEDrecv -> dwBytes = dwAvail;
       }
+      goto RECVNEXT;
     }
 
     // Stage 4 - Construct P2PeerMsg
-    if ( pOVERLAPPEDrecv->dwBytes >= sizeof(pIOmage->oSync) &&
-         pOVERLAPPEDrecv->dwBytes >=        nSizeof            )
+    // NOTES: pUserDB2 holds exactly one frame of nSizeof bytes - copied out of
+    //        the ring, or read into its own buffer by stage 1
+STAGE4:
     {
-      ASSERT(pOVERLAPPEDrecv->dwBytes==nSizeof);
-      if ( pOVERLAPPEDrecv->pUserDB2 == pOVERLAPPEDrecv->pBuffer ||
-           pOVERLAPPEDrecv->pUserDB1 == pOVERLAPPEDrecv->pBuffer    )
-        pOVERLAPPEDrecv->pBuffer = 0;
-
       // PKey negotiations
       //if ( IOmage_IsPKeySwap(pIOmage) )
       //{
       //}
 
       // Decryption
-      // NOTES: Immediate action upon receipt of buffer.  Encryption 
+      // NOTES: Immediate action upon receipt of buffer.  Encryption
       //        logic is intended to be fully self contained.  With function call
       //        overhead the price to pay.
       //      : Assume DecryptIOmageSwap() is capable of exceptions.  Responses
       //        to cypher issues are handled internally at the source
-      DWORD_PTR  nRecvIOmageSize = pOVERLAPPEDrecv -> dwBytes;
       void     *vpRecvIOmage     = pOVERLAPPEDrecv -> pUserDB2;
       //  HOW MANY BYTES ARE ACTUALLY THERE.  Threaded into the P2PeerMsg
       //  construction below; see the note there for what it buys.
       //
-      //  nSizeof, NOT dwBytes, and the difference only shows if something is
-      //  already wrong.  Stage 2 sized the buffer `new char[nSizeof+4]` from
-      //  this same nSizeof - read from pUserDB1, which nothing rewrites while a
-      //  frame is in flight - so nSizeof is what the ALLOCATION was based on,
-      //  while dwBytes is what arrived.  The ASSERT at the head of stage 4 says
-      //  they are equal, and they are; but the extent's whole job is to be the
-      //  number the gate can trust when the others cannot, and of the two only
-      //  nSizeof is bounded by an allocation this function performed.
+      //  nSizeof is the header's declared size, refused above unless it lies
+      //  between the minimum header and the receive cap, and it is what the
+      //  pUserDB2 allocation was sized from and what was copied or read into it
+      //  - so it is the extent BY CONSTRUCTION: this function wrote both
+      //  numbers from the same one.
       DWORD_PTR  nRecvIOmageExtent = nSizeof;
                 vpRecvIOmage     = DecryptP2PiomageSwap ( (P2Piomage *)vpRecvIOmage );
       if ( vpRecvIOmage != pOVERLAPPEDrecv -> pUserDB2 )
       {
-        delete [] pOVERLAPPEDrecv -> pUserDB2;   // new char[] (see MakeOVERLAPPED / :467) -> delete[]
+        delete [] pOVERLAPPEDrecv -> pUserDB2;   // new char[] (stage 2 / stage 1) -> delete[]
                pOVERLAPPEDrecv -> pUserDB2 = (char *)vpRecvIOmage;
-               pOVERLAPPEDrecv -> dwBytes  = (DWORD)nRecvIOmageSize;
         if ( vpRecvIOmage == nullptr )
+        {
+          if ( bOwnBuf )                 // back onto the ring
+          {
+            pOVERLAPPEDrecv -> dwBytes    = 0;
+            pOVERLAPPEDrecv -> dwBytesMax = P2PeerioRecvRingCap;
+          }
           return nullptr;              // DecryptIOmageSwap() handles cypher issues
+        }
         pIOmage = (VBListIOmage *)pOVERLAPPEDrecv->pUserDB2;
-        //  A DIFFERENT BUFFER, so a different extent, and dwBytes is not it -
-        //  the line above leaves dwBytes at the SEALED length while this buffer
-        //  holds the shorter plaintext.  DecryptP2PiomageSwap builds it with
+        //  A DIFFERENT BUFFER, so a different extent: this buffer holds the
+        //  shorter plaintext.  DecryptP2PiomageSwap builds it with
         //  P2Piomage_Alloc and then stamps oSync with the size it allocated, so
         //  the declared size here is the extent BY CONSTRUCTION rather than by
         //  trust: this process wrote both numbers from the same one.
@@ -675,17 +705,42 @@ STAGE1:
       //        assertions on a Debug run to none, without losing a check.
       //      : Ownership on failure is unchanged, and the harness depends on it.
       //        The create detaches the image before closing its handle and then
-      //        throws, so pUserDB2 is still ours and is still freed by stage 0 or
-      //        by the OVERLAPPEDcon; only a RETURN transfers it.
+      //        throws, so pUserDB2 is still ours and is still freed by the
+      //        OVERLAPPEDcon; only a RETURN transfers it.
       P2PeerMsg *pMsg = new P2PeerMsg ( (VBListIOmage *)pOVERLAPPEDrecv->pUserDB2
                                       , (VBLsize)nRecvIOmageExtent );
       pOVERLAPPEDrecv -> pUserDB2   = 0;
-      pOVERLAPPEDrecv -> dwBytes    = 0;
-      pOVERLAPPEDrecv -> dwBytesMax = sizeof(VBListIOmage);
-      pIOmage -> oSync.uiSync1 = 0;
+      if ( bOwnBuf )                     // back onto the ring
+      {
+        pOVERLAPPEDrecv -> dwBytes    = 0;
+        pOVERLAPPEDrecv -> dwBytesMax = P2PeerioRecvRingCap;
+      }
+      //  Before 3.8.0 this zeroed the oSync of whatever pIOmage last pointed
+      //  at: the header buffer, or - on a decrypted frame - the plaintext image
+      //  the message now holds.  The header buffer is gone; the second is kept
+      //  exactly, because the message has carried it that way ever since
+      if ( pIOmage )
+        pIOmage -> oSync.uiSync1 = 0;
 
       // Tidy up, and
       return pMsg;
+    }
+
+    // Issue the next transport read
+    // NOTES: Only here, and only with no complete frame buffered.  The request
+    //        is never empty: the ring is short of a header or of a frame that
+    //        fits it, and an own buffer is short of its frame - so a zero-byte
+    //        completion can only be the peer's FIN (F-S4-1), never a read of
+    //        nothing
+RECVNEXT:
+    P2PeerioRecvRequest ( pOVERLAPPEDrecv, &pDst, &dwWant );
+    dwResult = Recv ( hFile, pDst, dwWant, pOVERLAPPEDrecv );
+    if ( dwResult )
+    {
+      if ( dwResult != ERROR_IO_PENDING )
+        EVERR->Module (__FUNCTION__)->AFPeerio(this)
+             ->Message("Recv(%i bytes) failed", dwWant )
+             ->HResult( dwResult )->Throw();
     }
 
     // Tidy up and

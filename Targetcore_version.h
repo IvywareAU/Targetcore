@@ -58,6 +58,34 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.8.0.0, a MINOR on 3.7.6: one bulk read, many frames (p2p_performance.md
+//  T2). P2Peerio::RecvP2PeerMsg read every frame in two transport reads - the
+//  8-byte oSync header, then the body into a buffer sized from it - so two
+//  submissions and two completions per message however many frames the
+//  transport already held. A 16 KB receive ring per connection now takes
+//  whatever the transport has in one read, and every complete frame in it is
+//  handed out before the next read; a frame bigger than the ring finishes in a
+//  buffer of its own, as before. Same checks, same refusal messages, at the
+//  same point in a frame's arrival; a read request is never empty, so a
+//  zero-byte completion is still only FIN. MINOR, not PATCH: P2Peerio.h gains
+//  the ring layout and its helpers (P2PeerioRecvRing, P2PeerioRecvRequest,
+//  P2PeerioRecvPending - inline, no export added or removed), and a subclass
+//  or harness that wrote into a receive OVERLAPPEDcon's buffers itself must
+//  use them; MscsUnitTests' three such harnesses do. Memory: +16 KB per
+//  connection that has received.
+//
+//  RESULT (5 rounds alternated, base 3.7.6, only the libraries swapped):
+//  Linux VM io_uring_enter one fewer per message, total syscalls -27%.
+//  One-way latency -6.1% Windows, -5.7% Linux; fan C=64 thr_last +14.2% /
+//  +10.2%. Pipelined perf_ab throughput -1.5% Windows (5/5 rounds), +2.0%
+//  Linux - that path reads as sender-bound (T3). Allocations unchanged.
+//
+//  Also: TARGETCORE_VERSION_COMMAS was left at 3,7,5,0 in 3.7.6, so the 3.7.6
+//  DLL's binary FILEVERSION/PRODUCTVERSION resource read 3.7.5.0 (its strings
+//  read 3.7.6.0). Every form reads 3.8.0.0 here.
+//
+//  BELOW IS THE 3.7.6 RATIONALE.
+//
 //  3.7.6.0, a PATCH on 3.7.5: timers in milliseconds (p2p_performance.md
 //  T8). Every PITimer deadline was _time64(0)*1000 + delay - wall-clock
 //  SECONDS scaled to milliseconds - and PollTimer compared against the same
@@ -591,24 +619,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  6
+#define TARGETCORE_VERSION_MINOR  8
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,5,0
+#define TARGETCORE_VERSION_COMMAS 3,8,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.6.0"
+#define TARGETCORE_VERSION_STRING "3.8.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070600 is 3.7.6.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03080000 is 3.8.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070600
+#define TARGETCORE_VERSION_HEX    0x03080000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -624,7 +652,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.6.0"
+#define TARGETCORE_VERSION_STRINGW L"3.8.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
