@@ -3,6 +3,32 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.9.0
+
+A minor release: a connection sends everything waiting in its queue with one write, up to 64
+messages or 64 KB, instead of one write per message. Each message is still sealed, checked
+against the frame limit and encrypted on its own, so the bytes on the wire are exactly what
+would have gone out before, and any receiver reads them. Order is kept. A message too big for
+the frame limit is still refused and reported, and the rest of the batch goes out. The flat C
+API, every exported class layout and every wire format are unchanged. It runs on Msgcore 3.5.1
+or later.
+
+| 64 B, 5 rounds, gather off vs on | Windows | Linux VM |
+|---|---|---|
+| pipelined throughput | +56.6% | +43.9% |
+| CPU per message, pipelined | −38% | −32% |
+| fan-out to 64 connections, throughput to the last | +84.0% | +26.5% |
+| one-way latency | flat | flat |
+| system calls (Linux) | — | −73% |
+
+It applies to TCP, named pipe and serial connections. In-process (DMX) connections and
+transports that frame their own bytes are unchanged. `P2P_SEND_GATHER=0` in the environment
+turns it off.
+
+Why a minor version: `P2Peerio` gains public methods (`CanGatherSend`, `ResetStaged`,
+`StageP2PeerMsg`, `GatherFull`, `SendStaged`) and `P2Peerio.h` the gather layout
+(`P2PeerioSendGather`). None is virtual, so no vtable slot moves.
+
 ## 3.8.0
 
 A minor release: a connection reads everything that has arrived in one go and then hands out

@@ -58,6 +58,33 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.9.0.0, a MINOR on 3.8.0: gather send (p2p_performance.md T3, step 1).
+//  A connection wrote ONE frame per transport write and took the next message
+//  off its queue only when that write completed. On the stock transport
+//  (P2Peerio exactly - TCP, named pipe, serial) the send completion now stages
+//  every queued message it can, up to 64 frames or 64 KB, and writes them with
+//  ONE write, in queue order. Each is still prepared alone - IF transform,
+//  VNet, end-to-end seal, attestation, trim, frame cap, link cypher - by the
+//  same code (P2Peerio::PrepareSendFrame, factored out of SendP2PeerMsg), so
+//  the wire is the frames that would have gone out one by one, back to back;
+//  any receiver reads them. A lone frame is written from where it lies, no
+//  copy; the pending frame is copied BEFORE the next is prepared, because the
+//  cypher's swap buffer is overwritten by the next encryption. State lives in
+//  the send OVERLAPPEDcon's pUserDB1 (P2PeerioSendGather), so no exported class
+//  changes layout. Subclasses (P2PeerioDmx, P2PeerioBSTR, P2PeerWeb's
+//  WebIoHttp) keep one SendP2PeerMsg per message. P2P_SEND_GATHER=0 turns it
+//  off. MINOR, not PATCH: P2Peerio gains public non-virtual methods (new
+//  exports: CanGatherSend, ResetStaged, StageP2PeerMsg, GatherFull,
+//  SendStaged) and P2Peerio.h the gather layout; no vtable slot moves.
+//
+//  RESULT (5 rounds alternated, same binaries, P2P_SEND_GATHER=0 vs on):
+//  pipelined perf_ab throughput +56.6% Windows / +43.9% Linux, CPU per message
+//  -38% / -32%; fan C=64 thr_last +84.0% / +26.5%; one-way latency flat. Linux
+//  syscalls -73% (io_uring_enter -95%). MscsUnitTests p2p_sendgather is the
+//  correctness gate, shown red on a copy-too-late mutation.
+//
+//  BELOW IS THE 3.8.0 RATIONALE.
+//
 //  3.8.0.0, a MINOR on 3.7.6: one bulk read, many frames (p2p_performance.md
 //  T2). P2Peerio::RecvP2PeerMsg read every frame in two transport reads - the
 //  8-byte oSync header, then the body into a buffer sized from it - so two
@@ -619,24 +646,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  8
+#define TARGETCORE_VERSION_MINOR  9
 #define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,8,0,0
+#define TARGETCORE_VERSION_COMMAS 3,9,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.8.0.0"
+#define TARGETCORE_VERSION_STRING "3.9.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
 //  0x03080000 is 3.8.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03080000
+#define TARGETCORE_VERSION_HEX    0x03090000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -652,7 +679,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.8.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.9.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

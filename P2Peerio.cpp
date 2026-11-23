@@ -205,6 +205,50 @@ P2Peerio::SendP2PeerMsg ( HANDLE hFile
            ->Message(_T("OVERLAPPEDsend buffer already in use") )
            ->Advice (_T("Internal conflict (Bug)") )
            ->Group(_T("P2P"))->Throw();
+
+    // Prepare, measure and seal the frame
+    // NOTES: Shared with StageP2PeerMsg (T3) so the two cannot drift
+    if ( PrepareSendFrame ( pMsg, &pSendP2Piomage ) == kSendRefusedFrame )
+      return kSendRefusedFrame;
+
+    // Send message
+    nSendP2PiomageSize = P2Piomage_Sizeof ( pSendP2Piomage );
+    ASSERT(nSendP2PiomageSize);
+    if ( Send(hFile,pSendP2Piomage,nSendP2PiomageSize,pOVERLAPPEDsend) )
+    {
+      dwResult = GetLastError();
+      if ( dwResult != ERROR_IO_PENDING )
+        EVERR->Module (__FUNCTION__)->AFPeerio(this)
+             ->Message(_T("Send(%i bytes) failed")
+                      , nSendP2PiomageSize )
+             ->Group(_T("W32"))->HResult( dwResult )->Throw();
+    }
+
+    // Tidy up and
+    return 0;
+}
+
+//
+//  Prepares one outbound frame: trim, prepare, frame cap, cypher, seal mark
+//  NOTES: The body of SendP2PeerMsg up to the write, unchanged, so that a
+//         gathered frame (StageP2PeerMsg) and a lone one are the same bytes
+//
+//  Parameters:  P2PeerMsg *pMsg
+//               Message to be sent
+//
+//               const P2Piomage **ppImage
+//               Receives the frame to write: the message's own image or the
+//               cypher's swap buffer, which the next call overwrites
+//
+//  Returns:     DWORD
+//                 0.. Frame ready
+//                 kSendRefusedFrame.. Over m_dwMaxSendSize, nothing encrypted
+//
+DWORD
+P2Peerio::PrepareSendFrame ( P2PeerMsg *pMsg, const P2Piomage **ppImage )
+{
+    const P2Piomage *pSendP2Piomage;
+
     //  Live bytes only (p2p_performance.md M1, 3.7.0): the frame is the whole
     //  heap, so drop its free tail first. BEFORE the prepare, which stamps the
     //  length, so the frame-cap check and the cypher below both see the short
@@ -270,20 +314,195 @@ P2Peerio::SendP2PeerMsg ( HANDLE hFile
     //        to give; this one is taken rather than asked for
     m_bSealDecided = true;
 
-    // Send message
-    nSendP2PiomageSize = P2Piomage_Sizeof ( pSendP2Piomage );
-    ASSERT(nSendP2PiomageSize);
-    if ( Send(hFile,pSendP2Piomage,nSendP2PiomageSize,pOVERLAPPEDsend) )
+    *ppImage = pSendP2Piomage;
+    return 0;
+}
+
+///////////////////////////////////////////////////////////////////////
+//  Send gather (p2p_performance.md T3).  Refer P2PeerioSendGather
+
+//
+//  Does THIS object gather?
+//  NOTES: The stock class only, by exact type.  A subclass that overrides
+//         SendP2PeerMsg frames its own bytes and must keep receiving one call
+//         per message; one that does not override it would gather correctly,
+//         but asking that cannot be done without a virtual, and a new vtable
+//         slot is an ABI break.  Exact type is the conservative answer
+//       : P2P_SEND_GATHER=0 turns it off, read once
+//
+bool
+P2Peerio::CanGatherSend ( ) const
+{
+#if defined(_MSC_VER)
+#  pragma warning( push )
+#  pragma warning( disable : 4996 )   // getenv: read-only env lookup
+#endif
+    static const bool s_bOff = [] {
+      const char *psz = getenv ( "P2P_SEND_GATHER" );
+      return psz && strcmp ( psz, "0" ) == 0;
+    } ( );
+#if defined(_MSC_VER)
+#  pragma warning( pop )
+#endif
+    return !s_bOff && typeid(*this) == typeid(P2Peerio);
+}
+
+//
+//  Starts a batch: nothing staged, no seal mark outstanding
+//  NOTES: Also the recovery from a batch an exception abandoned, which is why
+//         the caller runs it at the START of every batch rather than relying
+//         on SendStaged having cleared it.  A buffer grown past four budgets
+//         by an outsized frame is given back here
+//
+void
+P2Peerio::ResetStaged ( OVERLAPPEDcon *pOv )
+{
+    P2PeerioSendGather *pG = (P2PeerioSendGather *)pOv->pUserDB1;
+    ASSERT(!pOv->bQueued);
+    if ( pG && pG->dwCap > 4 * P2PeerioSendGatherBudget )
     {
-      dwResult = GetLastError();
-      if ( dwResult != ERROR_IO_PENDING )
-        EVERR->Module (__FUNCTION__)->AFPeerio(this)
-             ->Message(_T("Send(%i bytes) failed")
-                      , nSendP2PiomageSize )
-             ->Group(_T("W32"))->HResult( dwResult )->Throw();
+      delete [] pOv->pUserDB1;
+      pOv->pUserDB1 = nullptr;
+      pG            = nullptr;
+    }
+    if ( pG )
+    {
+      pG->dwUsed  = 0;
+      pG->nFrames = 0;
+      pG->nOne    = 0;
+      pG->pvOne   = nullptr;
+    }
+    m_bSealDecided = false;
+}
+
+//
+//  Copies bytes onto the end of the gather, growing it as needed
+//
+void
+P2Peerio::GatherAppend ( OVERLAPPEDcon *pOv, const void *pv, DWORD n )
+{
+    P2PeerioSendGather *pG = (P2PeerioSendGather *)pOv->pUserDB1;
+    if ( pG->dwCap - pG->dwUsed < n )
+    {
+      DWORD dwCap = pG->dwCap * 2;
+      if ( dwCap < pG->dwUsed + n )
+        dwCap = pG->dwUsed + n;
+      char *pNew = new char [ sizeof(P2PeerioSendGather) + dwCap ];
+      memcpy ( pNew, pOv->pUserDB1, sizeof(P2PeerioSendGather) + pG->dwUsed );
+      delete [] pOv->pUserDB1;
+      pOv->pUserDB1 = pNew;
+      pG            = (P2PeerioSendGather *)pNew;
+      pG->dwCap     = dwCap;
+    }
+    memcpy ( pOv->pUserDB1 + sizeof(P2PeerioSendGather) + pG->dwUsed, pv, n );
+    pG->dwUsed += n;
+}
+
+//
+//  Prepares one message's frame and adds it to the batch
+//  NOTES: The pending lone frame is copied FIRST - before this message is
+//         prepared - because the preparation may overwrite the cypher's swap
+//         buffer it points into.  So when this returns, whatever it returns,
+//         the message staged before this one is no longer referenced
+//
+//  Returns:     DWORD
+//                 0.. Staged
+//                 kSendRefusedFrame.. Refused as SendP2PeerMsg refuses it
+//
+DWORD
+P2Peerio::StageP2PeerMsg ( P2PeerMsg *pMsg, OVERLAPPEDcon *pOv )
+{
+    ASSERT(!pOv->bQueued);
+    if ( pOv->bQueued )
+      EVERR->Module (__FUNCTION__)->AFPeerio(this)
+           ->Message(_T("OVERLAPPEDsend buffer already in use") )
+           ->Advice (_T("Internal conflict (Bug)") )
+           ->Group(_T("P2P"))->Throw();
+
+    if ( !pOv->pUserDB1 )
+    {
+      pOv->pUserDB1 = new char [ sizeof(P2PeerioSendGather)
+                               + P2PeerioSendGatherBudget ];
+      P2PeerioSendGather *pG = (P2PeerioSendGather *)pOv->pUserDB1;
+      pG->dwCap   = P2PeerioSendGatherBudget;
+      pG->dwUsed  = 0;
+      pG->nFrames = 0;
+      pG->nOne    = 0;
+      pG->pvOne   = nullptr;
+    }
+    P2PeerioSendGather *pG = (P2PeerioSendGather *)pOv->pUserDB1;
+    if ( pG->nOne )
+    {
+      const void *pvOne = pG->pvOne;
+      DWORD       nOne  = pG->nOne;
+      pG->pvOne = nullptr;
+      pG->nOne  = 0;
+      GatherAppend ( pOv, pvOne, nOne );
+      pG = (P2PeerioSendGather *)pOv->pUserDB1;
     }
 
-    // Tidy up and
+    const P2Piomage *pImage;
+    if ( PrepareSendFrame ( pMsg, &pImage ) == kSendRefusedFrame )
+      return kSendRefusedFrame;
+    DWORD nSize = P2Piomage_Sizeof ( pImage );
+    ASSERT(nSize);
+
+    if ( pG->nFrames == 0 )
+    {
+      pG->pvOne = pImage;
+      pG->nOne  = nSize;
+    }
+    else
+      GatherAppend ( pOv, pImage, nSize );
+    pG = (P2PeerioSendGather *)pOv->pUserDB1;
+    pG->nFrames++;
+    return 0;
+}
+
+//
+//  Is the batch at its bound?
+//
+bool
+P2Peerio::GatherFull ( const OVERLAPPEDcon *pOv ) const
+{
+    const P2PeerioSendGather *pG = (const P2PeerioSendGather *)pOv->pUserDB1;
+    return pG && ( pG->nFrames                >= P2PeerioSendGatherFrames ||
+                   pG->dwUsed + pG->nOne      >= P2PeerioSendGatherBudget    );
+}
+
+//
+//  Writes the batch with one transport write
+//  NOTES: The lone frame from where it lies; two or more from the gather.  The
+//         counters are cleared BEFORE the write: the bytes stay where they are
+//         until the completion, and nothing stages again before it
+//       : The seal mark Send() requires is the one PrepareSendFrame minted for
+//         the staged frames - every byte written passed through it
+//
+//  Returns:     DWORD
+//                 0.. Written, or nothing was staged
+//
+DWORD
+P2Peerio::SendStaged ( HANDLE hFile, OVERLAPPEDcon *pOv )
+{
+    P2PeerioSendGather *pG = (P2PeerioSendGather *)pOv->pUserDB1;
+    if ( !pG || pG->nFrames == 0 )
+      return 0;
+    const void *pv = pG->nOne ? pG->pvOne : pOv->pUserDB1 + sizeof(P2PeerioSendGather);
+    DWORD       n  = pG->nOne ? pG->nOne  : pG->dwUsed;
+    pG->dwUsed  = 0;
+    pG->nFrames = 0;
+    pG->nOne    = 0;
+    pG->pvOne   = nullptr;
+    ASSERT(n && m_bSealDecided);
+
+    if ( Send ( hFile, pv, n, pOv ) )
+    {
+      DWORD dwResult = GetLastError();
+      if ( dwResult != ERROR_IO_PENDING )
+        EVERR->Module (__FUNCTION__)->AFPeerio(this)
+             ->Message(_T("Send(%i bytes) failed"), n )
+             ->Group(_T("W32"))->HResult( dwResult )->Throw();
+    }
     return 0;
 }
 

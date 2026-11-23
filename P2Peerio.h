@@ -213,6 +213,47 @@ P2PeerioRecvPending ( const OVERLAPPEDcon *pOv )
 }
 
 //
+//  THE SEND GATHER - how P2PeerCon's send path lays out a send OVERLAPPEDcon
+//  NOTES: p2p_performance.md T3.  Until then a connection wrote ONE frame per
+//         transport write and took the next off its queue only when that write
+//         completed, so a queue of N messages cost N writes and N completions.
+//         Now the send completion takes every queued message it can, up to
+//         P2PeerioSendGatherFrames frames or P2PeerioSendGatherBudget bytes,
+//         and writes them with ONE transport write, in queue order.
+//       : EACH FRAME IS STILL PREPARED ALONE - trimmed, measured against the
+//         frame cap, sealed by the link cypher - exactly as SendP2PeerMsg does
+//         it, so the bytes on the wire are the frames that would have gone out
+//         one by one, back to back.  A receiver of any version reads them as
+//         such; nothing about the wire changes.
+//       : pUserDB1 is a P2PeerioSendGather followed by dwCap data bytes.  The
+//         FIRST frame is not copied while it is alone (pvOne/nOne): a lone
+//         frame is written from where it lies, as before, and the copy is paid
+//         only when a second frame joins it.  The image it points at is either
+//         the message's own or the cypher's swap buffer, and the second frame's
+//         preparation would overwrite the latter - which is why the pending
+//         frame is copied FIRST, before the next one is prepared.
+//       : Only the stock class gathers (P2Peerio::CanGatherSend).  A subclass
+//         that frames its own bytes - P2PeerioDmx, P2PeerioBSTR, P2PeerWeb's
+//         WebIoHttp - keeps one SendP2PeerMsg per message.
+//       : Kept on the send OVERLAPPEDcon rather than on P2Peerio or P2PeerCon
+//         so that no exported class changes layout; DropOVERLAPPED frees it
+//
+struct P2PeerioSendGather
+{
+    DWORD        dwCap;                // data bytes allocated after this header
+    DWORD        dwUsed;               // data bytes copied in
+    DWORD        nFrames;              // frames staged, the uncopied one included
+    DWORD        nOne;                 // bytes of the lone uncopied frame (0: none)
+    const void  *pvOne;                // the lone uncopied frame
+};
+//  64 KB and 64 frames: ~100 frames of a 64-byte message would fit; the frame
+//  count is the bound there, and the bytes for anything bigger.  A frame that
+//  takes the total past the budget still joins - the budget ends the batch, it
+//  does not refuse a frame
+const DWORD P2PeerioSendGatherBudget = 65536;
+const DWORD P2PeerioSendGatherFrames = 64;
+
+//
 //  P2Peer protocol management
 //  NOTES: Instances of these objects manage protocol translation for
 //         P2PeerMsg's exchanged between P2PeerHub's
@@ -425,6 +466,34 @@ class Targetcore_EXT P2Peerio
     private:
       DWORD
         FrameSizeOf ( P2PeerMsg *pMsg, const P2Piomage *pImage );
+      DWORD
+        PrepareSendFrame ( P2PeerMsg *pMsg, const P2Piomage **ppImage );
+
+    // Send gather (p2p_performance.md T3)
+    // NOTES: Refer P2PeerioSendGather for the layout and the contract.  The
+    //        caller, P2PeerCon's send completion, asks CanGatherSend once per
+    //        batch, ResetStaged, then StageP2PeerMsg per message - each returns
+    //        0 or kSendRefusedFrame like SendP2PeerMsg - until GatherFull or the
+    //        queue is empty, then SendStaged issues the one write
+    //      : A message whose frame has been staged may be deleted once the NEXT
+    //        StageP2PeerMsg has returned: that call copies the pending frame
+    //        before it does anything else.  The last one staged must live until
+    //        the write completes, exactly as a message sent alone does
+    //      : All non-virtual, so no vtable slot moves
+    public:
+      bool
+        CanGatherSend ( ) const;
+      void
+        ResetStaged ( OVERLAPPEDcon *pOVERLAPPEDsend );
+      DWORD
+        StageP2PeerMsg ( P2PeerMsg *pMsg, OVERLAPPEDcon *pOVERLAPPEDsend );
+      bool
+        GatherFull ( const OVERLAPPEDcon *pOVERLAPPEDsend ) const;
+      DWORD
+        SendStaged ( HANDLE hFile, OVERLAPPEDcon *pOVERLAPPEDsend );
+    private:
+      static void
+        GatherAppend ( OVERLAPPEDcon *pOv, const void *pv, DWORD n );
 
     // Attributes
     private:

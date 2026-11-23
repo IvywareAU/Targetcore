@@ -799,7 +799,26 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
         //        so the next message went out only when some later post woke
         //        the path.  Each pass removes one message from the queue, so
         //        the loop ends
+        //      : GATHERED since T3 (p2p_performance.md).  On the stock
+        //        transport a message that survives the steps below is STAGED
+        //        rather than written, and the loop goes on to the next, up to
+        //        the gather's bound; then ONE write carries them all.  The last
+        //        message staged becomes m_pP2PeerMsgSend, which this completion
+        //        releases next time, exactly as a message sent alone; the ones
+        //        before it are released as soon as the next is staged, since
+        //        their bytes have been copied (refer P2PeerioSendGather).  A
+        //        transport that does not gather leaves the loop on the first
+        //        message sent, as before
         bool bHeldForLogin = false;
+        const bool bGather = m_pP2Peerio -> CanGatherSend ( );
+        P2PeerMsg *pGathered = 0;   // staged, not yet released
+        struct GatheredGuard        // an exception mid-batch drops the link
+        {
+          P2PeerMsg *&rp;
+         ~GatheredGuard ( ) { delete rp; }
+        } oGatheredGuard { pGathered };
+        if ( bGather )
+          m_pP2Peerio -> ResetStaged ( pOVERLAPPEDcon );
         while ( m_pP2PeerMsgSend == NULL )
         {
           m_pP2PeerMsgSend = GetSendableP2PeerMsg ( bHeldForLogin );
@@ -909,8 +928,11 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        the MESSAGE is then refused and reported here and the next
           //        one taken.  Refer P2Peerio::kSendRefusedFrame
           if ( m_pP2PeerMsgSend &&
-               m_pP2Peerio -> SendP2PeerMsg ( m_hFile, m_pP2PeerMsgSend
-                                            , pOVERLAPPEDcon )
+               ( bGather
+                   ? m_pP2Peerio -> StageP2PeerMsg ( m_pP2PeerMsgSend
+                                                   , pOVERLAPPEDcon )
+                   : m_pP2Peerio -> SendP2PeerMsg  ( m_hFile, m_pP2PeerMsgSend
+                                                   , pOVERLAPPEDcon ) )
                  == P2Peerio::kSendRefusedFrame )
           {
             RefuseOversizedOutbound ( m_pP2PeerMsgSend
@@ -919,7 +941,33 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
             delete m_pP2PeerMsgSend;
             m_pP2PeerMsgSend = 0;
           }
+
+          // Gathered (T3): its bytes are staged, so the one staged before it
+          // is no longer referenced - release that, and take the next
+          if ( bGather && m_pP2PeerMsgSend )
+          {
+            if ( pGathered )
+            {
+              ((P2PeerMsgPrefix *)pGathered->r_data().c_vBlob())
+                                 -> uiState &= ~P2PeerMsgState_Posted;
+              delete m_pP2Peerio -> PreDestroySendP2PeerMsg ( pGathered );
+            }
+            pGathered        = m_pP2PeerMsgSend;
+            m_pP2PeerMsgSend = 0;
+            if ( m_pP2Peerio -> GatherFull ( pOVERLAPPEDcon ) )
+              break;
+          }
          }
+
+        // The one write for the batch (T3)
+        // NOTES: The last message staged is held as m_pP2PeerMsgSend until the
+        //        write completes, as a message sent alone is
+        if ( bGather && pGathered )
+        {
+          m_pP2PeerMsgSend = pGathered;
+          pGathered        = 0;
+          m_pP2Peerio -> SendStaged ( m_hFile, pOVERLAPPEDcon );
+        }
 
         // May become idle here
         // NOTES: Not idle when application messages wait on the login:
