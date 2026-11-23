@@ -3,6 +3,20 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.7.5
+
+A patch release: reading a message's source, destination or scope address takes one lookup
+instead of two and no heap allocation. The answers are the same, and the flat C API, every
+exported class layout and every wire format are unchanged. It runs on Msgcore 3.5.1 or later;
+the lookup is allocation-free from Msgcore 3.6.1.
+
+| 64 B, 5 rounds, base 3.7.3 on Msgcore 3.6.1 | Linux VM | Windows |
+|---|---|---|
+| allocations per delivered message | 34 → 30 | — |
+| `perf_ab` throughput | +9.5% | +0.5% |
+| `perf_ab` one-way latency | −5.3% | −1.7% (CPU −13%) |
+| fan-out to 64 connections, throughput to the last | +8.7% | +2.0% |
+
 ## 3.7.4
 
 A patch release that changes build settings only. The Visual Studio project now builds Release

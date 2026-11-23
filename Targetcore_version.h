@@ -58,6 +58,26 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.7.5.0, a PATCH on 3.7.4: the address getters read in one lookup
+//  (p2p_performance.md T7, step 2). P2PeerMsg::GetSource, GetDestin and
+//  GetScopeOrDestin asked Exists(name) and then fetched through operator[]:
+//  two walks of the network node's fields, and the fetch gave the node item a
+//  heap descriptor and a heap cursor. They read through NetAddrRead now - one
+//  SelectObject(name), whose descriptor and cursor are on the stack since
+//  Msgcore 3.6.1, and c_wstr() off a field built over the object it found.
+//  Present-but-empty still answers present. Same answers; on an older Msgcore
+//  the lookup allocates as it did, nothing else changes.
+//
+//  RESULT (5 rounds alternated, base 3.7.3 on Msgcore 3.6.1, same binaries):
+//  allocations per message, Linux perf_ab 34 -> 30, B5 fan C=64 51 -> 44.
+//  Linux VM perf_ab throughput +9.5% (CPU/msg -7.1%), one-way latency -5.3%;
+//  fan C=64 thr_last +8.7%. Windows perf_ab one-way -1.7% (CPU -13%),
+//  throughput +0.5%; fan C=64 -2% latency, +2% throughput - the Windows heap
+//  costs less per allocation than glibc malloc across two threads. Flat C API,
+//  exports, layouts and wire formats unchanged.
+//
+//  BELOW IS THE 3.7.4 RATIONALE.
+//
 //  3.7.4.0, a PATCH on 3.7.3: BUILD SETTINGS ONLY, no source change. The
 //  Visual Studio project's Release and ReleaseLib configurations were
 //  compiled /Ob1 (InlineFunctionExpansion=OnlyExplicitInline) where the CMake
@@ -551,23 +571,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  7
-#define TARGETCORE_VERSION_PATCH  4
+#define TARGETCORE_VERSION_PATCH  5
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,7,4,0
+#define TARGETCORE_VERSION_COMMAS 3,7,5,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.7.4.0"
+#define TARGETCORE_VERSION_STRING "3.7.5.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03070400 is 3.7.4.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x03070500 is 3.7.5.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03070400
+#define TARGETCORE_VERSION_HEX    0x03070500
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -583,7 +603,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.7.4.0"
+#define TARGETCORE_VERSION_STRINGW L"3.7.5.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

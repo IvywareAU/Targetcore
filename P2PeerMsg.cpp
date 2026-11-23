@@ -1037,6 +1037,46 @@ P2PeerMsg::SetP2PeventFParams ( LPCTNAM lpszVar )
 //  Properties
 
 //
+//  One address field of the network node, read in ONE lookup
+//  NOTES: The getters below used to ask Exists(name) and then fetch through
+//         operator[]: two walks of the node's fields, and the fetch gave the
+//         node item a heap descriptor and a heap cursor (P3PmsgField::r_Desc,
+//         P3PmsgDesc::operator[]) that it kept until the message died - ~5
+//         allocations per delivered message for reads alone (MSCS performance
+//         plan T7, F-P4-7). SelectObject resolves the name the way Exists()
+//         does, with its descriptor and cursor on the stack (Msgcore 3.6.1),
+//         and the value is read off a field built over the object it found.
+//       : c_wstr() reads the store (p2p_wstr_from_store: the heap image on
+//         Windows, the thread-local ring elsewhere), never the field object, so
+//         the pointer outlives oField exactly as it outlived the old fetch
+//       : Plain names only (TMsg_*), where SelectObject and operator[] find the
+//         same item - both go through P3PmsgCurs::Goto by name
+//
+//  Parameters:  P3PmsgItem& oItemAddr
+//               The network node
+//               LPCWSTR lpszName
+//               The field's name
+//
+//               P2PaddrSTR *pstr
+//               Receives the value when the field exists
+//
+//  Returns:     bool
+//               true... the field exists and *pstr is its value, whatever it
+//               is - empty included. Absent and empty are different answers:
+//               on Windows c_wstr() is the store pointer itself
+//
+static bool
+NetAddrRead ( P3PmsgItem& oItemAddr, LPCWSTR lpszName, P2PaddrSTR *pstr )
+{
+    P3PmsgObject oObject = oItemAddr.SelectObject ( lpszName );
+    if ( oObject.IsVoid() )
+      return false;
+    P3PmsgField oField ( oObject );
+    *pstr = oField.c_wstr();
+    return true;
+}
+
+//
 //  Get message source P2PaddrSTR
 //
 //  Returns:     P2PaddrSTR
@@ -1047,9 +1087,9 @@ P2PeerMsg::GetSource ( ) const
 {
     // May not exist
     P3PmsgItem& oNodeAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
-    //return oNodeAddr.Select(TMsg_Src)).c_wstr(strP2PaddrNULL);
-    if ( oNodeAddr.Exists(TMsg_Src) )
-      return oNodeAddr[TMsg_Src].c_wstr();
+    P2PaddrSTR  p = nullptr;
+    if ( NetAddrRead(oNodeAddr, TMsg_Src, &p) )
+      return p;
     return strP2PaddrNULL;
 }
 
@@ -1131,8 +1171,9 @@ P2PeerMsg::GetDestin ( ) const
 {
     // Simply
     P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
-    if ( oItemAddr.Exists(TMsg_Dst) )
-      return oItemAddr[TMsg_Dst].c_wstr();
+    P2PaddrSTR  p = nullptr;
+    if ( NetAddrRead(oItemAddr, TMsg_Dst, &p) )
+      return p;
     return strP2PaddrNULL;
 }
 P2PaddrSTR
@@ -1377,12 +1418,13 @@ P2PeerMsg::GetScopeOrDestin ( ) const
 {
     // Simply
     P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
-    if ( oItemAddr.Exists(TMsg_Scp) )
-      return oItemAddr[TMsg_Scp].c_wstr();
-    if ( oItemAddr.Exists(TMsg_Ups) )
-      return oItemAddr[TMsg_Ups].c_wstr();
-    if ( oItemAddr.Exists(TMsg_Dst) )
-      return oItemAddr[TMsg_Dst].c_wstr();
+    P2PaddrSTR  p = nullptr;
+    if ( NetAddrRead(oItemAddr, TMsg_Scp, &p) )
+      return p;
+    if ( NetAddrRead(oItemAddr, TMsg_Ups, &p) )
+      return p;
+    if ( NetAddrRead(oItemAddr, TMsg_Dst, &p) )
+      return p;
     return strP2PaddrNULL;
 }
 
