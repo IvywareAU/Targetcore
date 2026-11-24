@@ -58,6 +58,26 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.10.1.0, a PATCH on 3.10.0, paired with Msgcore 3.7.1. The flat C API, every
+//  class layout and every wire format are unchanged.
+//
+//  A RECEIVED MESSAGE IS STRUCTURALLY CHECKED AT THE GATE (MSCS performance log
+//  F-P6-6). 3.10.0 said received messages were verified as before - that was
+//  wrong on one path. The ingress heap walk proves a frame's BLOCK structure but
+//  not the OBJECT GRAPH those blocks form, and the whole-tree check that would
+//  (P2PeerMsg::AssertValid) was not run on the receive path at all: the inline
+//  recv->dispatch (W3) never called it, and so a frame carrying a forged sibling
+//  cycle hung the pump thread inside GetSource() - a one-frame denial of service
+//  from any logged-in peer - while a forged descendant cycle overflowed the
+//  stack. GateAppMsgInbound now calls AssertValid on every inbound application
+//  message, before the source is read, unconditionally (the untrusted path; the
+//  g_bP2Pmsg_AssertValid switch governs our OWN outbound posts, not this). That
+//  walk is bounded against forged graphs by Msgcore 3.7.1, which this requires;
+//  a corrupt frame is refused and the connection dropped, as any bad frame is.
+//  PATCH: a bug fix, no surface change.
+//
+//  BELOW IS THE 3.10.0 RATIONALE.
+//
 //  3.10.0.0, a MINOR on 3.9.1, paired with Msgcore 3.7.0 (its Platform/p2pshm.h
 //  is compiled in, so this does not build on an older Msgcore).
 //
@@ -709,23 +729,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  10
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,10,0,0
+#define TARGETCORE_VERSION_COMMAS 3,10,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.10.0.0"
+#define TARGETCORE_VERSION_STRING "3.10.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
 //  0x030A0000 is 3.10.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x030A0000
+#define TARGETCORE_VERSION_HEX    0x030A0100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -741,7 +761,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.10.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.10.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

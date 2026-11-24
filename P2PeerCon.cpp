@@ -3390,6 +3390,28 @@ P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
            ->Throw();
     }
 
+    // Structural acceptance test for an image off the wire (F-P6-6).
+    // NOTES: The ingress heap walk (P2PmsgHeap_CreateIOMAGE with the buffer
+    //        extent) proves the BLOCK structure of a received frame, but it
+    //        does not walk the object graph those blocks form: a frame can pass
+    //        it and still carry a forged sibling chain that loops, or a
+    //        descendant that points back at an ancestor. Left unchecked those
+    //        hang or crash the first reader - GetSource() on this very path, or
+    //        any later handler. AssertValid walks the whole tree and is now
+    //        bounded against both (Msgcore MsgCurs/P2Pmsg, F-P6-6), so the
+    //        corrupt image is refused here with a thrown P2Pevent that drops
+    //        the connection, before the source binding below reads it.
+    //      : UNCONDITIONAL, and deliberately not under g_bP2Pmsg_AssertValid.
+    //        That switch governs our OWN outbound posts - messages this process
+    //        built and already trusts, default off in Release since Msgcore
+    //        3.7.0. This is the opposite case: an image a stranger sent, on the
+    //        one path where it first becomes an object. It is the untrusted
+    //        gate, so it always runs.
+    //      : Ownership mirrors the login-fail path above - on a throw the pump
+    //        never took the message, so it is ours to free.
+    try                 { pMsg->AssertValid(); }
+    catch ( ... )       { delete pMsg; throw; }
+
     // Source binding (SECURITY_REVIEW M2)
     // NOTES: The source address is read off the wire, so without this check a
     //        peer that logged in as one identity could attribute every

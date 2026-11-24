@@ -3,6 +3,22 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.10.1
+
+A patch release: a received message is now checked for a forged structure before it is
+dispatched. The flat C API and every wire format are unchanged. **It needs Msgcore 3.7.1 or
+later.**
+
+- **A frame with a forged object graph is refused instead of hanging or crashing the hub.**
+  3.10.0 (below) said received messages were checked as before. That was wrong on one path: the
+  check that accepts a frame proves its block structure but not the *graph* those blocks form,
+  and the whole-tree check that would was not run on the receive path. A frame carrying a
+  sibling chain linked back on itself hung the hub thread inside reading the message's source —
+  reachable by any logged-in peer — and one with a descendant pointing at an ancestor overflowed
+  the stack. The hub now runs the whole-tree check (bounded against both by Msgcore 3.7.1) on
+  every inbound application message before it is routed, and drops the connection on a bad one,
+  as it does for any malformed frame. A well-formed message is unaffected.
+
 ## 3.10.0
 
 A minor release: a shared-memory transport, and a much cheaper round trip on every transport.
@@ -18,8 +34,9 @@ The flat C API and every wire format are unchanged. **It needs Msgcore 3.7.0 or 
   (`P2PeerConShm::IsSupported`).
 - **Messages this process builds are no longer validated in Release.** Msgcore 3.7.0 turns
   `g_bP2Pmsg_AssertValid` off by default in Release, and the pump queue now follows that switch
-  for the hub's own posts. Set `P2P_ASSERT_VALID=1` to turn it back on. How received messages are
-  checked has not changed.
+  for the hub's own posts. Set `P2P_ASSERT_VALID=1` to turn it back on. (This note originally
+  claimed received-message checking was unchanged; that was wrong on one path — see 3.10.1, which
+  adds the structural check a received message was missing.)
 - **Fewer repeated header reads, and addresses built in one pass.** Message images are identical,
   byte for byte.
 
