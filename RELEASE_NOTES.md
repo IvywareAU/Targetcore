@@ -3,6 +3,39 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.10.0
+
+A minor release: a shared-memory transport, and a much cheaper round trip on every transport.
+The flat C API and every wire format are unchanged. **It needs Msgcore 3.7.0 or later.**
+
+- **Recompile C++ code.** `P2Peerio` gained five virtual functions, so any class derived from it
+  must be recompiled, and the `P2PeerMsgnn` constructors now call a function new in this DLL, so
+  a program compiled against these headers needs 3.10.0. Programs using only the flat C API need
+  no change.
+- **Shared memory between processes on one host** (`P2PeerConShm`). A named pipe, or a local
+  socket on Linux, still makes the connection, controls access and notices a peer that dies; the
+  messages go through shared memory. On Windows it needs Windows 8 or later
+  (`P2PeerConShm::IsSupported`).
+- **Messages this process builds are no longer validated in Release.** Msgcore 3.7.0 turns
+  `g_bP2Pmsg_AssertValid` off by default in Release, and the pump queue now follows that switch
+  for the hub's own posts. Set `P2P_ASSERT_VALID=1` to turn it back on. How received messages are
+  checked has not changed.
+- **Fewer repeated header reads, and addresses built in one pass.** Message images are identical,
+  byte for byte.
+
+| `perf_ab`, two processes, 64 B, p50 | Windows 3.9.1 | Windows 3.10.0 | Linux VM 3.9.1 | Linux VM 3.10.0 |
+|---|---|---|---|---|
+| round trip, TCP | 164 µs | 117 µs | 236 µs | 176 µs |
+| round trip, pipe | 139 µs | 92 µs | 193 µs | 158 µs |
+| round trip, shared memory | 140 µs | 90 µs | 189 µs | 158 µs |
+| pipelined, TCP | 19.6k msg/s | 35.2k msg/s | 11.0k msg/s | 16.2k msg/s |
+| pipelined, pipe | 20.3k msg/s | 37.2k msg/s | 11.2k msg/s | 16.6k msg/s |
+| pipelined, shared memory | 20.3k msg/s | 37.3k msg/s | 11.3k msg/s | 16.4k msg/s |
+
+The shared-memory 3.9.1 columns are the 3.10.0 transport without the round-trip changes; 3.9.1
+itself had no such transport. Shared memory clearly beats TCP on one host and is about level with
+a pipe for small messages.
+
 ## 3.9.1
 
 A patch release: routing to a hub with many connections is faster. The flat C API, every

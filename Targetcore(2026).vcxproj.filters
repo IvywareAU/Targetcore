@@ -33,6 +33,12 @@
     <ClCompile Include="P2PeerConPipe.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="P2PeerConShm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="P2PeerioShm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="P2PeerConWsa.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -111,6 +117,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="P2PeerConDmx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="P2PeerConShm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="P2PeerioShm.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="P2PeerioShmState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="P2PeerConPipe.h">

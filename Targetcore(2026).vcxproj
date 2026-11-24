@@ -571,6 +571,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClCompile Include="P2PeerCon232.cpp" />
     <ClCompile Include="P2PeerConDmx.cpp" />
     <ClCompile Include="P2PeerConPipe.cpp" />
+    <ClCompile Include="P2PeerConShm.cpp" />
     <ClCompile Include="P2PeerConWsa.cpp" />
     <ClCompile Include="P2PeerEvents.cpp" />
     <ClCompile Include="P2PeerExplorer.cpp" />
@@ -579,6 +580,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClCompile Include="P2PeerioBSTR.cpp" />
     <ClCompile Include="P2PeerioGcm.cpp" />
     <ClCompile Include="P2PeerioDmx.cpp" />
+    <ClCompile Include="P2PeerioShm.cpp" />
     <ClCompile Include="P2PeerMsg.cpp" />
     <ClCompile Include="P2PeerMsgQue.cpp" />
     <ClCompile Include="P2PeerService.cpp" />
@@ -608,6 +610,7 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClInclude Include="P2PeerCon232.h" />
     <ClInclude Include="P2PeerConDmx.h" />
     <ClInclude Include="P2PeerConPipe.h" />
+    <ClInclude Include="P2PeerConShm.h" />
     <ClInclude Include="P2PeerConWsa.h" />
     <ClInclude Include="P2PeerEvents.h" />
     <ClInclude Include="P2PeerExplorer.h" />
@@ -617,6 +620,8 @@ copy /Y "$(OutDir)$(TargetName).lib" "$(WDMSCS_LIB)\$(TargetName).lib"</Command>
     <ClInclude Include="P2Peerio.h" />
     <ClInclude Include="P2PeerioBSTR.h" />
     <ClInclude Include="P2PeerioDmx.h" />
+    <ClInclude Include="P2PeerioShm.h" />
+    <ClInclude Include="P2PeerioShmState.h" />
     <ClInclude Include="P2PeerMsg.h" />
     <ClInclude Include="P2PeerMsgQue.h" />
     <ClInclude Include="P2PeerService.h" />

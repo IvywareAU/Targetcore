@@ -58,6 +58,36 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.10.0.0, a MINOR on 3.9.1, paired with Msgcore 3.7.0 (its Platform/p2pshm.h
+//  is compiled in, so this does not build on an older Msgcore).
+//
+//  (1) A SHARED-MEMORY TRANSPORT (p2p_performance 6.3a): P2PeerConShm and
+//  P2PeerioShm. A named pipe (AF_UNIX socket on Linux) stays the rendezvous,
+//  access control, accept cap, trust class and death watch; the bytes go
+//  through two rings in a shared mapping. Windows wakes the pump with
+//  NtAssociateWaitCompletionPacket and IsSupported() is false without it.
+//  P2Peerio gains FIVE VIRTUALS - HasQueuedOwnOVERLAPPED, ForgetOwnOVERLAPPED,
+//  IoWrite, IoRead, IoGathers - so its VTABLE CHANGES and every subclass must
+//  be recompiled. The C++ classes are not the covered surface; the flat C ABI
+//  does not move.
+//
+//  (2) THE ROUND TRIP (F-P6-5), which profiling put in the message object model
+//  (61% of the CPU) and not in the transport (0.5%). (a) PutP2Pmsg takes
+//  bVerify; the hub's own posts pass g_bP2Pmsg_AssertValid, whose Release
+//  default Msgcore 3.7.0 makes false. Every other producer, the receive
+//  fallback included, verifies as before. (b) Dispatch compares the
+//  destination once, GateAppMsgInbound reads the source once, the send path
+//  skips the seal chain when the hub does not seal, and WaivedBodyLeavesProcess
+//  asks its last-hop test before its field reads. (c) P2PeerMsg::InitNetAddr
+//  (new, protected, non-virtual) builds the Net item in one pass; the
+//  P2PeerMsgnn constructor template calls it, so a program compiled against
+//  this header needs this DLL. Images byte-identical (unit_suite, 72 compared).
+//  RESULT (perf_ab, two processes, posture A, 5 rounds, medians of p50, 64 B
+//  and 4 KB, wsa / pipe / shm): RTT -28..-36% Windows, -8..-26% Linux VM;
+//  pipelined +61..+83% and +41..+65%.
+//
+//  BELOW IS THE 3.9.1 RATIONALE.
+//
 //  3.9.1.0, a PATCH on 3.9.0: the route walk measures each address once
 //  (p2p_performance F-P4-9, option (a)). P2PeerHub::RouteP2PeerMsg tests the
 //  hub's connections in list order (T4, 3.7.2), and every test re-ran wcslen
@@ -678,24 +708,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  9
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_MINOR  10
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,9,1,0
+#define TARGETCORE_VERSION_COMMAS 3,10,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.9.1.0"
+#define TARGETCORE_VERSION_STRING "3.10.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x03080000 is 3.8.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x030A0000 is 3.10.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x03090100
+#define TARGETCORE_VERSION_HEX    0x030A0000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -711,7 +741,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.9.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.10.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

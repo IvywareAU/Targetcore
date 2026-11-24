@@ -156,9 +156,7 @@ P2PeerMsg::P2PeerMsg ( P2PaddrSTR oSrcSTR, P2PaddrSTR oDstSTR
     //Init ( pszMsg, AllocBLOB08(sizeof(P2PeerMsgPrefix)) );
 
     // Addressing
-    InitItem(VBLockBSTR_NET,P3PmsgData());
-    SetSource ( P3PmsgField ( TMsg_Src, DataWSTR08(oSrcSTR) ) );
-    SetDestin ( P3PmsgField ( TMsg_Dst, DataWSTR08(oDstSTR) ) );
+    InitNetAddr ( oSrcSTR, oDstSTR );          // F-P6-5
 
     // Data
     // NOTES: Passed data is placed in the data node header
@@ -1152,6 +1150,33 @@ P2PeerMsg::SetSource ( const P3PmsgField& oSource )
     // Tidy up, and
     return oSrc;
 }
+//
+//  Builds the Net item, Src then Dst, on a message without one (F-P6-5)
+//  NOTES: The constructors' path.  It was InitItem(Net) + SetSource(field) +
+//         SetDestin(field), and each Set re-asked whether Net existed, whether
+//         its field existed, looked the field up twice more and then cleared
+//         attributes and stacking that a field built from a bare address
+//         cannot have - 11% of all CPU in a perf_ab round trip.  The result
+//         is the item those calls built on an empty message, in the same
+//         order, which the third address constructor below has always built
+//         this way; Test_NetAddrFastPath compares the two images whole
+//       : A Net item that already exists is not this function's case and is
+//         left to SetSource / SetDestin, which handle it
+//
+void
+P2PeerMsg::InitNetAddr ( P2PaddrSTR strSource, P2PaddrSTR strDestin )
+{
+    if ( Exists ( VBLockBSTR_NET ) )
+    {
+      SetSource ( strSource );
+      SetDestin ( strDestin );
+      return;
+    }
+    P3PmsgItem& oItemAddr = InitItem ( VBLockBSTR_NET, P3PmsgData() );
+    oItemAddr += P3PmsgField ( TMsg_Src, DataWSTR08(strSource) );
+    oItemAddr += P3PmsgField ( TMsg_Dst, DataWSTR08(strDestin) );
+}
+
 P3PmsgField&
 P2PeerMsg::r_Source ( ) const
 {

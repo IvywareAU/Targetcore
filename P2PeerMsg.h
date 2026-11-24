@@ -513,6 +513,15 @@ class Targetcore_EXT P2PeerMsg : public P3PmsgBSTR
       friend class P2PeerTarget;
       friend class P2PeerPump;
       friend class P2PeerMsgQue;
+
+      // Constructors' addressing (F-P6-5): builds the Net item with Src and Dst
+      // in one pass, on a message that HAS NO Net item yet.  The same item
+      // SetSource + SetDestin build there - byte for byte, which
+      // Test_NetAddrFastPath checks - without their existence tests, lookups
+      // and attribute / stacking handling, none of which can apply to a field
+      // made two lines earlier from a bare address
+      void
+        InitNetAddr ( P2PaddrSTR strSource, P2PaddrSTR strDestin );
 };
 typedef P2PSafePtr<P2PeerMsg> P2PeerMsgSP;
 typedef CList<P2PeerMsg*> CListP2PeerMsg;
@@ -536,8 +545,7 @@ class P2PeerMsgnn : public P2PeerMsg
     ASSERT(r_name().VerifyContainment()); 
           r_name().c_name ( pszMsg );
     ASSERT(r_name().VerifyContainment()); 
-          SetSource ( P3PmsgField ( TMsg_Src, DataWSTR08(oSourceSTR) ) );
-          SetDestin ( P3PmsgField ( TMsg_Dst, DataWSTR08(oDestinSTR) ) );
+          InitNetAddr ( oSourceSTR, oDestinSTR );     // F-P6-5
           // Data
           // NOTES: Passed data is placed in the data node header
           if ( iMsgDataSize <= 255 )

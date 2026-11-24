@@ -872,6 +872,22 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
           //        message that is about to be dropped
           if ( !bVNetMount && m_pP2PeerMsgSend )
           {
+            //  Does this hub seal at all?  Asked FIRST (F-P6-5)
+            //  NOTES: SealAppMsgOutbound's own first test, and when it fails
+            //         that function returns true without touching the message -
+            //         so the seal-state reads around it (IsSealed before and
+            //         after, the heap and body sizes for CompactSealed) cannot
+            //         change any decision, and on the default posture they were
+            //         two object-model lookups per message for nothing.  A
+            //         policy flipped between this read and the seal's is the
+            //         same race SealAppMsgOutbound already had with itself
+            P2PeerHub *pSealHub = GetAuthHub ( );
+            const bool bSealOn  = pSealHub && pSealHub -> IsSealRequired ( );
+            bool       bWaived  = false;
+            if ( !bSealOn )
+              bWaived = WaivedBodyLeavesProcess ( m_pP2PeerMsgSend );
+            else
+            {
             const bool   bWasSealed = m_pP2PeerMsgSend->IsSealed ( );
             //  What is not the body, measured BEFORE the seal grows the heap
             const size_t nUsed      = m_pP2PeerMsgSend->P3PmsgBSTR::Sizeof ( );
@@ -885,12 +901,15 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
             //  Sealed HERE, just now: send a compact copy.  Refer CompactSealed
             else if ( !bWasSealed && m_pP2PeerMsgSend->IsSealed ( ) )
               m_pP2PeerMsgSend = CompactSealed ( m_pP2PeerMsgSend, nOverhead );
+            else
+              bWaived = WaivedBodyLeavesProcess ( m_pP2PeerMsgSend );
+            }
             //  A body the end-to-end waiver left unsealed, about to leave the
             //  process (3.6.0, guard 3).  AFTER the seal, so a relay that
             //  seals has done so and passes.  Refused like a seal that could
             //  not be made, and for the same reason - it would be clear text
             //  the origin asked to be hidden.  Refer WaivedBodyLeavesProcess
-            else if ( WaivedBodyLeavesProcess ( m_pP2PeerMsgSend ) )
+            if ( bWaived )
             {
               CString strSrcW = m_pP2PeerMsgSend->GetSource ( )
                                   ? m_pP2PeerMsgSend->GetSource ( ) : L"";
@@ -1524,7 +1543,12 @@ P2PeerCon::DrainOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon )
     // member recv buffer that outlives the drain cannot report a stale FIN
     pOVERLAPPEDcon -> bRecvSubmitted = false;
     if ( !bMember )
+    {
+      //  An io object that owns this one (P2PeerioShm, 3.10.0) forgets it first
+      if ( m_pP2Peerio )
+        m_pP2Peerio -> ForgetOwnOVERLAPPED ( pOVERLAPPEDcon );
       DropOVERLAPPED ( pOVERLAPPEDcon );
+    }
 
     // Balance prepareOVERLAPPED()'s AddRef; may delete this
     Release ( );
@@ -1552,10 +1576,12 @@ P2PeerCon::DrainOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon )
 bool
 P2PeerCon::HasQueuedOVERLAPPED ( ) const
 {
+    //  ...and any the io object owns (P2PeerioShm's wake and death watch, 3.10.0)
     return ( m_pOVERLAPPEDsend    && m_pOVERLAPPEDsend    -> bQueued ) ||
            ( m_pOVERLAPPEDrecv    && m_pOVERLAPPEDrecv    -> bQueued ) ||
            ( m_pOVERLAPPEDaccept  && m_pOVERLAPPEDaccept  -> bQueued ) ||
-           ( m_pOVERLAPPEDconnect && m_pOVERLAPPEDconnect -> bQueued );
+           ( m_pOVERLAPPEDconnect && m_pOVERLAPPEDconnect -> bQueued ) ||
+           ( m_pP2Peerio          && m_pP2Peerio->HasQueuedOwnOVERLAPPED ( ) );
 }
 
 //
@@ -3450,7 +3476,12 @@ P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
     //        verification is further down still, behind the policy switch.
     //      : An empty hub address (no con id yet) falls through to the
     //        original rule.  Refusing is the safe default.
-    if (  !m_oThatP2Paddr.IsNull() && pMsg->GetSource() )
+    //  Read ONCE (F-P6-5): the test below and the copy inside it were two
+    //  object-model lookups of the same field, on every message received.  The
+    //  copy is what was always used past the test, and an absent source reads
+    //  null here exactly as it did in the test
+    P2PaddrSTR strSourceNow = m_oThatP2Paddr.IsNull() ? nullptr : pMsg->GetSource();
+    if ( strSourceNow )
     {
       //  A COPY, not the accessor's pointer.  Off Windows GetSource() returns
       //  a slot in a ring of 16 thread-local buffers that c_wstr() widens into,
@@ -3464,7 +3495,7 @@ P2PeerCon::GateAppMsgInbound ( P2PeerMsg *pMsg )
       //  fix as P2PeerHub::RouteP2PeerMsg and WrappedResponseFactory before it
       //      : The refusal message below reads it too, so this also stops that
       //        diagnostic naming the wrong address on the pre-existing path
-      CString    strSourceHeld = pMsg->GetSource();
+      CString    strSourceHeld = strSourceNow;
       P2PaddrSTR strSource     = (P2PaddrSTR)strSourceHeld;
       bool       bBound        = m_oThatP2Paddr.IsRable ( strSource ) ? true : false;
 
@@ -6369,8 +6400,13 @@ P2PeerCon::WaivedBodyLeavesProcess ( P2PeerMsg *pMsg )
 {
     if ( !pMsg || StaysInProcess ( ) )
       return false;
-    if ( pMsg->IsSealed ( ) || pMsg->IsFannedOut ( ) || pMsg->DataSize ( ) == 0 )
-      return false;
+    //  THE LAST-HOP TEST BEFORE THE SEAL-STATE READS (F-P6-5), as
+    //  SealAppMsgOutbound has done since T1i and for the same reason: on a
+    //  direct link it is the test that decides, and it used to run after two
+    //  field lookups (IsSealed, IsFannedOut) on every message sent.  Every exit
+    //  here is "false" and no test has a side effect, so the order changes no
+    //  answer.  The handshake names stay first because GetScopeOrDestin has
+    //  never been run against a login block
     if ( pMsg->Map_MatchName ( P2Pmsg_Login    ) ||
          pMsg->Map_MatchName ( P2Pmsg_LoginAck ) ||
          pMsg->Map_MatchName ( P2Pmsg_CypherEx )    )
@@ -6384,6 +6420,8 @@ P2PeerCon::WaivedBodyLeavesProcess ( P2PeerMsg *pMsg )
     if ( m_oThatP2Paddr == strScopeNow )
       return false;
     CString strScope = strScopeNow;
+    if ( pMsg->IsSealed ( ) || pMsg->IsFannedOut ( ) || pMsg->DataSize ( ) == 0 )
+      return false;
     CString strSrc   = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
 
     if ( !IsP2PmsgHubInProcess ( (P2PaddrSTR)strScope ) )

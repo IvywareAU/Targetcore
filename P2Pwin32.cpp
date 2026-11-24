@@ -641,7 +641,7 @@ ASSERT(pQue->m_nThreadId<pQue->m_pQueNext->m_nThreadId);
           return m_pP2Pmsg = 0;
         };
       UINT
-        PutP2Pmsg ( P2Pmsg *pP2Pmsg, bool bPrepend )
+        PutP2Pmsg ( P2Pmsg *pP2Pmsg, bool bPrepend, bool bVerify = true )
         {
           if ( pP2Pmsg )               // Skip NULL pointers
           {
@@ -654,7 +654,13 @@ ASSERT(pQue->m_nThreadId<pQue->m_pQueNext->m_nThreadId);
             //  What T6 removed here: ASSERT(VerifyP2Pmsg) - a second walk in
             //  Debug - and two P2PeerTarget::AssertValid calls that duplicated
             //  the one inside VerifyP2Pmsg and ran ahead of the null test above
-            VerifyP2Pmsg ( pP2Pmsg );
+            //  bVerify (F-P6-5): FALSE only from the hub's OWN post path
+            //  (PostP2Pmsg(pMsg, ..) and PostP2PmsgBatch), which passes
+            //  g_bP2Pmsg_AssertValid - a message this process built, already
+            //  covered by that switch in P2PeerHub::PostP2PeerMsg.  Every other
+            //  producer, the receive fallback included, verifies as before
+            if ( bVerify )
+              VerifyP2Pmsg ( pP2Pmsg );
             if ( pP2Pmsg->pTarget == nullptr )
               pP2Pmsg -> pTarget = m_pTarget;
             if ( bPrepend )
@@ -4151,6 +4157,17 @@ TOP:bHandled = true;
     // Context swapping will generate exceptions
     try
     {
+      // Is a P2PeerMsg for this hub?  Asked ONCE (F-P6-5)
+      // NOTES: Both P2PeerMsg branches below turn on it - the first for "local",
+      //        the last for "route" - so a routed message read its destination
+      //        through the object model twice before RouteP2PeerMsg read it a
+      //        third time.  Same expression, same operands, evaluated where the
+      //        first branch used to evaluate it; after a goto TOP it is asked
+      //        again, as before, because the swap may have changed the message
+      const bool bMsgForHub = pP2Pmsg->nCode == CN_P2PeerMsg &&
+                              pP2Pmsg->pMsg                  &&
+                              pTarget->GetP2PaddrHub() == pP2Pmsg->pMsg->GetDestin();
+
       // P2PeerCon_MAP routing
       // NOTES: Dispatch for implementation.
       if ( pP2Pmsg->nCode == CN_P2PeerCon )
@@ -4217,8 +4234,7 @@ TOP:bHandled = true;
 
       // P2PeerMsg_MAP routing
       // NOTES: Dispatch for implementation
-      else if ( pP2Pmsg->nCode           == CN_P2PeerMsg               &&
-                pTarget->GetP2PaddrHub() == pP2Pmsg->pMsg->GetDestin()    )
+      else if ( pP2Pmsg->nCode == CN_P2PeerMsg && bMsgForHub )
       {
         bHandled = pTarget -> PeekP2PeerMsg ( pP2Pmsg->pMsg );
         if ( bHandled == msgCONTINUE )
@@ -4271,8 +4287,7 @@ TOP:bHandled = true;
 
       // P2PeerMsg's
       // NOTES: Thread swap for implementation
-      else if ( pP2Pmsg->nCode           == CN_P2PeerMsg               &&
-                pTarget->GetP2PaddrHub() != pP2Pmsg->pMsg->GetDestin()    )
+      else if ( pP2Pmsg->nCode == CN_P2PeerMsg && !bMsgForHub )
       {
         bHandled = pTarget -> RouteP2PeerMsg ( pP2Pmsg->pMsg );
         if (  bHandled == msgSWAP                    &&
@@ -6010,8 +6025,10 @@ PostP2Pmsg ( P2PeerMsg *pMsg, P2PumpID nPumpID, bool bPrepend )
 ASSERT(VerifyP2Pmsg(pP2Pmsg));
 
     // Implementation
+    // NOTES: A message this process built (F-P6-5) - verified here only when
+    //        g_bP2Pmsg_AssertValid asks, as P2PeerHub::PostP2PeerMsg does
     oSafeCS = pP2PmsgPump->m_oCSection;
-    pP2PmsgPump -> PutP2Pmsg ( pP2Pmsg, bPrepend );
+    pP2PmsgPump -> PutP2Pmsg ( pP2Pmsg, bPrepend, g_bP2Pmsg_AssertValid );
     return (P2PeerMsg *)0;
 }
 
@@ -6100,7 +6117,7 @@ PostP2PmsgBatch ( P2PeerMsg **apMsg, size_t nCount, P2PumpID nPumpID )
               pP2Pmsg -> pTarget    = pP2PmsgPump -> m_pTarget;
               pP2Pmsg -> bNotify    = false;
 ASSERT(VerifyP2Pmsg(pP2Pmsg));
-      pP2PmsgPump -> PutP2Pmsg ( pP2Pmsg, false );
+      pP2PmsgPump -> PutP2Pmsg ( pP2Pmsg, false, g_bP2Pmsg_AssertValid );   // F-P6-5
     }
 }
 

@@ -323,6 +323,24 @@ class Targetcore_EXT P2Peerio
                                   , DWORD dwBytes
                                   , OVERLAPPEDcon *pOVERLAPPEDcon );
 
+      // Is this io object still OWED a completion for an OVERLAPPEDcon of its
+      // OWN - one that is not among the connection's four member slots?
+      // NOTES: p2p_performance.md §6.3a (3.10.0). P2PeerCon::HasQueuedOVERLAPPED()
+      //        asks this too, so the teardown drain (DrainPortOfOVERLAPPED) waits
+      //        for such completions as it waits for the slots', instead of
+      //        letting one arrive after the connection is gone. The base class
+      //        owns none: false
+      virtual bool
+        HasQueuedOwnOVERLAPPED ( ) const { return false; }
+
+      // The connection is about to FREE pOVERLAPPEDcon, a non-member it drained at
+      // teardown (P2PeerCon::DrainOVERLAPPED): an io object that owns it must
+      // forget its pointer now, or HasQueuedOwnOVERLAPPED() above reads freed
+      // memory on the drain's next pass. Called for every drained non-member,
+      // owned or not; the base class owns none
+      virtual void
+        ForgetOwnOVERLAPPED ( OVERLAPPEDcon *pOVERLAPPEDcon ) { (void)pOVERLAPPEDcon; }
+
     // Protocol translation
     // NOTES: Perform raw P2PeerMsg exchange between P2PeerHub's
     //
@@ -375,6 +393,33 @@ class Targetcore_EXT P2Peerio
         Recv ( HANDLE hFile
              , void *pvData, DWORD wDataSize
              , OVERLAPPEDcon *pOVERLAPPEDrecv );
+
+    // Transport byte I/O (p2p_performance.md §6.3a, 3.10.0)
+    // NOTES: The ONLY two places this class moves bytes: Send() calls IoWrite where
+    //        it called WriteFile, Recv() calls IoRead where it called ReadFile, and
+    //        the defaults ARE those calls. A transport with no OS handle to read or
+    //        write (P2PeerioShm: a ring in a shared mapping) overrides these two and
+    //        nothing else, so framing, the sealing decision (Send's F-S6-3 mark), the
+    //        receive ring and every validation in RecvP2PeerMsg stay in one place
+    //      : THE CONTRACT is WriteFile's/ReadFile's on a handle bound to a completion
+    //        port: return TRUE, or FALSE with ERROR_IO_PENDING, and in BOTH cases
+    //        exactly one completion for pOv reaches the port later, carrying the byte
+    //        count; any other FALSE is a failure and no completion follows. A short
+    //        transfer is allowed and is what the caller already handles
+    protected:
+      virtual BOOL
+        IoWrite ( HANDLE hFile, const void *pvData, DWORD dwSize, OVERLAPPED *pOv );
+      virtual BOOL
+        IoRead  ( HANDLE hFile, void *pvData, DWORD dwSize, OVERLAPPED *pOv );
+
+      // May the send path GATHER for this subclass (CanGatherSend)? A subclass that
+      // overrides only IoWrite/IoRead keeps the stock framing, so a gathered batch is
+      // just a longer IoWrite and is safe; one that frames its own bytes is not. The
+      // default is the conservative answer for every subclass written before this
+      // existed (P2PeerioDmx, P2PeerioBSTR, P2PeerWeb's WebIoHttp): no
+      virtual bool
+        IoGathers ( ) const { return false; }
+    public:
 
     // Timers
     public:

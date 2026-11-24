@@ -71,6 +71,7 @@ set(TARGETCORE_SOURCES_COMMON
     P2PeerCon232.cpp
     P2PeerConDmx.cpp
     P2PeerConPipe.cpp
+    P2PeerConShm.cpp
     P2PeerConWsa.cpp
     P2PeerEvents.cpp
     P2PeerExplorer.cpp
@@ -79,6 +80,7 @@ set(TARGETCORE_SOURCES_COMMON
     P2PeerioBSTR.cpp
     P2PeerioGcm.cpp
     P2PeerioDmx.cpp
+    P2PeerioShm.cpp
     P2PeerSeal.cpp
     P2PeerMsg.cpp
     P2PeerMsgQue.cpp

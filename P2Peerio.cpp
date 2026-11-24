@@ -344,7 +344,7 @@ P2Peerio::CanGatherSend ( ) const
 #if defined(_MSC_VER)
 #  pragma warning( pop )
 #endif
-    return !s_bOff && typeid(*this) == typeid(P2Peerio);
+    return !s_bOff && ( typeid(*this) == typeid(P2Peerio) || IoGathers ( ) );
 }
 
 //
@@ -590,9 +590,9 @@ P2Peerio::Send ( HANDLE hFile
     // NOTES: The pvData buffer may or may not be contained within
     //        pOVERLAPPED send object
     m_pCon->prepareOVERLAPPED ( pOVERLAPPEDsend );
-    if ( !WriteFile ( hFile
-                    , pvData, wDataSize
-                    , 0, (OVERLAPPED *)pOVERLAPPEDsend ) )
+    if ( !IoWrite ( hFile
+                  , pvData, wDataSize
+                  , (OVERLAPPED *)pOVERLAPPEDsend ) )
     {
       hResult = GetLastError();
       if ( hResult == WAIT_TIMEOUT )
@@ -1025,8 +1025,8 @@ P2Peerio::Recv ( HANDLE hFile
     m_pCon -> prepareOVERLAPPED ( pOVERLAPPEDrecv );
     pOVERLAPPEDrecv -> bRecvSubmitted = true;
     //DWORD dwRead = 0;
-    if ( !ReadFile(hFile
-                  ,pvData,dwSize,0/*&dwRead*/,(OVERLAPPED *)pOVERLAPPEDrecv) )
+    if ( !IoRead(hFile
+                ,pvData,dwSize,(OVERLAPPED *)pOVERLAPPEDrecv) )
     { // Error condition, OVERLAPPED object rejected by IOCP
       hResult = GetLastError();
       if ( hResult == WAIT_TIMEOUT )
@@ -1063,6 +1063,22 @@ P2Peerio::Recv ( HANDLE hFile
 
     // Tidy up, and
     return hResult;
+}
+
+//
+//  Transport byte I/O - the defaults (refer the contract in P2Peerio.h)
+//  NOTES: Exactly the calls Send() and Recv() made before 3.10.0
+//
+BOOL
+P2Peerio::IoWrite ( HANDLE hFile, const void *pvData, DWORD dwSize, OVERLAPPED *pOv )
+{
+    return WriteFile ( hFile, pvData, dwSize, 0, pOv );
+}
+
+BOOL
+P2Peerio::IoRead ( HANDLE hFile, void *pvData, DWORD dwSize, OVERLAPPED *pOv )
+{
+    return ReadFile ( hFile, pvData, dwSize, 0, pOv );
 }
 
 ///////////////////////////////////////////////////////////////////////
