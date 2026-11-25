@@ -3,6 +3,36 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.11.1
+
+A patch release: a process holding many hubs sends faster on Linux. The flat C API, every exported
+class layout and every wire format are unchanged. It needs Msgcore 3.7.1 or later.
+
+- **"Is this address a hub in this process?" is answered from an index** of hub addresses instead
+  of a walk of every hub in the process, which ran under the process hub lock for every message
+  not on its last hop. The answers, and what they decide about unsealed bodies, are unchanged.
+  Debug builds check every answer against the walk and abort on a disagreement; on Linux, build
+  with `-DP2P_ROUTE_CHECK` to get that check.
+- **The check builds' mismatch markers now print on Linux.** They were silent once a warning had
+  been written to stderr. The checks themselves worked: a mismatch still throws (3.11.0's) or
+  aborts (the new one).
+- **It matters to a process holding many hubs**, not to a hub with many connections from other
+  processes.
+- **Measured on Linux** (`perf_fanout fan`, every hub in one process, the last connection,
+  p50): throughput rose 66% and 74% at 250 connections (two runs) and 11% to 14% at 64. At 16 it
+  rose 3% (one run); at 1 the change was within noise. From 1 to 250 connections it no longer
+  falls (38% before).
+- **Measured on Windows: no throughput gain, and a small cost.** Two runs, 8 and 12 rounds. The
+  cause of the cost at 16 and 64 connections is not known.
+
+| Windows, 3.11.1 against 3.11.0 | Run 1 | Run 2 |
+|---|---|---|
+| throughput, 1 connection | −1.9% (better in 4 of 8) | −0.3% (5 of 12) |
+| throughput, 16 | −0.3% (2 of 8) | −1.1% (2 of 12) |
+| throughput, 64 | −1.7% (2 of 8) | −2.1% (3 of 12) |
+| throughput, 250 | +0.8% (5 of 8) | +0.5% (8 of 12) |
+| latency, 250 (lower is better) | −2.7% (7 of 8) | −2.6% (12 of 12) |
+
 ## 3.11.0
 
 A minor release: routing to a hub with many connections is faster. The flat C API, every exported

@@ -58,6 +58,26 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.11.1.0, a PATCH on 3.11.0; runs on Msgcore 3.7.1. The flat C API, every
+//  exported class layout and every wire format are unchanged.
+//
+//  A HUB-ADDRESS INDEX (p2p_performance F-P4-11). IsP2PmsgHubInProcess and
+//  IsP2PmsgHubSealWaivedInProcess walked every hub in the process under the
+//  process hub lock; the first is asked for every message not on its last hop.
+//  A map of address to registry entries, under that same lock, now answers.
+//  P2PmsgHubMgr::SetAddr is the only writer of a hub's registry address. Two
+//  hubs on one address fall back to the walk, so the registry's order still
+//  decides. Debug builds, and P2P_ROUTE_CHECK, compare each answer with the walk
+//  and abort on a disagreement.
+//  THE CHECK MARKERS PRINT ON LINUX. HUB-ADDR-MISMATCH (new) and 3.11.0's
+//  ROUTE-INDEX-MISMATCH used a narrow fprintf, silent once stderr is wide.
+//  RESULT (perf_fanout fan, p50 medians, thr_last, all hubs in one process):
+//  Linux VM C=250 +66% and +74%, C=64 +11% to +14%, flat from C=1 to 250.
+//  Windows: no throughput gain; C=250 latency -2.6/-2.7%; C=16 and 64 throughput
+//  0.3% to 2.1% lower, cause not known.
+//
+//  BELOW IS THE 3.11.0 RATIONALE.
+//
 //  3.11.0.0, a MINOR on 3.10.1; runs on Msgcore 3.7.1. The flat C API, every
 //  exported class layout and every wire format are unchanged.
 //
@@ -750,23 +770,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  11
-#define TARGETCORE_VERSION_PATCH  0
+#define TARGETCORE_VERSION_PATCH  1
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,11,0,0
+#define TARGETCORE_VERSION_COMMAS 3,11,1,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.11.0.0"
+#define TARGETCORE_VERSION_STRING "3.11.1.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x030B0000 is 3.11.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x030B0100 is 3.11.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x030B0000
+#define TARGETCORE_VERSION_HEX    0x030B0100
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -782,7 +802,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.11.0.0"
+#define TARGETCORE_VERSION_STRINGW L"3.11.1.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

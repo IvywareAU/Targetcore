@@ -1024,6 +1024,21 @@ static bool             s_bStartupP2PmsgSink   = false;
 //
 static CMap<DWORD,DWORD,P2PmsgHubMgr*,P2PmsgHubMgr*> s_ThreadID_P2PmsgHub;
 static CRITICAL_SECTION                              s_oCSectionP2PmsgHub;
+//  Hub address -> the registry entries carrying it (p2p_performance F-P4-11)
+//  NOTES: Under s_oCSectionP2PmsgHub, like the registry it mirrors.  Holds every
+//         REGISTERED hub with a non-empty address and nothing else, so it
+//         answers what a walk of the registry would
+//       : m_oP2Paddr is therefore written by P2PmsgHubMgr::SetAddr() ONLY.  Both
+//         errors matter: IsP2PmsgHubInProcess() decides whether an unsealed
+//         body may be waived and whether it may leave the process
+class P2PmsgHubMgr;
+struct P2PmsgHubAddrHash
+{
+    using is_transparent = void;
+    size_t operator() ( std::wstring_view s ) const { return std::hash<std::wstring_view>() ( s ); }
+};
+static std::unordered_map<std::wstring, std::vector<P2PmsgHubMgr*>, P2PmsgHubAddrHash, std::equal_to<> >
+                                                     s_mapP2PmsgHubAddr;
 static bool m_bP2PmsgExplorer_Hub = false;
 class P2PmsgPumpMgr;
 class P2PmsgHubMgr
@@ -1042,6 +1057,7 @@ class P2PmsgHubMgr
           m_pP2PmsgSinkmap   = 0;
           m_nSinksMax        = 255;
           m_nRouteSeq        = 0;
+          UnfileRegistered ( );                  // whatever this displaces
           s_ThreadID_P2PmsgHub.SetAt ( m_nHubID, this );
           InitializeCriticalSection  ( &m_oCSection );
         };
@@ -1053,6 +1069,7 @@ class P2PmsgHubMgr
           if ( m_pOVERLAPPED )
             delete m_pOVERLAPPED;
           CleanupP2PmsgSink ( this );
+          UnfileRegistered ( );
           s_ThreadID_P2PmsgHub.RemoveKey ( m_nHubID );
           ASSERT(m_pP2PmsgSinkmap==nullptr);
           // Delete the pump object(s) tracked in m_oCListP2PmsgPump (the msg pump, plus
@@ -1086,6 +1103,41 @@ class P2PmsgHubMgr
       void
         Verify ( )
         {
+        }
+
+    // Address
+    // NOTES: s_oCSectionP2PmsgHub is held.  Refer s_mapP2PmsgHubAddr
+    public:
+      void
+        SetAddr ( P2PaddrSTR strP2Paddr )
+        {
+          UnfileAddr ( );
+          m_oP2Paddr = strP2Paddr;
+          P2PmsgHubMgr *pReg = 0;
+          if ( !m_oP2Paddr.IsNull()                             &&
+                s_ThreadID_P2PmsgHub.Lookup ( m_nHubID, pReg )  &&
+                pReg == this                                       )
+            s_mapP2PmsgHubAddr[m_oP2Paddr.c_wstr()].push_back ( this );
+        }
+    private:
+      void
+        UnfileAddr ( )
+        {
+          auto it = s_mapP2PmsgHubAddr.find ( std::wstring_view ( m_oP2Paddr.c_wstr() ) );
+          if ( it == s_mapP2PmsgHubAddr.end() )
+            return;
+          std::vector<P2PmsgHubMgr*>& v = it->second;
+          for ( size_t i = 0; i < v.size(); ++i )
+            if ( v[i] == this ) { v.erase ( v.begin() + i ); break; }
+          if ( v.empty() )
+            s_mapP2PmsgHubAddr.erase ( it );
+        }
+      void
+        UnfileRegistered ( )                     // the entry under this thread ID
+        {
+          P2PmsgHubMgr *pReg = 0;
+          if ( s_ThreadID_P2PmsgHub.Lookup ( m_nHubID, pReg ) && pReg )
+            pReg -> UnfileAddr ( );
         }
 
     // Pumps
@@ -2499,7 +2551,7 @@ CreateP2PmsgHub ( P2PaddrSTR strP2Paddr, P2PeerHub *pHub
     // P2PmsgHub Instanciation
     ASSERT(nMaxPumps>0);
     spHubMgr = P2PmsgHubMgr::Factory ( nMaxPumps );
-    spHubMgr -> m_oP2Paddr = strP2Paddr;
+    spHubMgr -> SetAddr ( strP2Paddr );
     spHubMgr -> m_pHub     = pHub;
 
     // P2PmsgPump Instanciation
@@ -2695,7 +2747,7 @@ SetP2PmsgHubAddr ( P2PmsgHubID nHubID, P2PaddrSTR strP2Paddr )
            ->Throw  ( );
 
     // Simply
-    pP2PmsgHub->m_oP2Paddr = strP2Paddr;
+    pP2PmsgHub -> SetAddr ( strP2Paddr );
 }
 
 P2PaddrSTR
@@ -2730,17 +2782,78 @@ GetP2PmsgHubAddr ( P2PmsgHubID nHubID )
     return pP2PmsgHub->m_oP2Paddr;
 }
 
+#if defined(_DEBUG) || defined(P2P_ROUTE_CHECK)
+//  A check's marker on stderr.  On Linux a stream takes the width of its first
+//  write, and an exception report (Msgcore) makes stderr wide; a narrow fprintf
+//  then prints NOTHING
+static void
+PrintCheckMarker ( const wchar_t *pszMarker, P2PaddrSTR str1, P2PaddrSTR str2 )
+{
+    if ( fwide ( stderr, 0 ) > 0 )
+      fwprintf ( stderr, L"%ls %ls %ls\n", pszMarker, str1, str2 );
+    else
+      fprintf  ( stderr,  "%ls %ls %ls\n", pszMarker, str1, str2 );
+    fflush ( stderr );
+}
+#endif
+
+//
+//  The hub registered at this address, by the walk the index replaces.  The
+//  hub lock is held by the caller, and the pointer must not outlive it
+//  NOTES: An unnamed hub matches nothing.  A hub that has been created but not
+//         yet given its address reads L"" (the P2PmsgHubMgr constructor), and
+//         an empty address must not become a wildcard on the way through
+//
+static P2PmsgHubMgr*
+WalkP2PmsgHubAddr ( P2PaddrSTR strP2Paddr )
+{
+    POSITION pos = s_ThreadID_P2PmsgHub.GetStartPosition ( );
+    while ( pos )
+    {
+      P2PmsgHubMgr *pHubMgr = 0;
+      DWORD         nMapID  = 0;
+      s_ThreadID_P2PmsgHub.GetNextAssoc ( pos, nMapID, pHubMgr );
+      if ( !pHubMgr || pHubMgr->m_oP2Paddr.IsNull ( ) )
+        continue;
+      if ( pHubMgr->m_oP2Paddr == strP2Paddr )
+        return pHubMgr;
+    }
+    return 0;
+}
+
+//
+//  The same answer through the address index (p2p_performance F-P4-11)
+//  NOTES: Refer s_mapP2PmsgHubAddr.  Two hubs on one address: the walk's first
+//         match is the registry's own order, so the walk itself answers
+//       : Debug builds (or -DP2P_ROUTE_CHECK, for Linux) repeat the walk and
+//         ABORT on a disagreement.  The callers must not throw
+//
+static P2PmsgHubMgr*
+FindP2PmsgHubAddr ( P2PaddrSTR strP2Paddr )
+{
+    P2PmsgHubMgr *pHubMgr = 0;
+    auto it = s_mapP2PmsgHubAddr.find ( std::wstring_view ( strP2Paddr ) );
+    if ( it != s_mapP2PmsgHubAddr.end ( ) )
+      pHubMgr = it->second.size ( ) == 1 ? it->second[0]
+                                         : WalkP2PmsgHubAddr ( strP2Paddr );
+#if defined(_DEBUG) || defined(P2P_ROUTE_CHECK)
+    if ( pHubMgr != WalkP2PmsgHubAddr ( strP2Paddr ) )
+    {
+      PrintCheckMarker ( L"HUB-ADDR-MISMATCH", strP2Paddr, L"" );
+      abort ( );
+    }
+#endif
+    return pHubMgr;
+}
+
 //
 //  Is this address a hub held by THIS process?
 //  NOTES: The whole mechanism behind P2PeerHub::WaiveEndToEndInProcess.  Refer
 //         the block on the declaration in P2Pwin32.h for why the match is
 //         EXACT and why this one does not throw
-//       : A walk rather than a lookup because the map is keyed by THREAD ID,
-//         not by address.  There is one hub per thread and the counts here are
-//         single digits, so a walk under the lock is cheaper than the second
-//         index it would take to avoid one - and a second index is a second
-//         thing that can disagree with the registry, which is exactly what
-//         this must not be
+//       : It is asked for every message that is not on its last hop.  It was a
+//         walk of every hub in the process until 3.11.1; at 250 hubs that
+//         took 36% of a sender's pump, under the lock every post takes
 //
 BOOL
 IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr )
@@ -2749,33 +2862,13 @@ IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr )
       return FALSE;
 
     P2PsafeCS oSafeCS = s_oCSectionP2PmsgHub;
-
-    POSITION pos = s_ThreadID_P2PmsgHub.GetStartPosition ( );
-    while ( pos )
-    {
-      P2PmsgHubMgr *pHubMgr = 0;
-      DWORD         nMapID  = 0;
-      s_ThreadID_P2PmsgHub.GetNextAssoc ( pos, nMapID, pHubMgr );
-      if ( !pHubMgr )
-        continue;
-      //  An unnamed hub matches nothing.  A hub that has been created but not
-      //  yet given its address reads L"" (the P2PmsgHubMgr constructor), and
-      //  an empty address must not become a wildcard on the way through
-      if ( pHubMgr->m_oP2Paddr.IsNull ( ) )
-        continue;
-      if ( pHubMgr->m_oP2Paddr == strP2Paddr )
-        return TRUE;
-    }
-    return FALSE;
+    return FindP2PmsgHubAddr ( strP2Paddr ) ? TRUE : FALSE;
 }
 
 //
 //  Is this address a hub held by THIS process that requires sealing and
 //  waives it in process?
-//  NOTES: Refer the declaration.  The walk is IsP2PmsgHubInProcess's, kept a
-//         copy rather than a shared helper returning the manager, because a
-//         manager pointer must not outlive this lock and a helper that handed
-//         one out would invite exactly that
+//  NOTES: Refer the declaration.  The manager pointer stays under this lock
 //       : An entry with no hub object reads FALSE.  CreateP2PmsgHub sets
 //         m_pHub in the same locked block that names the entry, so this is
 //         the "not a P2PeerHub" case, not a race
@@ -2786,22 +2879,11 @@ IsP2PmsgHubSealWaivedInProcess ( P2PaddrSTR strP2Paddr )
     if ( !strP2Paddr || !*strP2Paddr )
       return FALSE;
 
-    P2PsafeCS oSafeCS = s_oCSectionP2PmsgHub;
-
-    POSITION pos = s_ThreadID_P2PmsgHub.GetStartPosition ( );
-    while ( pos )
-    {
-      P2PmsgHubMgr *pHubMgr = 0;
-      DWORD         nMapID  = 0;
-      s_ThreadID_P2PmsgHub.GetNextAssoc ( pos, nMapID, pHubMgr );
-      if ( !pHubMgr || pHubMgr->m_oP2Paddr.IsNull ( ) )
-        continue;
-      if ( pHubMgr->m_oP2Paddr == strP2Paddr )
-        return ( pHubMgr->m_pHub &&
-                 pHubMgr->m_pHub->IsSealWaivedInProcessNoLock ( ) )
-               ? TRUE : FALSE;
-    }
-    return FALSE;
+    P2PsafeCS     oSafeCS = s_oCSectionP2PmsgHub;
+    P2PmsgHubMgr *pHubMgr = FindP2PmsgHubAddr ( strP2Paddr );
+    return ( pHubMgr && pHubMgr->m_pHub &&
+             pHubMgr->m_pHub->IsSealWaivedInProcessNoLock ( ) )
+           ? TRUE : FALSE;
 }
 
 P2PaddrSTR
@@ -3465,7 +3547,7 @@ PickP2PmsgConIndexed ( P2PmsgHubID nHubID, P2PaddrSTR pHub, P2PaddrSTR pDst
     }
     if ( pRef != pBest )
     {
-      fprintf ( stderr, "ROUTE-INDEX-MISMATCH hub=%ls dst=%ls\n", pHub, pDst );
+      PrintCheckMarker ( L"ROUTE-INDEX-MISMATCH", pHub, pDst );
       EVERR->MODULE
            ->Message ( L"route index disagrees with the full walk at %s for %s", pHub, pDst )
            ->Throw   ( );

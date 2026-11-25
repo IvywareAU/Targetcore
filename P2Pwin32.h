@@ -71,9 +71,9 @@ GetP2PmsgHubConCount ( P2PmsgHubID nHubID = 0 );
 //  Is this address a hub held by THIS process?  (securityRevision.md §6.3)
 //  NOTES: The mechanism the end-to-end waiver is keyed on, and the ONLY one it
 //         may be keyed on.  The process already knows every hub it holds -
-//         s_ThreadID_P2PmsgHub, under s_oCSectionP2PmsgHub - so this is a walk
-//         of that map and an address compare, not a new piece of state that
-//         could disagree with the registry it is derived from
+//         s_ThreadID_P2PmsgHub, under s_oCSectionP2PmsgHub - and this is a lookup
+//         in an index of that map by address, kept in the same lock holds
+//         that change it and checked against a walk in Debug builds
 //       : EXACT MATCH, never at-or-below.  A hub Alice held here says nothing
 //         about Alice.Bob, which may perfectly well be a child hub on another
 //         host; answering TRUE for it would waive the protections on precisely
@@ -91,7 +91,7 @@ Targetcore_EXT BOOL
 IsP2PmsgHubInProcess ( P2PaddrSTR strP2Paddr );
 //  ...and does that hub require sealing AND waive it in process?  (3.6.0)
 //  NOTES: The relay guard behind the waiver's default - refer
-//         P2PeerCon::WaivedBodyLeavesProcess.  The same exact-match walk as
+//         P2PeerCon::WaivedBodyLeavesProcess.  The same exact-match lookup as
 //         above, and TRUE only when the hub exists and its policy says a body
 //         it originated may be unsealed BECAUSE of the waiver
 //       : READS THAT HUB'S POLICY WITHOUT ITS LOCK (two atomics, refer
