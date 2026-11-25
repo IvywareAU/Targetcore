@@ -22,6 +22,11 @@
 #include "P2PeerExplorer.h"
 #include <shared_mutex>
 #include <chrono>
+#include <unordered_map>
+#include <vector>
+#include <string>
+#include <string_view>
+#include <mutex>
 
 //
 //  The pump's timer clock: monotonic milliseconds
@@ -1036,6 +1041,7 @@ class P2PmsgHubMgr
           m_pP2Pexplorer     = 0;
           m_pP2PmsgSinkmap   = 0;
           m_nSinksMax        = 255;
+          m_nRouteSeq        = 0;
           s_ThreadID_P2PmsgHub.SetAt ( m_nHubID, this );
           InitializeCriticalSection  ( &m_oCSection );
         };
@@ -1210,6 +1216,7 @@ class P2PmsgHubMgr
           s_P2PmsgCon_HubID.SetAt ( (DWORD_PTR)pCon, m_nHubID );
           m_oCListP2PmsgCon.AddTail ( pCon );
           pCon -> m_nP2PconID = (P2PconID)m_oCListP2PmsgCon.GetTailPosition();
+          RouteLink ( pCon );                    // route-child-index (F-P4-10)
         }
       void
         PostP2PexpCon ( P2PeerCon *pCon )
@@ -1236,6 +1243,94 @@ class P2PmsgHubMgr
             m_oCListP2PmsgCon.RemoveAt ( posRemove );
             s_P2PmsgCon_HubID.RemoveKey( (DWORD_PTR)pCon );
             pCon -> m_nP2PconID = 0;
+            RouteUnlink ( pCon );                // route-child-index (F-P4-10)
+          }
+        }
+      //  route-child-index maintenance (p2p_performance F-P4-10)
+      //  NOTES: Every one of these runs with s_oCSectionP2PmsgHub held, the
+      //         lock the pick takes. Refer m_mapRouteSeg for the rules
+      //
+      //  The one segment of pAddr immediately below hub sHub; empty when pAddr
+      //  is not strictly below it. Keys a connection AND looks a destination
+      //  up, so the two cannot disagree. Keep the hop boundary in step with
+      //  P2PaddrIsHopBoundary (P2Peer.cpp)
+      struct RouteIx;  struct RouteCon;                          // with m_mapRouteSeg
+      static std::wstring_view
+        RouteSegBelow ( const std::wstring& sHub, P2PaddrSTR pAddr )
+        {
+          if ( sHub.empty() || !pAddr || wcsncmp ( pAddr, sHub.c_str(), sHub.size() ) )
+            return std::wstring_view();
+          const T_ADDR *p = pAddr + sHub.size();
+          if ( *p != L'.' && *p != L':' )
+            return std::wstring_view();
+          const T_ADDR *q = ++p;
+          while ( *q && *q != L'.' && *q != L':' ) ++q;
+          return std::wstring_view ( p, (size_t)( q - p ) );
+        }
+      void
+        RouteFile ( P2PeerCon *pCon, RouteCon& r )               // into its list, in seq order
+        {
+          r.sSeg.clear ( );
+          if ( r.bTracked )
+          {
+            P2Paddr oCon = pCon -> CopyP2Paddress ( );
+            r.sSeg = RouteSegBelow ( m_sRouteHub, oCon.c_wstr() );
+          }
+          std::vector<RouteIx>& v = r.sSeg.empty() ? m_vecRouteWalk : m_mapRouteSeg[r.sSeg];
+          size_t i = v.size();
+          while ( i && v[i-1].nSeq > r.nSeq ) --i;
+          v.insert ( v.begin() + i, RouteIx { r.nSeq, pCon } );
+        }
+      void
+        RouteUnfile ( P2PeerCon *pCon, const RouteCon& r )
+        {
+          auto itSeg = m_mapRouteSeg.end();
+          if ( !r.sSeg.empty() && ( itSeg = m_mapRouteSeg.find ( r.sSeg ) ) == m_mapRouteSeg.end() )
+            return;
+          std::vector<RouteIx>& v = r.sSeg.empty() ? m_vecRouteWalk : itSeg->second;
+          for ( size_t i = 0; i < v.size(); ++i )
+            if ( v[i].pCon == pCon ) { v.erase ( v.begin() + i ); break; }
+          if ( !r.sSeg.empty() && v.empty() )
+            m_mapRouteSeg.erase ( itSeg );
+        }
+      void
+        RouteLink ( P2PeerCon *pCon )
+        {
+          RouteCon& r = m_mapRouteCon[pCon];
+          r.nSeq      = ++m_nRouteSeq;
+          r.bTracked  = false;
+          RouteFile ( pCon, r );
+        }
+      void
+        RouteTrack ( P2PeerCon *pCon )                           // its address was just assigned
+        {
+          auto it = m_mapRouteCon.find ( pCon );
+          if ( it == m_mapRouteCon.end() )
+            return;
+          RouteUnfile ( pCon, it->second );
+          it->second.bTracked = true;
+          RouteFile   ( pCon, it->second );
+        }
+      void
+        RouteUnlink ( P2PeerCon *pCon )
+        {
+          auto it = m_mapRouteCon.find ( pCon );
+          if ( it == m_mapRouteCon.end() )
+            return;
+          RouteUnfile ( pCon, it->second );
+          m_mapRouteCon.erase ( it );
+        }
+      void
+        RouteRekey ( P2PaddrSTR pHub )                           // the hub was re-addressed
+        {
+          m_sRouteHub = pHub;
+          m_mapRouteSeg .clear ( );
+          m_vecRouteWalk.clear ( );
+          POSITION pos = m_oCListP2PmsgCon.GetHeadPosition();    // list order == seq order
+          while ( pos )
+          {
+            P2PeerCon *pCon = m_oCListP2PmsgCon.GetNext ( pos );
+            RouteFile ( pCon, m_mapRouteCon[pCon] );
           }
         }
       void
@@ -1295,6 +1390,38 @@ class P2PmsgHubMgr
       CList<P2PmsgPump*> m_oCListP2PmsgPump;
       CList<P2PeerCon*>   m_oCListP2PmsgCon;
       CList<P2PeerCon*>   m_oCListP2PexpCon;
+      //  route-child-index (p2p_performance F-P4-10): which connections
+      //  RouteP2PeerMsg's pick has to ASK. m_oCListP2PmsgCon stays the truth
+      //  and the predicate is unchanged
+      //  NOTES: WHY IT IS EXACT. A connection strictly below the hub is picked
+      //         only for a destination it equals or prefixes (on a hop
+      //         boundary), so the two share their segment below the hub. It can
+      //         sit in that segment's bucket; everything else is in the walk
+      //         list, asked every time. Mode and mount flips cannot change that
+      //       : A connection is bucketed ONLY once its address was assigned
+      //         through AssignP2PmsgConAddr(), which writes and re-files it in
+      //         one hold of the lock the pick takes. m_oThatP2Paddr is protected
+      //         and subclasses rewrite it on a posted connection (P2PeerWeb's
+      //         WebConHttp); those are never bucketed, so they stay exact and
+      //         are merely not accelerated. A subclass must not rewrite the
+      //         field directly AFTER such an assignment (login)
+      //       : Keyed below m_sRouteHub, the hub address the PREDICATE was given;
+      //         a pick given another one re-keys first
+      //       : nSeq stamps list order (POSITION is not orderable) and survives
+      //         a re-file, so first match is the list's first match
+      struct RouteIx  { ULONGLONG nSeq; P2PeerCon *pCon; };
+      struct RouteCon { ULONGLONG nSeq; bool bTracked; std::wstring sSeg; };
+      struct RouteHash
+      {
+        using is_transparent = void;
+        size_t operator() ( std::wstring_view s ) const { return std::hash<std::wstring_view>() ( s ); }
+      };
+      ULONGLONG                                m_nRouteSeq;
+      std::wstring                             m_sRouteHub;
+      std::unordered_map<P2PeerCon*, RouteCon> m_mapRouteCon;
+      std::unordered_map<std::wstring, std::vector<RouteIx>, RouteHash, std::equal_to<> >
+                                               m_mapRouteSeg;
+      std::vector<RouteIx>                     m_vecRouteWalk;
       P2PmsgPump      *m_pP2Pexplorer;
 };
 typedef P2PSafePtr<P2PmsgHubMgr> SP2PmsgHubMgr;
@@ -3248,6 +3375,103 @@ PickP2PmsgCon    ( P2PmsgHubID nHubID
         return pCon;
     }
     return 0;
+}
+
+//
+//  Assigns a connection's routable address and re-files it in its hub's route
+//  index (p2p_performance F-P4-10)
+//  NOTES: ONE HOLD OF s_oCSectionP2PmsgHub over both, so no pick can run
+//         between them. The order is hub lock, then oLeaf (ThatAddrLock, a
+//         leaf held for this one assignment)
+//       : Off a hub (not posted yet) this is the assignment alone
+//
+void
+AssignP2PmsgConAddr ( P2PeerCon *pCon, P2Paddr& rThat, const P2Paddr& oNew, std::mutex& oLeaf )
+{
+    P2PmsgHubID   nHubID     = 0;
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCS    = s_oCSectionP2PmsgHub;
+    {
+      std::lock_guard<std::mutex> oLock ( oLeaf );
+      rThat = oNew;
+    }
+    if ( s_P2PmsgCon_HubID.Lookup ( (DWORD_PTR)pCon, nHubID )    &&
+         s_ThreadID_P2PmsgHub.Lookup ( nHubID, pP2PmsgHub )      &&
+         pP2PmsgHub                                                 )
+      pP2PmsgHub -> RouteTrack ( pCon );
+}
+
+//
+//  PickP2PmsgCon through the route index (p2p_performance F-P4-10); the same
+//  first match. Refer P2PmsgHubMgr::m_mapRouteSeg for why
+//  NOTES: pHub is the hub address the predicate tests against
+//       : Debug builds also do the full walk, under the same lock hold, and
+//         throw when the two disagree. Linux never defines _DEBUG: build with
+//         -DP2P_ROUTE_CHECK there
+//
+P2PeerCon*
+PickP2PmsgConIndexed ( P2PmsgHubID nHubID, P2PaddrSTR pHub, P2PaddrSTR pDst
+                     , BOOL (*pfnPick)( P2PeerCon *pCon, void *pvPick ), void *pvPick )
+{
+    if ( nHubID <= 0 )
+    {
+      P2PmsgPump *pP2PmsgPump = 0;
+      P2PsafeCS   oSafeCSpump = s_oCSectionP2PmsgPump;
+      if ( !s_ThreadID_P2PmsgPump.Lookup(GetCurrentThreadId(),pP2PmsgPump) ||
+           !pP2PmsgPump                                                       )
+        EVERR->MODULE
+             ->Message("ThreadID=%i has no P2PmsgPump context"
+                      , GetCurrentThreadId() )
+             ->Throw  ( );
+      nHubID = pP2PmsgPump -> m_nHubID;
+    }
+    P2PmsgHubMgr *pP2PmsgHub = 0;
+    P2PsafeCS     oSafeCS    = s_oCSectionP2PmsgHub;
+    if ( !s_ThreadID_P2PmsgHub.Lookup(nHubID,pP2PmsgHub) ||
+         !pP2PmsgHub                                        )
+      EVERR->MODULE
+           ->Message("nHubID=%i has no P2PmsgHub context"
+                    , nHubID )
+           ->Throw  ( );
+
+    if ( pP2PmsgHub->m_sRouteHub != pHub )
+      pP2PmsgHub -> RouteRekey ( pHub );
+
+    P2PeerCon *pBest = 0;
+    ULONGLONG  nBest = ~0ull;
+    std::wstring_view sSeg = P2PmsgHubMgr::RouteSegBelow ( pP2PmsgHub->m_sRouteHub, pDst );
+    if ( !sSeg.empty() )
+    {
+      auto it = pP2PmsgHub->m_mapRouteSeg.find ( sSeg );
+      if ( it != pP2PmsgHub->m_mapRouteSeg.end() )
+        for ( P2PmsgHubMgr::RouteIx& e : it->second )
+          if ( pfnPick ( e.pCon, pvPick ) ) { pBest = e.pCon; nBest = e.nSeq; break; }
+    }
+    for ( P2PmsgHubMgr::RouteIx& e : pP2PmsgHub->m_vecRouteWalk )
+    {
+      if ( e.nSeq > nBest )
+        break;
+      if ( pfnPick ( e.pCon, pvPick ) ) { pBest = e.pCon; break; }
+    }
+
+#if defined(_DEBUG) || defined(P2P_ROUTE_CHECK)
+    P2PeerCon *pRef = 0;
+    POSITION   pos  = pP2PmsgHub->m_oCListP2PmsgCon.GetHeadPosition();
+    while ( pos && !pRef )
+    {
+      P2PeerCon *pCon = pP2PmsgHub->m_oCListP2PmsgCon.GetNext ( pos );
+      if ( pCon && pfnPick ( pCon, pvPick ) )
+        pRef = pCon;
+    }
+    if ( pRef != pBest )
+    {
+      fprintf ( stderr, "ROUTE-INDEX-MISMATCH hub=%ls dst=%ls\n", pHub, pDst );
+      EVERR->MODULE
+           ->Message ( L"route index disagrees with the full walk at %s for %s", pHub, pDst )
+           ->Throw   ( );
+    }
+#endif
+    return pBest;
 }
 
 P2PeerCon*

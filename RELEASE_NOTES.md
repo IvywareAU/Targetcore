@@ -3,6 +3,23 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.11.0
+
+A minor release: routing to a hub with many connections is faster. The flat C API, every exported
+class layout and every wire format are unchanged. It needs Msgcore 3.7.1 or later.
+
+- **The hub finds a message's connection through an index** on the address segment below the hub,
+  instead of asking every connection in turn. The test and the connection a message takes are
+  unchanged.
+- **A C++ class derived from `P2PeerCon` must not write `m_oThatP2Paddr` directly after login**;
+  its messages may be mis-routed. Writing it before login is fine, and connections that never
+  log in are routed as before. Debug builds check every pick against the full walk and stop on a
+  disagreement; on Linux, build with `-DP2P_ROUTE_CHECK` to get that check.
+- **Measured** (`perf_fanout fan`, the last of 250 connections, p50): throughput to it rose 41%
+  on Windows (37.5k → 53.0k msg/s) and 36% on Linux (13.1k → 17.9k). Between 1 and 64 connections
+  it moved between −1% and +13%. Throughput still falls as a hub gains connections: from 1 to 250
+  by 7% on Windows (33% before) and by 38% on Linux (49% before).
+
 ## 3.10.1
 
 A patch release: a received message is now checked for a forged structure before it is

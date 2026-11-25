@@ -29,7 +29,11 @@
 #include <map>                 // P2PeerConSourceTally
 #include <mutex>               // ThatAddrLock
 
-static std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddress()
+std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddress()
+
+//  P2Pwin32.cpp, internal to this DLL: assigns m_oThatP2Paddr and re-files the
+//  connection in its hub's route index, atomically to the router (F-P4-10)
+void AssignP2PmsgConAddr ( P2PeerCon *pCon, P2Paddr& rThat, const P2Paddr& oNew, std::mutex& oLeaf );
 
 ///////////////////////////////////////////////////////////////////////
 //  A freshly sealed message, rebuilt compactly for the wire (F-L4-1, 3.4.4)
@@ -2592,8 +2596,7 @@ P2PeerCon::OnAccept ( const P2Paddr oThatP2Paddr )
 
     // Assign
     if ( !oThatP2Paddr.IsNull() )
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThatP2Paddr; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
 
     // Associate with IO Completion Port
     // NOTES: All subsequent notifications received via queued
@@ -4666,8 +4669,7 @@ P2PeerCon::Login ( P2PaddrSTR strThatP2Paddr
            ->Throw();*/
 
     if ( !oThatP2Paddr.IsNull() )
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThatP2Paddr; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
 
     // Session key agreement runs first
     // NOTES: The application called this from its On_ConConnect handler and
@@ -4926,8 +4928,7 @@ P2PeerCon::OnLogin ( const P2Paddr& oThatP2Paddr )
 
     // Assignment
     if ( !oThatP2Paddr.IsNull() )
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThatP2Paddr; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
 
     // Tidy up, and
     SetState ( ConState_Login, 0 );
@@ -5021,8 +5022,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
              ->Advice ("Connection mis-match" )
              ->Advice ("Attempted security breach" )
              ->Group("P2P")->Throw();
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThatP2Paddr; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
     }
 
     // To be sure, to be sure
@@ -5038,8 +5038,7 @@ P2PeerCon::LoginAck ( const P2Paddr& oThatP2Paddr
            ->Group("P2P")->Throw();
 
     if ( !oThatP2Paddr.IsNull() )
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThatP2Paddr; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
 
     // Peer login authentication
     // NOTES: The acknowledgement signs the nonce the CLIENT just sent, so
@@ -6064,7 +6063,7 @@ P2PeerCon::GetP2Paddress ( )
 //         CopyP2Paddress(), and nothing else needs to - a read on that pump
 //         cannot overlap a write on it.  Writes before the connection is
 //         posted (constructors, AcceptSpawn's settlement) need not either
-static std::mutex&
+std::mutex&
 ThatAddrLock ( const P2PeerCon* pCon )
 {
     static std::mutex s_aLocks[32];
@@ -6115,8 +6114,7 @@ P2PeerCon::SetP2Paddr ( P2PaddrSTR oThisP2PaddrSTR )
     //        m_oThatP2Paddr's
     if ( !GetP2PaddrHub().IsNull()          &&
           GetP2PaddrHub() == m_oThatP2Paddr    )
-      { std::lock_guard<std::mutex> oLock ( ThatAddrLock ( this ) );
-        m_oThatP2Paddr = oThisP2PaddrSTR; }
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, P2Paddr ( oThisP2PaddrSTR ), ThatAddrLock ( this ) );
     m_pP2PeerTarget -> GetP2PeerHub() -> SetP2PaddrHub ( oThisP2PaddrSTR );
 
     // Tidy up and

@@ -813,6 +813,8 @@ class Targetcore_EXT P2PeerCon : public P2PeerConPlc
 
       P2Padomain       m_oP2Padomain;
       P2Paddr          m_oThisP2Paddr_, m_oThisP2Paddr1;
+      //  A subclass must not write m_oThatP2Paddr directly after login: the hub's
+      //  route index would not see it (refer AssignP2PmsgConAddr)
       P2Paddr          m_oThatP2Paddr, m_oThatP2Paddr1;
       P2PeerIDmap_e    m_eP2PeerIDmap;
       P2Paddr          m_oVNetPeer;      // VNet mount: the far hub P; null = not a mount

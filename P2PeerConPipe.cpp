@@ -21,6 +21,11 @@
 #include "stdafx.h"
 #include "P2PeerConPipe.h"
 #include "P2Pwin32.h"
+#include <mutex>
+
+//  Internal to this DLL, refer P2PeerCon.cpp
+std::mutex& ThatAddrLock ( const P2PeerCon* pCon );
+void AssignP2PmsgConAddr ( P2PeerCon *pCon, P2Paddr& rThat, const P2Paddr& oNew, std::mutex& oLeaf );
 
 #ifdef _WIN32
 #  include <sddl.h>
@@ -921,7 +926,7 @@ P2PeerConPipe::OnAccept ( const P2Paddr oThatP2Paddr )
 
     // Assign
     if ( !oThatP2Paddr.IsNull() )
-      m_oThatP2Paddr = oThatP2Paddr;
+      AssignP2PmsgConAddr ( this, m_oThatP2Paddr, oThatP2Paddr, ThatAddrLock ( this ) );
 
     //// Associate with IO Completion Port
     //// NOTES: All subsequent notifications received via queued

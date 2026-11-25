@@ -1021,6 +1021,12 @@ P2PeerCon*
 PickP2PmsgCon ( P2PmsgHubID nHubID
               , BOOL (*pfnPick)( P2PeerCon *pCon, void *pvPick ), void *pvPick );
 
+//  route-child-index (p2p_performance F-P4-10): PickP2PmsgCon with the hub's
+//  segment index instead of the full O(C) walk; same first match.
+P2PeerCon*
+PickP2PmsgConIndexed ( P2PmsgHubID nHubID, P2PaddrSTR pHub, P2PaddrSTR pDst
+                     , BOOL (*pfnPick)( P2PeerCon *pCon, void *pvPick ), void *pvPick );
+
 namespace
 {
     //  What RouteP2PeerMsg asks of each connection, and the asking. The body
@@ -1233,7 +1239,7 @@ P2PeerHub::RouteP2PeerMsg ( P2PeerMsg *pMsg )
     RouteHub_Ask oAsk = { m_oP2PaddrHub, pP2PaddrMsg, bDstMounted
                         , pHubAddr, _tcslen ( pHubAddr ), _tcslen ( pP2PaddrMsg )
                         , m_oP2PaddrHub.IsRable ( pP2PaddrMsg ) };
-    P2PeerCon   *pCon = PickP2PmsgCon ( m_nHubID, RouteHub_Pick, &oAsk );
+    P2PeerCon   *pCon = PickP2PmsgConIndexed ( m_nHubID, pHubAddr, pP2PaddrMsg, RouteHub_Pick, &oAsk );
     if ( pCon )
       return P2PeerContextSwap ( pCon, pMsg );
 
