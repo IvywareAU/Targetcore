@@ -58,6 +58,24 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.11.2.0, a PATCH on 3.11.1; runs on Msgcore 3.7.1. The flat C API, every
+//  exported class layout and every wire format are unchanged.
+//
+//  A LOST WAKE IN THE SHARED-MEMORY TRANSPORT (p2p_performance F-P4-12a).
+//  P2PeerioShm::Service could sleep with a write and a read both pending and no
+//  wake to come: the write found the ring full, then withdrew its park because
+//  the peer had drained it meanwhile (WriterPark false = "retry", not "sleep"),
+//  and in the same pass the read parked. The pass slept; the write's word was
+//  already 0, so the peer never signalled, and the peer was waiting for this
+//  write. Two shm connections then hung until their timeout. A pass now sleeps
+//  only when every pending side actually parked; otherwise it goes round again.
+//  When the 64-pass guard runs out with work pending, the side signals its own
+//  wake (SignalSelf) so the pump comes straight back instead of sleeping.
+//  RESULT: MscsUnitTests shm_xproc on the Linux VM, base 4 hangs in 150 runs,
+//  fixed 0 in 450. Windows never showed it; shm tests x20 green there.
+//
+//  BELOW IS THE 3.11.1 RATIONALE.
+//
 //  3.11.1.0, a PATCH on 3.11.0; runs on Msgcore 3.7.1. The flat C API, every
 //  exported class layout and every wire format are unchanged.
 //
@@ -770,23 +788,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  11
-#define TARGETCORE_VERSION_PATCH  1
+#define TARGETCORE_VERSION_PATCH  2
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,11,1,0
+#define TARGETCORE_VERSION_COMMAS 3,11,2,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.11.1.0"
+#define TARGETCORE_VERSION_STRING "3.11.2.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x030B0100 is 3.11.1.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x030B0200 is 3.11.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x030B0100
+#define TARGETCORE_VERSION_HEX    0x030B0200
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -802,7 +820,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.11.1.0"
+#define TARGETCORE_VERSION_STRINGW L"3.11.2.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.

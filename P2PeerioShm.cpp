@@ -213,14 +213,35 @@ P2PeerioShm::PeerGone ( DWORD dwError )
     if ( s->wOv ) { OVERLAPPED *p = s->wOv; s->wOv = nullptr; Fail ( p, dwError ); }
 }
 
-//  Move whatever can move now; park (and arm the wake) for whatever cannot
+//  Our own wake, signalled by ourselves: the armed wait completes at once, so Service
+//  runs again from the pump after whatever else the port holds
+void
+P2PeerioShm::SignalSelf ( )
+{
+#if defined(_WIN32)
+    p2pshm::WakeSignal ( m_pShm->mine.hEvent );
+#else
+    p2pshm::WakeSignal ( m_pShm->mine.fd );
+#endif
+}
+
+//  Move whatever can move now; park (and arm the wake) for whatever cannot.
+//
+//  SLEEP ONLY WHEN EVERY OUTSTANDING SIDE IS PARKED. The peer signals our wake only when
+//  it takes a park word we set (RingWrite / RingRead), so a side whose park was WITHDRAWN
+//  (the ring moved between the failed try and the park) has no wake coming. F-P4-12a
+//  (2026-11-27, shm_xproc phase 1, Linux ~1 run in 40): the write found the ring full and
+//  withdrew its park when the peer drained it; in the same pass the read parked on its
+//  empty ring; the pass armed the wake and returned. The write, which now had room, waited
+//  for a wake only a write by the peer could send, and the peer was parked waiting on our
+//  write: both pumps slept, the stream stalled mid-message.
 void
 P2PeerioShm::Service ( )
 {
     P2PeerioShmState *s = m_pShm;
     for ( int guard = 0; guard < 64 && !s->dead; ++guard )
     {
-      bool bNeedWake = false, bProgress = false;
+      bool bParked = true;                     // every outstanding side set its word
 
       // The parked write: all of it, or park on a full ring
       if ( s->wOv )
@@ -231,7 +252,7 @@ P2PeerioShm::Service ( )
         if ( r == p2pshm::Put::Ok )
         {
           if ( bWakeReader ) SignalPeer ( );
-          s->wBuf += k; s->wLeft -= k; bProgress = true;
+          s->wBuf += k; s->wLeft -= k; bParked = false;
           if ( !s->wLeft )
           {
             OVERLAPPED *p = s->wOv; DWORD n = s->wTotal;
@@ -239,8 +260,8 @@ P2PeerioShm::Service ( )
             Complete ( p, n );
           }
         }
-        else if ( p2pshm::WriterPark ( *s->out ) )
-          bNeedWake = true;
+        else if ( !p2pshm::WriterPark ( *s->out ) )
+          bParked = false;                     // room appeared: try again, do not sleep
       }
 
       // The parked read: >= 1 byte, or park on an empty ring
@@ -255,25 +276,30 @@ P2PeerioShm::Service ( )
           OVERLAPPED *p = s->rOv;
           s->rOv = nullptr;
           Complete ( p, k );
-          bProgress = true;
+          bParked = false;
         }
-        else if ( p2pshm::ReaderPark ( *s->in ) )
-          bNeedWake = true;
+        else if ( !p2pshm::ReaderPark ( *s->in ) )
+          bParked = false;                     // data arrived: try again, do not sleep
       }
 
-      if ( bNeedWake && !bProgress )
+      if ( !s->wOv && !s->rOv )
+        return;                                // nothing outstanding
+      if ( bParked )
       {
-        ArmWake ( );
+        ArmWake ( );                           // each outstanding side's word is set
         return;
       }
-      if ( !s->wOv && !s->rOv )
-        return;                                // nothing parked
-      // Progress made or a park withdrawn (the ring moved meanwhile): go round again
+      // Progress made or a park withdrawn (the ring moved meanwhile): go round again.
+      // A word set this pass and left set costs at most one spurious wake
     }
     // Bounded: a ring moving under us every pass is a busy peer, not a reason to spin
-    // the pump. Wait for the next signal
+    // the pump. But no park word need be set now, so a plain wait could wait forever:
+    // signal our own wake, so the pump comes back here after its other work
     if ( !s->dead && (s->wOv || s->rOv) )
+    {
       ArmWake ( );
+      SignalSelf ( );
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////

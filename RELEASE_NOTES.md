@@ -3,6 +3,20 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.11.2
+
+A patch release: a shared-memory connection can no longer stall. The flat C API, every exported
+class layout and every wire format are unchanged. It needs Msgcore 3.7.1 or later.
+
+- **A shared-memory connection that was sending and receiving at once could stop** until its
+  timeout. If the outgoing ring was full and the peer emptied it at the same moment, the side
+  could go to sleep waiting for a wake-up that the peer had no reason to send, while the peer
+  waited for that side's data. It now sleeps only when every pending send and receive has really
+  parked, and otherwise tries again.
+- **Seen on Linux only:** the `shm_xproc` test hung in 4 of 150 runs before the fix and in none of
+  450 after. Windows never showed it, and its shared-memory tests stay green.
+- TCP and pipe connections are not affected.
+
 ## 3.11.1
 
 A patch release: a process holding many hubs sends faster on Linux. The flat C API, every exported

@@ -87,6 +87,7 @@ class Targetcore_EXT P2PeerioShm : public P2Peerio
       void  ArmDeath    ( );
       void  Service     ( );
       void  SignalPeer  ( );
+      void  SignalSelf  ( );
       void  PeerGone    ( DWORD dwError );
 
     // Attributes
