@@ -1034,6 +1034,51 @@ int p2peerhub_is_end_to_end_waived_in_process(P2PeerHubHandle h)
     catch (...) { return 0; }
 }
 
+// T1d (3.12.0). 0 for a bound is its default, so a caller with no opinion on
+// rotation passes zeros rather than copying two numbers out of a C++ header.
+void p2peerhub_seal_mode_outbound(P2PeerHubHandle h, int mode,
+                                  unsigned int maxMsgs, unsigned int maxSecs)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return;
+    const p2pseal::SealMode eMode = mode == (int)p2pseal::SealMode_Context
+                                  ? p2pseal::SealMode_Context
+                                  : p2pseal::SealMode_PerMessage;
+    if (!maxMsgs) maxMsgs = p2pseal::kSealCtxMaxMsgsDefault;
+    if (!maxSecs) maxSecs = p2pseal::kSealCtxMaxSecsDefault;
+    try         { p->SealModeOutbound(eMode, maxMsgs, maxSecs); }
+    catch (...) { }
+}
+
+// A null handle and a throw read 0, PerMessage - the default, and the mode
+// that gives up nothing.
+int p2peerhub_get_seal_mode_outbound(P2PeerHubHandle h)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return 0;
+    try         { return (int)p->GetSealModeOutbound(); }
+    catch (...) { return 0; }
+}
+
+void p2peerhub_seal_mode_accept(P2PeerHubHandle h, int accept)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return;
+    try         { p->SealModeAccept(accept != 0); }
+    catch (...) { }
+}
+
+// A null handle reads 1, the default. It is not a fail-open: accepting a v3
+// body is not a relaxation of anything - it is opened, verified and refused on
+// exactly the terms a v2 body is - and a hub with no handle opens nothing.
+int p2peerhub_is_seal_context_accepted(P2PeerHubHandle h)
+{
+    P2PeerHub* p = hub(h);
+    if (!p) return 1;
+    try         { return p->IsSealContextAccepted() ? 1 : 0; }
+    catch (...) { return 1; }
+}
+
 int p2peerhub_set_agreement_key(P2PeerHubHandle h, const char* pathUtf8,
                                  int createIfAbsent)
 {

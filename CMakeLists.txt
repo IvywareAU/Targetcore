@@ -306,7 +306,10 @@ if(NOT WIN32)
     target_link_libraries(seal_interop PRIVATE OpenSSL::Crypto)
     add_test(NAME seal_interop COMMAND seal_interop verify
         ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal_windows_cng.vec
-        ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal_linux_openssl.vec)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal_linux_openssl.vec
+        ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal3_windows_cng.vec
+        ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal3_linux_openssl.vec
+        ${CMAKE_CURRENT_SOURCE_DIR}/../MscsUnitTests/vectors/seal3_cpp23_openssl.vec)
     set_tests_properties(seal_interop PROPERTIES LABELS security)
 endif()
 

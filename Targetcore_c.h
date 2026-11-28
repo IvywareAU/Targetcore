@@ -481,6 +481,36 @@ P2PC_API void               p2peerhub_waive_end_to_end_in_process
                                                        int             waive);
 P2PC_API int                p2peerhub_is_end_to_end_waived_in_process
                                                       (P2PeerHubHandle h);
+// WHICH SEALED BODY THIS HUB WRITES, and which it opens. ADDED in 3.12.0
+// (p2p_performance T1d). Refer P2PeerHub::SealModeOutbound for the long form;
+// an FFI consumer cannot read it, so the short form is here.
+//
+// mode 0 - the default, byte-identical to every earlier release - draws a fresh
+// ephemeral key per message (sealed-body v2). mode 1 keeps one for a CONTEXT of
+// up to maxMsgs messages or maxSecs seconds, whichever ends first (v3), so the
+// key agreement is paid once per reader per context instead of once per message.
+// Any other mode is mode 0. 0 for either bound means its default (4096 messages,
+// 300 seconds); bounds are clamped to [1, 1048576] and [1, 86400]. Changing the
+// mode or a bound ends the current context.
+//
+// What mode 1 costs is forward secrecy at the SENDER: a capture of this
+// process's memory reads that context's messages, where under mode 0 it reads
+// none already sent. And it is an ASSERTION nothing checks: every hub this one
+// seals to must run Targetcore 3.12.0 or later. An older reader refuses the body
+// ("sealed body version not understood"); nothing is ever sent in clear.
+//
+// p2peerhub_seal_mode_accept(h, 0) refuses every v3 body this hub receives, for
+// a hub that wants per-message forward secrecy on everything; 1 is the default,
+// and v2 is opened either way. A null handle reads mode 0 and accept 1 - what an
+// unconfigured hub does.
+P2PC_API void               p2peerhub_seal_mode_outbound (P2PeerHubHandle h,
+                                                       int             mode,
+                                                       unsigned int    maxMsgs,
+                                                       unsigned int    maxSecs);
+P2PC_API int                p2peerhub_get_seal_mode_outbound (P2PeerHubHandle h);
+P2PC_API void               p2peerhub_seal_mode_accept (P2PeerHubHandle h,
+                                                       int             accept);
+P2PC_API int                p2peerhub_is_seal_context_accepted (P2PeerHubHandle h);
 P2PC_API int                p2peerhub_set_agreement_key (P2PeerHubHandle h,
                                                        const char*     pathUtf8,
                                                        int             createIfAbsent);

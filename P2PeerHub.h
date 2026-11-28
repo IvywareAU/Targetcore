@@ -327,6 +327,14 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
         //  Appending leaves every existing offset alone and costs only that
         //  the struct no longer reads in topic order.
         bool      bWaiveE2E;
+        //  T1d (3.12.0), APPENDED for the reason bWaiveE2E was. SealModeOutbound
+        //  - a p2pseal::SealMode, 0 PerMessage / 1 Context - and its two bounds,
+        //  which are reported whatever the mode so a hub switched back to
+        //  PerMessage still shows what Context would use. Then SealModeAccept.
+        int       nSealMode;
+        unsigned  nSealCtxMsgs;
+        unsigned  nSealCtxSecs;
+        bool      bSealAcceptCtx;
       };
       bool
         TryReadPosture ( Posture& rOut );
@@ -836,6 +844,55 @@ class Targetcore_EXT P2PeerHub : public P2PeerTarget
       // thread, which removes the entry, before ~P2PeerHub frees the policy)
       bool
         IsSealWaivedInProcessNoLock ( ) const;
+
+      // WHICH SEALED BODY THIS HUB WRITES (p2p_performance T1d, 3.12.0).
+      //
+      // p2pseal::SealMode_PerMessage - the default, and byte-identical to every
+      // earlier release - draws a fresh ephemeral key for every message (body
+      // version 2). SealMode_Context keeps one for a CONTEXT of up to nMaxMsgs
+      // messages or nMaxSecs seconds, whichever ends first, and so does the key
+      // agreement once per reader per context instead of once per message: on
+      // a sealed four-hub TCP chain that agreement was ~24% of the CPU per
+      // message (p2p_performance_progress F-P6-7).
+      //
+      // WHAT IT COSTS IS FORWARD SECRECY AT THE SENDER. Under PerMessage the
+      // ephemeral private half is destroyed after each message, so someone who
+      // later captures this process's memory reads nothing already sent. Under
+      // Context it lives for the context, and a capture reads that context's
+      // messages - up to nMaxMsgs, or nMaxSecs seconds' worth. A compromised
+      // READER is no different in either mode. P2PeerSeal.h has the format.
+      //
+      // TURNING IT ON IS AN ASSERTION, AND NOTHING CHECKS IT: every hub this
+      // one seals to must run Targetcore 3.12.0 or later. The destination of an
+      // end-to-end seal is usually several hops away and never logs in to this
+      // hub, so there is no handshake to learn its version from (decided
+      // 2026-11-28). A reader on an older build REFUSES the body with "sealed
+      // body version not understood"; nothing is ever sent in clear because of
+      // it, and SealModeOutbound(PerMessage) is the way back.
+      //
+      // Bounds are clamped, not refused, to [1, 2^20] messages and [1, 86400]
+      // seconds. Changing the mode or the bounds ends the current context.
+      // TryReadPosture reports all three as SealMode / SealCtxMsgs / SealCtxSecs.
+      //
+      // A caller of SealFor() directly (the send path does this itself) sizes
+      // its buffer with p2pseal::SealedSizeV3, which bounds both versions.
+      void
+        SealModeOutbound ( p2pseal::SealMode eMode
+                         , unsigned nMaxMsgs = p2pseal::kSealCtxMaxMsgsDefault
+                         , unsigned nMaxSecs = p2pseal::kSealCtxMaxSecsDefault );
+      p2pseal::SealMode
+        GetSealModeOutbound ( );
+
+      // WHICH BODIES THIS HUB OPENS. ON by default: a hub reads a v3 body
+      // without being told to, so a sender that opted in needs nothing from its
+      // readers' configuration, only their build. OFF refuses every v3 body
+      // ("context-mode sealed body refused by this reader's policy") for a hub
+      // that wants per-message forward secrecy on all it receives; v2 is read
+      // either way. TryReadPosture reports it as SealAcceptCtx.
+      void
+        SealModeAccept       ( bool bAcceptContext );
+      bool
+        IsSealContextAccepted ( );
 
       // Name a hub that may ALSO read what this hub seals - the answer to
       // "an intermediate hub has to see the body".

@@ -1188,6 +1188,51 @@ namespace p2pauth
                                    const unsigned char *pIn, size_t cbIn,
                                    void *pOut, size_t cbOut, size_t *pcbOut );
 
+        // ---- Seal mode (p2p_performance T1d, sealed-body v3) ------------
+        //  Which body THIS hub writes. p2pseal::SealMode_PerMessage - the
+        //  default, and byte-identical to every release before 3.12.0 - is a
+        //  fresh ephemeral key per message (v2). SealMode_Context keeps one
+        //  per context, bounded by nMaxMsgs messages or nMaxSecs seconds,
+        //  whichever comes first (v3; P2PeerSeal.h has the format and what
+        //  it gives up).
+        //
+        //  TURNING IT ON IS AN ASSERTION ABOUT THE READERS, and nothing here
+        //  checks it: every reader this hub seals to must run 3.12.0 or later
+        //  (decided 2026-11-28 - an end-to-end destination never logs in to
+        //  the sender, so there is no handshake to learn it from). A reader
+        //  on an older build refuses the body with SealErrVersion; nothing is
+        //  ever sent in clear because of it.
+        //
+        //  Changing the mode or the bounds drops the current context, so the
+        //  next sealed body starts a new one under the new settings.
+        void SetSealMode ( p2pseal::SealMode eMode,
+                           unsigned nMaxMsgs = p2pseal::kSealCtxMaxMsgsDefault,
+                           unsigned nMaxSecs = p2pseal::kSealCtxMaxSecsDefault );
+        p2pseal::SealMode GetSealMode ( ) const { return m_eSealMode; }
+        unsigned GetSealCtxMaxMsgs ( ) const;
+        unsigned GetSealCtxMaxSecs ( ) const;
+
+        //  Which bodies THIS hub opens. ON by default: a hub reads v3 without
+        //  being told to, so an opted-in sender needs nothing from its
+        //  readers' configuration - only their build. OFF refuses every v3
+        //  body with SealErrContextRefused, for a hub that wants per-message
+        //  forward secrecy on everything it receives. v1 and v2 are opened
+        //  either way.
+        void SetSealAcceptContext ( bool bAccept );
+        bool IsSealContextAccepted ( ) const { return m_bSealAcceptCtx; }
+
+        //  Drop both context caches - the sender's ephemeral pair with its
+        //  wrapping keys, and the receiver's wrapping keys with their replay
+        //  windows. Called from every change after which a key derived
+        //  earlier must not be used: identity, agreement key, allow-list and
+        //  revocation list. Public so a test can prove the flush.
+        void ResetSealContexts ( );
+
+        //  For tests and diagnostics, under the caller's lock like the rest.
+        unsigned long long SealContextGenerations ( ) const;
+        unsigned long long OpenContextHits   ( ) const;
+        unsigned long long OpenContextMisses ( ) const;
+
       private:
         p2pcng::EcdsaP256 *m_pIdentity;      // this peer's own key
         bool               m_bHaveIdentity;
@@ -1262,6 +1307,13 @@ namespace p2pauth
         // bytes, so it can never answer for a key it was not asked about;
         // revocation and the allow-list are consulted BEFORE it, every time.
         void              *m_pKeyCache;
+        //  T1d. The sender's context and the receiver's cache, one each per
+        //  hub, both serialised by the hub lock like m_pKeyCache. Always
+        //  allocated, so a mode switch never has to.
+        p2pseal::SealContext      *m_pSealCtx;
+        p2pseal::OpenContextCache *m_pOpenCtx;
+        p2pseal::SealMode          m_eSealMode;
+        bool                       m_bSealAcceptCtx;
         char              *m_pszAllowPath;
         // Did the LAST load of that path succeed? SetAllowList keeps the path
         // even when the load fails, so the path alone cannot answer "is there

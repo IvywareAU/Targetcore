@@ -824,7 +824,7 @@ The item and index names, and the limits, are copied from TargetFacade's
 The current release is **3.11.3** (tag `v3.11.3`); what changed in each release from 3.4.6 on is
 in [RELEASE_NOTES.md](RELEASE_NOTES.md), and what the number *promises* is written down. The
 short form is that
-the flat C ABI — 103 symbols, enumerated and gated — is the covered surface, the C++ classes
+the flat C ABI — 107 symbols, enumerated and gated — is the covered surface, the C++ classes
 are not, and each wire format versions on its own byte. The major does **not** cover the packed
 message image, which carries no version field at all.
 

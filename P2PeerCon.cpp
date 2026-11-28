@@ -3786,9 +3786,11 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     const size_t cbPlain = pMsg->DataSize ( );
     //  Sized for the maximum reader count rather than the configured one: the
     //  policy resolves the readers under its own lock and this side must not
-    //  race it for the number
-    const size_t cbRoom  = p2pseal::SealedSize ( cbPlain,
-                                                 p2pseal::kSealMaxReaders );
+    //  race it for the number - and for the MODE, for the same reason: v3 is
+    //  kSealSeqLen longer than v2, so the room is the v3 size whichever the
+    //  policy writes, and the exact length comes back in cbSealed (T1d)
+    const size_t cbRoom  = p2pseal::SealedSizeV3 ( cbPlain,
+                                                   p2pseal::kSealMaxReaders );
 
     std::vector<unsigned char> vSealed ( cbRoom );
     size_t cbSealed = 0;
@@ -4006,11 +4008,27 @@ P2PeerCon::OpenAppMsgInbound ( P2PeerMsg *pMsg )
       return;
     }
 
+    // The two refusals T1d adds get their own advice, because each points at
+    // a different person: a context body refused by POLICY is this hub's
+    // operator's choice (SealModeAccept), and a version not understood is a
+    // build at one end or the other (the sender asserted, with
+    // SealModeOutbound(Context), that its readers run 3.12.0 or later)
+    // NOTES: Narrow, and passed through %hs, for the reason SealResultText is
+    const char *pszWhy =
+        eResult == p2pseal::SealErrContextRefused
+          ? "This hub refuses context-mode (v3) bodies: SealModeAccept(false). "
+            "Turn it back on, or ask the sender for SealModeOutbound(PerMessage)"
+      : eResult == p2pseal::SealErrVersion
+          ? "The sender wrote a sealed-body version this build does not read. "
+            "A v3 body needs Targetcore 3.12.0 or later here, or "
+            "SealModeOutbound(PerMessage) at the sender"
+          : "Connection dropped out";
+
     delete pMsg;
     EVERR->Module (__FUNCTION__)->AFPcon(this)
          ->Message(_T("Sealed body from [%s] did not open: %hs")
                   , strSrc, p2pseal::SealResultText ( eResult ) )
-         ->Advice_T ("Connection dropped out")
+         ->Advice (_T("%hs"), pszWhy )
          ->Throw();
 }
 

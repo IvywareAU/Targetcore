@@ -2122,6 +2122,24 @@ P2PeerHub::Serialise ( LPCTNAM lpszVar, bool bDsc )
                             , (UINT32)( oPosture.bWaiveE2E ? 1 : 0 ), bDsc
                             , L"Seal and attestation waived for an "
                                  "in-process destination" );
+      //  T1d. The mode is the second field here that reports an ASSERTION
+      //  rather than a mechanism, beside WaiveE2E: SealMode=1 says the operator
+      //  told this hub its readers run 3.12.0+, which nothing verified, and it
+      //  also says the sender-side forward secrecy is per CONTEXT. Both are
+      //  facts an operator must be able to read without the source
+      P3PmsgField_SERIALISE ( oNodeVar, L"SealMode"
+                            , (UINT32)oPosture.nSealMode, bDsc
+                            , L"Sealed bodies written: 0 per-message (v2), "
+                                 "1 context (v3)" );
+      P3PmsgField_SERIALISE ( oNodeVar, L"SealCtxMsgs"
+                            , (UINT32)oPosture.nSealCtxMsgs, bDsc
+                            , L"A context ends after this many messages" );
+      P3PmsgField_SERIALISE ( oNodeVar, L"SealCtxSecs"
+                            , (UINT32)oPosture.nSealCtxSecs, bDsc
+                            , L"...or after this many seconds" );
+      P3PmsgField_SERIALISE ( oNodeVar, L"SealAcceptCtx"
+                            , (UINT32)( oPosture.bSealAcceptCtx ? 1 : 0 ), bDsc
+                            , L"Context-mode (v3) bodies are opened here" );
       //  FIVE since 2026-08-21, and the new one is INTENT where the four
       //  below are capability - the same separation AuthRequired keeps from
       //  AuthArm, and it earns its place for the same reason. RevocList=0
@@ -2371,6 +2389,10 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.anLinkPolicy[1]  = (int)P2PeerLinkPolicy_Full;
       rOut.anLinkPolicy[2]  = (int)P2PeerLinkPolicy_Full;
       rOut.nTrustFloor      = (int)P2PeerConTrust_Wire;
+      rOut.nSealMode        = (int)p2pseal::SealMode_PerMessage;
+      rOut.nSealCtxMsgs     = p2pseal::kSealCtxMaxMsgsDefault;
+      rOut.nSealCtxSecs     = p2pseal::kSealCtxMaxSecsDefault;
+      rOut.bSealAcceptCtx   = true;
     }
     else
     {
@@ -2398,6 +2420,10 @@ P2PeerHub::TryReadPosture ( Posture& rOut )
       rOut.anLinkPolicy[1]  = m_pAuthPolicy -> GetLinkPolicy ( 1 );
       rOut.anLinkPolicy[2]  = m_pAuthPolicy -> GetLinkPolicy ( 2 );
       rOut.nTrustFloor      = m_pAuthPolicy -> GetTrustFloor ( );
+      rOut.nSealMode        = (int)m_pAuthPolicy -> GetSealMode ( );
+      rOut.nSealCtxMsgs     = m_pAuthPolicy -> GetSealCtxMaxMsgs ( );
+      rOut.nSealCtxSecs     = m_pAuthPolicy -> GetSealCtxMaxSecs ( );
+      rOut.bSealAcceptCtx   = m_pAuthPolicy -> IsSealContextAccepted ( );
     }
 
     LeaveCriticalSection ( &m_oCSectionHub );
@@ -2953,6 +2979,50 @@ P2PeerHub::WaiveEndToEndInProcess ( bool bWaive )
 {
     P2PsafeCS oSafeCS = m_oCSectionHub;
     if ( m_pAuthPolicy ) m_pAuthPolicy -> SetEndToEndWaivedInProcess ( bWaive );
+}
+
+//
+//  Which sealed body this hub writes (T1d)
+//  NOTES: Refer P2PeerHub.h for what Context costs and what it asserts.
+//         Under the hub lock like every seal call, which is what serialises
+//         the context the policy holds
+//
+void
+P2PeerHub::SealModeOutbound ( p2pseal::SealMode eMode
+                            , unsigned nMaxMsgs, unsigned nMaxSecs )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy ) m_pAuthPolicy -> SetSealMode ( eMode, nMaxMsgs, nMaxSecs );
+}
+
+//
+//  ...and which it writes now
+//  NOTES: No policy object answers PerMessage, which is also what such a hub
+//         would write if it could seal at all
+//
+p2pseal::SealMode
+P2PeerHub::GetSealModeOutbound ( )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    return m_pAuthPolicy ? m_pAuthPolicy -> GetSealMode ( )
+                         : p2pseal::SealMode_PerMessage;
+}
+
+//
+//  Whether this hub opens context-mode (v3) bodies
+//
+void
+P2PeerHub::SealModeAccept ( bool bAcceptContext )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    if ( m_pAuthPolicy ) m_pAuthPolicy -> SetSealAcceptContext ( bAcceptContext );
+}
+
+bool
+P2PeerHub::IsSealContextAccepted ( )
+{
+    P2PsafeCS oSafeCS = m_oCSectionHub;
+    return m_pAuthPolicy ? m_pAuthPolicy -> IsSealContextAccepted ( ) : true;
 }
 
 //

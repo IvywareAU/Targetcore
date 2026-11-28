@@ -131,6 +131,38 @@ namespace p2pseal
     //  which is a deliberate refusal to carry two code paths through the most
     //  security-sensitive function in this module.
     const unsigned char kSealVersion1 = 1;
+    //  Version 3 is the CONTEXT mode (p2p_performance T1d, decision 1), and it
+    //  is OPT-IN: Seal / SealTo / SealToKeyed still write v2, byte for byte.
+    //  Only SealToContext writes v3, and only a sender whose operator turned
+    //  context mode on calls it. Every Open in this build opens v3, with or
+    //  without a cache - see OpenKeyedCtx - so a reader needs no setting to
+    //  read a context body, only one to REFUSE it.
+    //
+    //     ver(1)=3 | sealed_at(8) | ctx_pub(64) | seq(8) | n(1) | slots(68n)
+    //            | nonce(12) | ciphertext | tag(16) | sig(64)
+    //
+    //  The same layout as v2 with one field added, and the same meaning for
+    //  every field v2 has, except ctx_pub: it is the public half of an
+    //  ephemeral pair the sender KEEPS for a context (N messages or T
+    //  seconds) instead of throwing away after one message. Each reader's
+    //  key-wrapping key is derived from it once, by both ends, and cached; a
+    //  message then costs one random content key, one wrap per reader, the
+    //  body AEAD and the signature - no ECDH at either end after the first.
+    //
+    //  WHAT IT GIVES UP, and it is the reason this is not the default.
+    //  Under v2 the ephemeral private half is destroyed after each message, so
+    //  someone who later captures the SENDER's memory reads nothing sent
+    //  before. Under v3 it lives for the context, so a capture reads that
+    //  context's messages - up to N, or T seconds' worth. Nothing changes for
+    //  a compromised RECIPIENT: whoever holds its static agreement key opens
+    //  every body sent to it in either version, as the header note above says.
+    //
+    //  seq is the message's number in its context, big-endian, from 0. It is
+    //  bound into the slot tag (so a reader's tag still changes per message),
+    //  into both transcripts, and into the signature; a receiver with a cache
+    //  refuses a seq it has already opened in that context (SealErrReplay).
+    const unsigned char kSealVersion3 = 3;
+    const size_t        kSealSeqLen   = 8;
 
     // ---- Wire sizes (bytes) --------------------------------------------
     const size_t kSealVerLen   = 1;    // format version, first so it can be read alone
@@ -194,6 +226,13 @@ namespace p2pseal
 
     inline size_t SealedSize ( size_t cbPlain, size_t nReaders = 1 )
     { return cbPlain + SealOverhead ( nReaders ); }
+
+    //  v3: v2 plus the sequence number. 242 at n=1.
+    inline size_t SealOverheadV3 ( size_t nReaders )
+    { return SealOverhead ( nReaders ) + kSealSeqLen; }
+
+    inline size_t SealedSizeV3 ( size_t cbPlain, size_t nReaders = 1 )
+    { return cbPlain + SealOverheadV3 ( nReaders ); }
 
     //  AN UPPER BOUND, not the exact length, and the difference matters at
     //  every call site. The plaintext length depends on the reader count,
@@ -285,7 +324,15 @@ namespace p2pseal
         //  just not us. A hub relaying a body it was not named a reader of
         //  gets this and must carry it on unopened rather than treat it as
         //  damage.
-        SealErrNotAReader
+        SealErrNotAReader,
+        //  v3 (T1d), appended for the reason every value above was. A context
+        //  body, refused because this reader asked for per-message forward
+        //  secrecy on everything it receives (P2PeerHub::SealModeAccept(false)).
+        //  NOT SealErrVersion: this build understands the body perfectly well
+        //  and declines it by policy, and an operator chasing the two looks in
+        //  different places - a version error at the reader's build, this one
+        //  at the reader's configuration.
+        SealErrContextRefused
     };
 
     P2PCNG_EXT const char *SealResultText ( SealResult eResult );
@@ -363,6 +410,126 @@ namespace p2pseal
 
     P2PCNG_EXT SealResult OpenKeyed ( p2pcng::EcdhP256 &oRecipAgree,
                       p2pcng::EcdsaP256 &oSenderKey,
+                      const wchar_t *pSrc, const wchar_t *pDst,
+                      const unsigned char *pIn, size_t cbIn,
+                      void *pOut, size_t cbOut, size_t *pcbOut,
+                      long long *pllWhenOut = 0 );
+
+    // ---- v3: the context mode (T1d) -------------------------------------
+    //  Two objects, one per end, each held by the caller (p2pauth::AuthPolicy
+    //  keeps one of each per hub). NEITHER IS THREAD-SAFE: the caller
+    //  serialises, as it already does for its key cache. Both wipe every key
+    //  they hold on Reset and on destruction.
+    //
+    //  The layouts are private (pimpl) so that adding them exports no class
+    //  whose size a consumer could compile in.
+
+    //  The bounds a context lives within. A context is replaced, on the next
+    //  seal, by a fresh ephemeral pair once EITHER is reached. Clamped, not
+    //  refused, into [1, kSealCtxMaxMsgsCap] and [1, kSealCtxMaxSecsCap]:
+    //  the message cap keeps the number of random GCM nonces under one
+    //  wrapping key far below the 2^32 bound that nonce size allows.
+    //  Which body a sender writes. The numbers are the flat C ABI's
+    //  (p2peerhub_seal_mode_outbound), so they are fixed: PerMessage = 0 is
+    //  v2 and the default, Context = 1 is v3.
+    enum SealMode
+    {
+        SealMode_PerMessage = 0,
+        SealMode_Context    = 1
+    };
+
+    const unsigned kSealCtxMaxMsgsDefault = 4096;
+    const unsigned kSealCtxMaxSecsDefault = 300;
+    const unsigned kSealCtxMaxMsgsCap     = 1u << 20;
+    const unsigned kSealCtxMaxSecsCap     = 86400;
+
+    class P2PCNG_EXT SealContext
+    {
+      public:
+        SealContext ( );
+        ~SealContext ( );
+
+        //  Takes effect at the next rotation, and forces one if the context
+        //  in use is already past the new bounds.
+        void SetBounds ( unsigned nMaxMsgs, unsigned nMaxSecs );
+        unsigned MaxMsgs ( ) const;
+        unsigned MaxSecs ( ) const;
+
+        //  Drop the context: the ephemeral pair and every cached wrapping key
+        //  are wiped and the next seal starts a new one. The caller does this
+        //  on Restart, on a revocation list change and on an identity change
+        //  - anything after which a key derived earlier must not be used.
+        void Reset ( );
+
+        //  For tests and diagnostics: how many contexts this object has
+        //  started, and how many readers the current one holds a key for.
+        unsigned long long Generations ( ) const;
+        size_t             CachedReaders ( ) const;
+
+        struct Impl;
+        Impl *Get ( ) { return m_p; }
+      private:
+        SealContext ( const SealContext & );
+        SealContext &operator= ( const SealContext & );
+        Impl *m_p;
+    };
+
+    //  The receiver's side: wrapping keys of the contexts it has opened,
+    //  keyed by ctx_pub, each with a 64-message replay window on seq. Bounded
+    //  (kSealOpenCacheMax, least recently used goes), and an entry is
+    //  written only once a body has OPENED, so a forged body can neither
+    //  fill the cache nor move a window.
+    const size_t kSealOpenCacheMax = 64;
+
+    class P2PCNG_EXT OpenContextCache
+    {
+      public:
+        OpenContextCache ( );
+        ~OpenContextCache ( );
+
+        //  Wipe everything: on a change of this peer's agreement key, on a
+        //  revocation list change, and on Restart.
+        void Reset ( );
+
+        //  ON by default. Off keeps the cached keys - the ECDH saving - and
+        //  stops refusing a seq already opened: what a receiver that turned
+        //  its replay refusal off (AuthPolicy::SetSealReplayRefused(false))
+        //  has asked for, which the window must not quietly overrule.
+        void SetReplayWindow ( bool bOn );
+        bool IsReplayWindowOn ( ) const;
+
+        size_t             Entries ( ) const;
+        unsigned long long Hits    ( ) const;    // opens that skipped the ECDH
+        unsigned long long Misses  ( ) const;    // opens that had to derive
+
+        struct Impl;
+        Impl *Get ( ) { return m_p; }
+      private:
+        OpenContextCache ( const OpenContextCache & );
+        OpenContextCache &operator= ( const OpenContextCache & );
+        Impl *m_p;
+    };
+
+    //  SealToKeyed's arguments and refusals, plus the context, writing a v3
+    //  body of SealedSizeV3(cbPlain, nReaders) bytes. llWhen also drives the
+    //  context's time bound, so a test can rotate one without waiting.
+    P2PCNG_EXT SealResult SealToContext ( SealContext &oCtx,
+                      p2pcng::EcdsaP256 &oSender,
+                      const unsigned char *pReaders,
+                      p2pcng::EcdhP256 *const *apReaderKeys, size_t nReaders,
+                      const wchar_t *pSrc, const wchar_t *pDst,
+                      const void *pPlain, size_t cbPlain,
+                      unsigned char *pOut, size_t cbOut, size_t *pcbOut,
+                      long long llWhen = 0 );
+
+    //  OpenKeyed, plus the v3 choices. pCache may be null: a v3 body then
+    //  opens statelessly (one ECDH, as v2) and no replay window applies here
+    //  - the signature-keyed replay cache one layer up still does. With
+    //  bAcceptContext false a v3 body is refused with SealErrContextRefused
+    //  before any key is touched; v1 and v2 are unaffected either way.
+    P2PCNG_EXT SealResult OpenKeyedCtx ( p2pcng::EcdhP256 &oRecipAgree,
+                      p2pcng::EcdsaP256 &oSenderKey,
+                      OpenContextCache *pCache, bool bAcceptContext,
                       const wchar_t *pSrc, const wchar_t *pDst,
                       const unsigned char *pIn, size_t cbIn,
                       void *pOut, size_t cbOut, size_t *pcbOut,

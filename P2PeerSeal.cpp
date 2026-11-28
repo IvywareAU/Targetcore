@@ -27,6 +27,7 @@
 #include <cstring>
 #include <ctime>     // sealed_at, Stage 3 step 10
 #include <string>
+#include <vector>    // v3 context caches
 
 using p2pcng::kEcdhPubLen;
 using p2pcng::kEcdhSecLen;
@@ -48,6 +49,13 @@ namespace
     const char kLabelRcp[] = "P2P-seal-rcp-v2";   // reader slot tag
     const char kLabelKek[] = "P2P-seal-kek-v2";   // per-reader key-wrapping key
     const char kLabelWrp[] = "P2P-seal-wrp-v2";   // AAD for one wrapped key
+    //  v3 (T1d). New labels only where a v3 value could otherwise equal a v2
+    //  one: the slot tag and the wrapping key are derived from inputs a v2
+    //  body also has, so they get their own. The AAD, wrap and signature
+    //  transcripts keep their labels - they bind the version byte and, in
+    //  v3, a seq field v2 does not have, so the two can never coincide.
+    const char kLabelRcp3[] = "P2P-seal-rcp-v3";  // reader slot tag, with seq
+    const char kLabelKek3[] = "P2P-seal-kek-v3";  // per-context wrapping key
 
     //  Wipe that the optimiser may not elide. SecureZeroMemory is Windows-only
     //  and this TU builds on both, so the volatile write is done by hand.
@@ -190,7 +198,8 @@ namespace
                         const unsigned char *pTags,
                         const unsigned char *pWraps,
                         const unsigned char *pBody, size_t cbBody,
-                        std::string &sOut )
+                        std::string &sOut,
+                        const unsigned char *pSeq = 0 )
     {
         std::string sSrc, sDst;
         if ( !Utf8FromWide ( pSrc, sSrc ) ) return false;
@@ -208,6 +217,12 @@ namespace
         AppendField ( sOut, sSrc.data ( ), sSrc.size ( ) );
         AppendField ( sOut, sDst.data ( ), sDst.size ( ) );
         AppendField ( sOut, pEph, kSealEphLen );
+        //  v3 only: the sequence number, straight after the point it numbers
+        //  messages under. ABSENT, not empty, for v2 - an empty field would
+        //  still add its two length bytes and change every v2 transcript, and
+        //  v2 bodies on disk and in seal_interop's vectors must keep opening.
+        if ( pSeq )
+            AppendField ( sOut, pSeq, kSealSeqLen );
         //  The count is bound SEPARATELY as well as implied by the tag block's
         //  length. Belt and braces on purpose: the count is the one field a
         //  parser acts on before anything is authenticated, so it is the one
@@ -247,7 +262,216 @@ namespace
                                     sizeof(kLabelKdf) - 1,
                                     pKeyOut, kAesKeyLen );
     }
+
+    //  v3: the per-context wrapping key. DeriveKek's construction with its own
+    //  label, salted by the context point - which both ends hold before the
+    //  key is needed, exactly as the ephemeral point is under v2.
+    bool DeriveKek3 ( const unsigned char *pSecret,
+                      const unsigned char *pCtx,
+                      unsigned char *pKeyOut )
+    {
+        return p2pcng::HkdfSha256 ( pSecret, kEcdhSecLen,
+                                    pCtx,    kSealEphLen,
+                                    (const unsigned char *)kLabelKek3,
+                                    sizeof(kLabelKek3) - 1,
+                                    pKeyOut, kAesKeyLen );
+    }
+
+    //  v3 slot tag. SealSlotTag's construction plus the seq, so a reader's
+    //  tag still changes from one message to the next although the context
+    //  point does not. Without the seq every message in a context would carry
+    //  the same tag per reader - linkable by anyone, not just by anyone who
+    //  already knows the reader's public point.
+    bool SlotTagV3 ( const unsigned char *pCtx, const unsigned char *pSeq,
+                     const unsigned char *pReaderPub, unsigned char *pTagOut )
+    {
+        std::string sIn;
+        AppendField ( sIn, kLabelRcp3, sizeof(kLabelRcp3) - 1 );
+        AppendField ( sIn, pCtx,       kSealEphLen );
+        AppendField ( sIn, pSeq,       kSealSeqLen );
+        AppendField ( sIn, pReaderPub, kEcdhPubLen );
+
+        unsigned char aHash[p2pcng::kSha256Len];
+        if ( !p2pcng::Sha256 ( (const unsigned char *)sIn.data ( ), sIn.size ( ),
+                               aHash ) )
+            return false;
+        std::memcpy ( pTagOut, aHash, kSealRTagLen );
+        return true;
+    }
 }   // anonymous namespace
+
+// ---- v3 state ----------------------------------------------------------
+//  Both structs hold key material, so both wipe it on every path that drops
+//  it: Reset, eviction, rotation and destruction.
+struct SealContext::Impl
+{
+    struct Reader
+    {
+        unsigned char aPub[kEcdhPubLen];
+        unsigned char aKek[kAesKeyLen];
+    };
+
+    //  A bound on the per-context reader cache, not on readers per message
+    //  (that is kSealMaxReaders). A sender that seals to more distinct
+    //  destinations than this within one context re-derives for the oldest;
+    //  correctness is unaffected, only the saving.
+    static const size_t kMaxReaders = 64;
+
+    p2pcng::EcdhP256   *pEph      = nullptr;
+    unsigned char       aCtx[kSealEphLen];
+    unsigned long long  ullNext   = 0;          // seq of the next message
+    long long           llBorn    = 0;
+    unsigned            nMaxMsgs  = kSealCtxMaxMsgsDefault;
+    unsigned            nMaxSecs  = kSealCtxMaxSecsDefault;
+    unsigned long long  ullGen    = 0;
+    std::vector<Reader> vReaders;
+
+    void Drop ( )
+    {
+        for ( size_t i = 0; i < vReaders.size ( ); ++i )
+            Wipe ( vReaders[i].aKek, sizeof(vReaders[i].aKek) );
+        vReaders.clear ( );
+        delete pEph;                 // EcdhP256's destructor frees the key
+        pEph    = nullptr;
+        ullNext = 0;
+        llBorn  = 0;
+        Wipe ( aCtx, sizeof(aCtx) );
+    }
+
+    //  Rotation, decided by the message's own stamp so a test can drive it.
+    //  A clock that went BACKWARDS past the context's birth also rotates: the
+    //  age check would otherwise read a negative age as "young" for as long as
+    //  the clock stayed behind.
+    bool Due ( long long llWhen ) const
+    {
+        return !pEph
+            || ullNext >= nMaxMsgs
+            || llWhen < llBorn
+            || llWhen - llBorn >= (long long)nMaxSecs;
+    }
+
+    bool Start ( long long llWhen )
+    {
+        Drop ( );
+        pEph = new p2pcng::EcdhP256;
+        if ( !pEph->Generate ( ) || !pEph->ExportPublic ( aCtx ) )
+        {
+            Drop ( );
+            return false;
+        }
+        llBorn = llWhen;
+        ++ullGen;
+        return true;
+    }
+};
+
+SealContext::SealContext ( ) : m_p ( new Impl ) { }
+SealContext::~SealContext ( ) { m_p->Drop ( ); delete m_p; }
+
+void SealContext::SetBounds ( unsigned nMaxMsgs, unsigned nMaxSecs )
+{
+    if ( nMaxMsgs < 1 ) nMaxMsgs = 1;
+    if ( nMaxMsgs > kSealCtxMaxMsgsCap ) nMaxMsgs = kSealCtxMaxMsgsCap;
+    if ( nMaxSecs < 1 ) nMaxSecs = 1;
+    if ( nMaxSecs > kSealCtxMaxSecsCap ) nMaxSecs = kSealCtxMaxSecsCap;
+    m_p->nMaxMsgs = nMaxMsgs;
+    m_p->nMaxSecs = nMaxSecs;
+}
+unsigned SealContext::MaxMsgs ( ) const { return m_p->nMaxMsgs; }
+unsigned SealContext::MaxSecs ( ) const { return m_p->nMaxSecs; }
+void     SealContext::Reset   ( )       { m_p->Drop ( ); }
+unsigned long long SealContext::Generations ( ) const { return m_p->ullGen; }
+size_t   SealContext::CachedReaders ( ) const { return m_p->vReaders.size ( ); }
+
+struct OpenContextCache::Impl
+{
+    struct Entry
+    {
+        unsigned char      aCtx[kSealEphLen];
+        unsigned char      aKek[kAesKeyLen];
+        unsigned long long ullTop;      // highest seq opened in this context
+        unsigned long long ullMask;     // bit i: seq ullTop - i was opened
+        unsigned long long ullUsed;     // LRU tick
+    };
+
+    std::vector<Entry> v;
+    unsigned long long ullTick = 0, ullHits = 0, ullMisses = 0;
+    bool               bWindow = true;
+
+    void Drop ( )
+    {
+        for ( size_t i = 0; i < v.size ( ); ++i )
+            Wipe ( v[i].aKek, sizeof(v[i].aKek) );
+        v.clear ( );
+    }
+
+    Entry *Find ( const unsigned char *pCtx )
+    {
+        for ( size_t i = 0; i < v.size ( ); ++i )
+            if ( std::memcmp ( v[i].aCtx, pCtx, kSealEphLen ) == 0 )
+                return &v[i];
+        return nullptr;
+    }
+
+    //  The replay window, IPsec's shape: 64 back from the highest seq seen.
+    //  A seq more than 63 behind the top is refused as a replay, because the
+    //  window can no longer say it was not seen - the price is that a body
+    //  overtaken by 64 later ones from the same context is lost, which on a
+    //  route that keeps order (every transport here does) does not happen.
+    static bool Seen ( const Entry &e, unsigned long long ullSeq )
+    {
+        if ( ullSeq > e.ullTop ) return false;
+        const unsigned long long d = e.ullTop - ullSeq;
+        if ( d >= 64 ) return true;
+        return ( e.ullMask >> d ) & 1u;
+    }
+
+    static void Mark ( Entry &e, unsigned long long ullSeq )
+    {
+        if ( ullSeq > e.ullTop )
+        {
+            const unsigned long long s = ullSeq - e.ullTop;
+            e.ullMask = s >= 64 ? 0 : ( e.ullMask << s );
+            e.ullTop  = ullSeq;
+            e.ullMask |= 1u;
+        }
+        else
+            e.ullMask |= ( 1ull << ( e.ullTop - ullSeq ) );
+    }
+
+    void Insert ( const unsigned char *pCtx, const unsigned char *pKek,
+                  unsigned long long ullSeq )
+    {
+        Entry *pE = nullptr;
+        if ( v.size ( ) < kSealOpenCacheMax )
+        {
+            v.push_back ( Entry ( ) );
+            pE = &v.back ( );
+        }
+        else
+        {
+            size_t iOld = 0;
+            for ( size_t i = 1; i < v.size ( ); ++i )
+                if ( v[i].ullUsed < v[iOld].ullUsed ) iOld = i;
+            pE = &v[iOld];
+            Wipe ( pE->aKek, sizeof(pE->aKek) );
+        }
+        std::memcpy ( pE->aCtx, pCtx, kSealEphLen );
+        std::memcpy ( pE->aKek, pKek, kAesKeyLen );
+        pE->ullTop  = ullSeq;
+        pE->ullMask = 1u;
+        pE->ullUsed = ++ullTick;
+    }
+};
+
+OpenContextCache::OpenContextCache ( ) : m_p ( new Impl ) { }
+OpenContextCache::~OpenContextCache ( ) { m_p->Drop ( ); delete m_p; }
+void   OpenContextCache::Reset   ( )       { m_p->Drop ( ); }
+void   OpenContextCache::SetReplayWindow ( bool bOn ) { m_p->bWindow = bOn; }
+bool   OpenContextCache::IsReplayWindowOn ( ) const   { return m_p->bWindow; }
+size_t OpenContextCache::Entries ( ) const { return m_p->v.size ( ); }
+unsigned long long OpenContextCache::Hits   ( ) const { return m_p->ullHits; }
+unsigned long long OpenContextCache::Misses ( ) const { return m_p->ullMisses; }
 
 const char *
 SealResultText ( SealResult eResult )
@@ -266,6 +490,12 @@ SealResultText ( SealResult eResult )
       case SealErrReplay:      return "sealed body already opened (replay)";
       case SealErrVersion:     return "sealed body version not understood";
       case SealErrStale:       return "sealed body is outside the freshness window";
+      //  The two v2 outcomes were missing here since they were added and read
+      //  "unknown" in every log line that printed one; added with v3's.
+      case SealErrReaders:     return "reader count out of range, or a reader named twice";
+      case SealErrNotAReader:  return "this peer is not a reader of the sealed body";
+      case SealErrContextRefused:
+                               return "context-mode sealed body refused by this reader's policy";
     }
     return "unknown";
 }
@@ -305,13 +535,19 @@ size_t
 SealReaderCount ( const void *pv, size_t cb )
 {
     const unsigned char *p = (const unsigned char *)pv;
-    if ( !p || cb < kSealVerLen + kSealTimeLen + kSealEphLen + kSealCountLen )
-        return 0;
-    if ( p[0] != kSealVersion ) return 0;      // v1 has no reader block
+    if ( !p || cb < kSealVerLen ) return 0;
 
-    const size_t n = (size_t)p[kSealVerLen + kSealTimeLen + kSealEphLen];
-    if ( n == 0 || n > kSealMaxReaders )  return 0;
-    if ( cb < SealOverhead ( n ) )        return 0;
+    //  v3 has the count kSealSeqLen further in, and kSealSeqLen more overhead;
+    //  otherwise the same bound. v1 has no reader block at all.
+    const bool   bV3   = p[0] == kSealVersion3;
+    if ( p[0] != kSealVersion && !bV3 ) return 0;
+    const size_t offN  = kSealVerLen + kSealTimeLen + kSealEphLen
+                       + ( bV3 ? kSealSeqLen : 0 );
+    if ( cb < offN + kSealCountLen ) return 0;
+
+    const size_t n = (size_t)p[offN];
+    if ( n == 0 || n > kSealMaxReaders ) return 0;
+    if ( cb < ( bV3 ? SealOverheadV3 ( n ) : SealOverhead ( n ) ) ) return 0;
     return n;
 }
 
@@ -499,6 +735,185 @@ SealToKeyed ( p2pcng::EcdsaP256 &oSender,
         return SealErrNoIdentity;
 
     if ( pcbOut ) *pcbOut = SealedSize ( cbPlain, nReaders );
+    return SealOk;
+}
+
+// ---- Seal, version 3: the context mode (T1d) ---------------------------
+//  SealToKeyed with the per-message ephemeral pair replaced by the context's,
+//  and the per-reader ECDH replaced by a cached wrapping key. Everything else
+//  - a random content key per message, the slot order, the duplicate check,
+//  encrypt-then-sign over the whole slot region - is the same, and is the
+//  same on purpose: the two differ in where a key comes from, not in what a
+//  body binds.
+SealResult
+SealToContext ( SealContext &oCtx,
+                p2pcng::EcdsaP256 &oSender,
+                const unsigned char *pReaders,
+                p2pcng::EcdhP256 *const *apReaderKeys, size_t nReaders,
+                const wchar_t *pSrc, const wchar_t *pDst,
+                const void *pPlain, size_t cbPlain,
+                unsigned char *pOut, size_t cbOut, size_t *pcbOut,
+                long long llWhen )
+{
+    if ( pcbOut ) *pcbOut = 0;
+    if ( !pReaders || !pSrc || !pDst || !pOut )        return SealErrArgs;
+    if ( cbPlain && !pPlain )                          return SealErrArgs;
+    if ( nReaders == 0 || nReaders > kSealMaxReaders ) return SealErrReaders;
+    if ( cbOut < SealedSizeV3 ( cbPlain, nReaders ) )  return SealErrArgs;
+
+    for ( size_t a = 0; a < nReaders; ++a )
+      for ( size_t b = a + 1; b < nReaders; ++b )
+        if ( std::memcmp ( pReaders + a * kEcdhPubLen,
+                           pReaders + b * kEcdhPubLen, kEcdhPubLen ) == 0 )
+          return SealErrReaders;
+
+    if ( llWhen == 0 ) llWhen = (long long)std::time ( 0 );
+
+    SealContext::Impl &c = *oCtx.Get ( );
+    if ( c.Due ( llWhen ) && !c.Start ( llWhen ) )
+        return SealErrInternal;
+
+    //  The seq is TAKEN before anything can fail, so a seal that fails half
+    //  way never leaves a number that a later message reuses. A gap costs
+    //  nothing; a repeat would be a replay the receiver is right to refuse.
+    const unsigned long long ullSeq = c.ullNext++;
+    unsigned char aSeq[kSealSeqLen];
+    PutTime ( aSeq, (long long)ullSeq );
+
+    //  Layout: ver(1) | when(8) | ctx(64) | seq(8) | n(1) | slots(68n) | body | sig(64)
+    unsigned char *const pHdr   = pOut;
+    unsigned char *const pCtxW  = pOut + kSealVerLen + kSealTimeLen;
+    unsigned char *const pSeqW  = pCtxW + kSealEphLen;
+    unsigned char *const pCntW  = pSeqW + kSealSeqLen;
+    unsigned char *const pSlotW = pCntW + kSealCountLen;
+    unsigned char *const pBodyW = pSlotW + kSealSlotLen * nReaders;
+
+    unsigned char aTags[kSealMaxReaders * kSealRTagLen];
+    for ( size_t r = 0; r < nReaders; ++r )
+        if ( !SlotTagV3 ( c.aCtx, aSeq, pReaders + r * kEcdhPubLen,
+                          aTags + r * kSealRTagLen ) )
+            return SealErrInternal;
+
+    unsigned char aCek[kSealCekLen];
+    if ( !p2pcng::CngRandom ( aCek, (unsigned long)sizeof(aCek) ) )
+        return SealErrInternal;
+
+    std::string sAad;
+    if ( !TranscriptV2 ( kLabelAad, pSrc, pDst, kSealVersion3, llWhen,
+                         c.aCtx, nReaders, aTags, 0, 0, 0, sAad, aSeq ) )
+    {
+        Wipe ( aCek, sizeof(aCek) );
+        return SealErrInternal;
+    }
+
+    p2pcng::AesGcm oGcm;
+    size_t cbSealed = 0;
+    const bool bSealed =
+        oGcm.SetKey ( aCek, sizeof(aCek) ) &&
+        oGcm.Seal ( (const unsigned char *)pPlain, cbPlain,
+                    (const unsigned char *)sAad.data ( ), sAad.size ( ),
+                    pBodyW,
+                    p2pcng::AesGcm::SealedSize ( cbPlain ), &cbSealed );
+    if ( !bSealed || cbSealed != p2pcng::AesGcm::SealedSize ( cbPlain ) )
+    {
+        Wipe ( aCek, sizeof(aCek) );
+        return SealErrInternal;
+    }
+
+    for ( size_t r = 0; r < nReaders; ++r )
+    {
+        const unsigned char *pRdr = pReaders + r * kEcdhPubLen;
+        unsigned char *pTagW  = pSlotW + r * kSealSlotLen;
+        unsigned char *pWrapW = pTagW  + kSealRTagLen;
+
+        std::memcpy ( pTagW, aTags + r * kSealRTagLen, kSealRTagLen );
+
+        //  The wrapping key for this reader in this context: cached, or
+        //  derived once and cached. The only ECDH v3 does, and it does it
+        //  once per reader per context rather than once per message.
+        const unsigned char *pKek = nullptr;
+        for ( size_t i = 0; i < c.vReaders.size ( ); ++i )
+            if ( std::memcmp ( c.vReaders[i].aPub, pRdr, kEcdhPubLen ) == 0 )
+            { pKek = c.vReaders[i].aKek; break; }
+
+        if ( !pKek )
+        {
+            unsigned char aSecret[kEcdhSecLen];
+            p2pcng::EcdhP256 *pKey = apReaderKeys ? apReaderKeys[r] : nullptr;
+            if ( !( pKey ? c.pEph->DeriveRawSecret ( *pKey, aSecret )
+                         : c.pEph->DeriveRawSecret ( pRdr, aSecret ) ) )
+            {
+                Wipe ( aCek, sizeof(aCek) );
+                return SealErrNoAgreement;      // not a point on P-256
+            }
+
+            SealContext::Impl::Reader oNew;
+            const bool bKek = DeriveKek3 ( aSecret, c.aCtx, oNew.aKek );
+            Wipe ( aSecret, sizeof(aSecret) );
+            if ( !bKek )
+            {
+                Wipe ( oNew.aKek, sizeof(oNew.aKek) );
+                Wipe ( aCek, sizeof(aCek) );
+                return SealErrInternal;
+            }
+            std::memcpy ( oNew.aPub, pRdr, kEcdhPubLen );
+
+            if ( c.vReaders.size ( ) >= SealContext::Impl::kMaxReaders )
+            {
+                Wipe ( c.vReaders.front ( ).aKek, kAesKeyLen );
+                c.vReaders.erase ( c.vReaders.begin ( ) );
+            }
+            c.vReaders.push_back ( oNew );
+            Wipe ( oNew.aKek, sizeof(oNew.aKek) );
+            pKek = c.vReaders.back ( ).aKek;
+        }
+
+        std::string sWrapAad;
+        if ( !TranscriptV2 ( kLabelWrp, pSrc, pDst, kSealVersion3, llWhen,
+                             c.aCtx, nReaders, aTags, 0,
+                             pTagW, kSealRTagLen, sWrapAad, aSeq ) )
+        {
+            Wipe ( aCek, sizeof(aCek) );
+            return SealErrInternal;
+        }
+
+        //  The wrap's GCM nonce is random, as under v2, but now many wraps
+        //  share one key: at most kSealCtxMaxMsgsCap (2^20) per reader per
+        //  context, against a 2^32 budget for random 96-bit nonces.
+        p2pcng::AesGcm oWrap;
+        size_t cbWrap = 0;
+        const bool bWrapped =
+            oWrap.SetKey ( pKek, kAesKeyLen ) &&
+            oWrap.Seal ( aCek, sizeof(aCek),
+                         (const unsigned char *)sWrapAad.data ( ),
+                         sWrapAad.size ( ),
+                         pWrapW, kSealWrapLen, &cbWrap );
+        if ( !bWrapped || cbWrap != kSealWrapLen )
+        {
+            Wipe ( aCek, sizeof(aCek) );
+            return SealErrInternal;
+        }
+    }
+    Wipe ( aCek, sizeof(aCek) );
+
+    pHdr[0] = kSealVersion3;
+    PutTime ( pHdr + kSealVerLen, llWhen );
+    std::memcpy ( pCtxW, c.aCtx, kSealEphLen );
+    std::memcpy ( pSeqW, aSeq, kSealSeqLen );
+    pCntW[0] = (unsigned char)nReaders;
+
+    std::string sSig;
+    if ( !TranscriptV2 ( kLabelSig, pSrc, pDst, kSealVersion3, llWhen,
+                         c.aCtx, nReaders, aTags, 0,
+                         pBodyW, cbSealed, sSig, aSeq ) )
+        return SealErrInternal;
+    AppendField ( sSig, pSlotW, kSealSlotLen * nReaders );
+
+    if ( !oSender.Sign ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
+                         pBodyW + cbSealed ) )
+        return SealErrNoIdentity;
+
+    if ( pcbOut ) *pcbOut = SealedSizeV3 ( cbPlain, nReaders );
     return SealOk;
 }
 
@@ -747,6 +1162,170 @@ OpenV2 ( p2pcng::EcdhP256 &oRecipAgree,
 }
 }   // anonymous namespace
 
+// ---- Open, version 3 ---------------------------------------------------
+//  OpenV2's order, step for step: count bounded first, signature before any
+//  work with our private key, our slot by hash, unwrap, open. What v3 adds is
+//  where the wrapping key comes from - the cache when this context has opened
+//  before, one ECDH when it has not - and the replay window on seq, which is
+//  CONSULTED before the unwrap and WRITTEN only after the body has opened.
+namespace {
+SealResult
+OpenV3 ( p2pcng::EcdhP256 &oRecipAgree,
+         const unsigned char *pSenderId,
+         p2pcng::EcdsaP256 *pSenderKey,
+         OpenContextCache *pCache,
+         const wchar_t *pSrc, const wchar_t *pDst,
+         const unsigned char *pIn, size_t cbIn,
+         void *pOut, size_t cbOut, size_t *pcbOut,
+         long long *pllWhenOut )
+{
+    const size_t nReaders = SealReaderCount ( pIn, cbIn );
+    if ( nReaders == 0 ) return SealErrFormat;
+
+    const long long llWhen = GetTime ( pIn + kSealVerLen );
+
+    const unsigned char *pCtx   = pIn + kSealVerLen + kSealTimeLen;
+    const unsigned char *pSeq   = pCtx + kSealEphLen;
+    const unsigned char *pSlots = pSeq + kSealSeqLen + kSealCountLen;
+    const unsigned char *pBody  = pSlots + kSealSlotLen * nReaders;
+    const unsigned long long ullSeq = (unsigned long long)GetTime ( pSeq );
+
+    const size_t cbPlain  = cbIn - SealOverheadV3 ( nReaders );
+    const size_t cbSealed = p2pcng::AesGcm::SealedSize ( cbPlain );
+    const unsigned char *pSig = pBody + cbSealed;
+    if ( cbOut < cbPlain ) return SealErrArgs;
+
+    unsigned char aTags[kSealMaxReaders * kSealRTagLen];
+    for ( size_t r = 0; r < nReaders; ++r )
+        std::memcpy ( aTags + r * kSealRTagLen,
+                      pSlots + r * kSealSlotLen, kSealRTagLen );
+
+    std::string sSig;
+    if ( !TranscriptV2 ( kLabelSig, pSrc, pDst, pIn[0], llWhen,
+                         pCtx, nReaders, aTags, 0, pBody, cbSealed, sSig, pSeq ) )
+        return SealErrInternal;
+    AppendField ( sSig, pSlots, kSealSlotLen * nReaders );
+    {
+        p2pcng::EcdsaP256 oPeer;
+        p2pcng::EcdsaP256 *pPeer = pSenderKey;
+        if ( !pPeer )
+        {
+            if ( !oPeer.ImportPublic ( pSenderId ) ) return SealErrInternal;
+            pPeer = &oPeer;
+        }
+        if ( !pPeer->Verify ( (const unsigned char *)sSig.data ( ), sSig.size ( ),
+                              pSig ) )
+            return SealErrSignature;
+    }
+
+    unsigned char aOurPub[kEcdhPubLen];
+    if ( !oRecipAgree.ExportPublic ( aOurPub ) ) return SealErrNoAgreement;
+
+    unsigned char aWant[kSealRTagLen];
+    if ( !SlotTagV3 ( pCtx, pSeq, aOurPub, aWant ) ) return SealErrInternal;
+
+    size_t iSlot = nReaders;
+    for ( size_t r = 0; r < nReaders; ++r )
+        if ( p2pcng::ConstTimeEqual ( aTags + r * kSealRTagLen, aWant,
+                                      kSealRTagLen ) )
+        { iSlot = r; break; }
+    if ( iSlot == nReaders ) return SealErrNotAReader;
+
+    const unsigned char *pWrap = pSlots + iSlot * kSealSlotLen + kSealRTagLen;
+
+    //  The wrapping key. A cached entry is keyed by the context point alone,
+    //  and that is enough: the key is derived from that point and OUR static
+    //  half, so nobody without the context's private half or ours can make a
+    //  wrap it opens - another allow-listed sender reusing the point gets as
+    //  far as the unwrap and fails there, without touching the entry.
+    OpenContextCache::Impl *pC = pCache ? pCache->Get ( ) : nullptr;
+    OpenContextCache::Impl::Entry *pE = pC ? pC->Find ( pCtx ) : nullptr;
+
+    if ( pE && pC->bWindow && OpenContextCache::Impl::Seen ( *pE, ullSeq ) )
+        return SealErrReplay;
+
+    unsigned char aKek[kAesKeyLen];
+    if ( pE )
+        std::memcpy ( aKek, pE->aKek, kAesKeyLen );
+    else
+    {
+        unsigned char aSecret[kEcdhSecLen];
+        if ( !oRecipAgree.DeriveRawSecret ( pCtx, aSecret ) )
+            return SealErrNoAgreement;
+        const bool bKek = DeriveKek3 ( aSecret, pCtx, aKek );
+        Wipe ( aSecret, sizeof(aSecret) );
+        if ( !bKek ) { Wipe ( aKek, sizeof(aKek) ); return SealErrInternal; }
+    }
+
+    std::string sWrapAad;
+    if ( !TranscriptV2 ( kLabelWrp, pSrc, pDst, pIn[0], llWhen,
+                         pCtx, nReaders, aTags, 0,
+                         aTags + iSlot * kSealRTagLen, kSealRTagLen,
+                         sWrapAad, pSeq ) )
+    { Wipe ( aKek, sizeof(aKek) ); return SealErrInternal; }
+
+    unsigned char aCek[kSealCekLen];
+    size_t cbCek = 0;
+    p2pcng::AesGcm oWrap;
+    const bool bUnwrapped =
+        oWrap.SetKey ( aKek, sizeof(aKek) ) &&
+        oWrap.Open ( pWrap, kSealWrapLen,
+                     (const unsigned char *)sWrapAad.data ( ), sWrapAad.size ( ),
+                     aCek, sizeof(aCek), &cbCek );
+    if ( !bUnwrapped || cbCek != kSealCekLen )
+    {
+        Wipe ( aCek, sizeof(aCek) );
+        Wipe ( aKek, sizeof(aKek) );
+        return SealErrTag;
+    }
+
+    std::string sAad;
+    if ( !TranscriptV2 ( kLabelAad, pSrc, pDst, pIn[0], llWhen,
+                         pCtx, nReaders, aTags, 0, 0, 0, sAad, pSeq ) )
+    {
+        Wipe ( aCek, sizeof(aCek) );
+        Wipe ( aKek, sizeof(aKek) );
+        return SealErrInternal;
+    }
+
+    p2pcng::AesGcm oGcm;
+    size_t cbGot = 0;
+    const bool bOpened =
+        oGcm.SetKey ( aCek, sizeof(aCek) ) &&
+        oGcm.Open ( pBody, cbSealed,
+                    (const unsigned char *)sAad.data ( ), sAad.size ( ),
+                    (unsigned char *)pOut, cbOut, &cbGot );
+    Wipe ( aCek, sizeof(aCek) );
+
+    if ( !bOpened || cbGot != cbPlain )
+    {
+        Wipe ( aKek, sizeof(aKek) );
+        return SealErrTag;
+    }
+
+    //  Opened. Only now does the cache learn anything.
+    if ( pC )
+    {
+        if ( pE )
+        {
+            OpenContextCache::Impl::Mark ( *pE, ullSeq );
+            pE->ullUsed = ++pC->ullTick;
+            ++pC->ullHits;
+        }
+        else
+        {
+            pC->Insert ( pCtx, aKek, ullSeq );
+            ++pC->ullMisses;
+        }
+    }
+    Wipe ( aKek, sizeof(aKek) );
+
+    if ( pllWhenOut ) *pllWhenOut = llWhen;
+    if ( pcbOut )     *pcbOut     = cbPlain;
+    return SealOk;
+}
+}   // anonymous namespace
+
 // ---- Open --------------------------------------------------------------
 //  DISPATCH ON THE VERSION AND NOTHING ELSE, before any offset is computed.
 //  That byte was added at v1 for precisely this moment, and the note in the
@@ -761,7 +1340,9 @@ OpenAny ( p2pcng::EcdhP256 &oRecipAgree,
           const wchar_t *pSrc, const wchar_t *pDst,
           const unsigned char *pIn, size_t cbIn,
           void *pOut, size_t cbOut, size_t *pcbOut,
-          long long *pllWhenOut )
+          long long *pllWhenOut,
+          OpenContextCache *pCache = nullptr,
+          bool bAcceptContext = true )
 {
     if ( pcbOut )     *pcbOut     = 0;
     if ( pllWhenOut ) *pllWhenOut = 0;
@@ -771,6 +1352,14 @@ OpenAny ( p2pcng::EcdhP256 &oRecipAgree,
 
     switch ( pIn[0] )
     {
+      case kSealVersion3:
+        //  Refused by policy before a byte past the version is parsed and
+        //  before any key is touched - the same place SealErrVersion is
+        //  decided, because from a refusing reader's side it is the same
+        //  question: is this a body I open at all.
+        if ( !bAcceptContext ) return SealErrContextRefused;
+        return OpenV3 ( oRecipAgree, pSenderId, pSenderKey, pCache, pSrc, pDst,
+                        pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
       case kSealVersion:
         return OpenV2 ( oRecipAgree, pSenderId, pSenderKey, pSrc, pDst,
                         pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
@@ -812,6 +1401,20 @@ OpenKeyed ( p2pcng::EcdhP256 &oRecipAgree,
 {
     return OpenAny ( oRecipAgree, nullptr, &oSenderKey, pSrc, pDst,
                      pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut );
+}
+
+SealResult
+OpenKeyedCtx ( p2pcng::EcdhP256 &oRecipAgree,
+               p2pcng::EcdsaP256 &oSenderKey,
+               OpenContextCache *pCache, bool bAcceptContext,
+               const wchar_t *pSrc, const wchar_t *pDst,
+               const unsigned char *pIn, size_t cbIn,
+               void *pOut, size_t cbOut, size_t *pcbOut,
+               long long *pllWhenOut )
+{
+    return OpenAny ( oRecipAgree, nullptr, &oSenderKey, pSrc, pDst,
+                     pIn, cbIn, pOut, cbOut, pcbOut, pllWhenOut,
+                     pCache, bAcceptContext );
 }
 
 // ---- Self-test ---------------------------------------------------------
@@ -996,6 +1599,218 @@ SealSelfTest ( )
         if ( bOk && Seal ( oPubOnly, aAgrC, pA, pC, szSecret, cbPlain,
                            pSealed, cbSealed, 0 ) != SealErrNoIdentity )
             bOk = false;
+    }
+
+    // 12. VERSION 3, the context mode (T1d). Same refusals as v2, plus what
+    //     the context adds: one ECDH per context at each end, a seq that is
+    //     bound and replay-checked, rotation, and a reader that may refuse.
+    if ( bOk )
+    {
+        const size_t cb3 = SealedSizeV3 ( cbPlain );
+        std::vector<unsigned char> v1 ( cb3 ), v2b ( cb3 ), vO ( cbPlain );
+        p2pcng::EcdsaP256 oKeyA;                    // sender, public only
+        if ( !oKeyA.ImportPublic ( aPubA ) ) bOk = false;
+
+        SealContext      oCtx;
+        OpenContextCache oCache;
+        const long long  llT = 1800000000;          // a fixed stamp
+        size_t cbGot3 = 0;
+
+        //  a) Two seals, one context: same point, seq 0 then 1, v3 sizes.
+        if ( bOk && ( SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                      szSecret, cbPlain, &v1[0], cb3,
+                                      &cbGot3, llT ) != SealOk
+                      || cbGot3 != cb3 || v1[0] != kSealVersion3 ) )
+            bOk = false;
+        if ( bOk && SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3,
+                                    0, llT ) != SealOk )
+            bOk = false;
+        const size_t kOffCtx = kSealVerLen + kSealTimeLen;
+        const size_t kOffSeq = kOffCtx + kSealEphLen;
+        if ( bOk && ( std::memcmp ( &v1[kOffCtx], &v2b[kOffCtx], kSealEphLen ) != 0
+                      || GetTime ( &v1[kOffSeq] ) != 0
+                      || GetTime ( &v2b[kOffSeq] ) != 1
+                      || oCtx.Generations ( ) != 1
+                      || oCtx.CachedReaders ( ) != 1
+                      || SealReaderCount ( &v1[0], cb3 ) != 1 ) )
+            bOk = false;
+        //  ... and the reader's slot tag still differs between the two,
+        //  although the context point is the same: the seq is in the tag. A
+        //  round trip cannot show this - both ends would agree on a tag
+        //  without the seq just as well - so it is asserted on the bytes.
+        //  (Mutation-checked 2026-11-28: dropping the seq from SlotTagV3
+        //  passed every other case here.)
+        const size_t kOffTag = kOffSeq + kSealSeqLen + kSealCountLen;
+        if ( bOk && std::memcmp ( &v1[kOffTag], &v2b[kOffTag], kSealRTagLen ) == 0 )
+            bOk = false;
+
+        //  b) The plaintext appears nowhere in a v3 body either.
+        for ( size_t i = 0; bOk && i + cbPlain <= cb3; ++i )
+            if ( std::memcmp ( &v1[i], szSecret, cbPlain ) == 0 ) bOk = false;
+
+        //  c) Both open through the cache: one derive, then one hit.
+        if ( bOk && ( OpenKeyedCtx ( oAgrC, oKeyA, &oCache, true, pA, pC,
+                                     &v1[0], cb3, &vO[0], cbPlain, &cbGot3 )
+                        != SealOk
+                      || cbGot3 != cbPlain
+                      || std::memcmp ( &vO[0], szSecret, cbPlain ) != 0 ) )
+            bOk = false;
+        if ( bOk && OpenKeyedCtx ( oAgrC, oKeyA, &oCache, true, pA, pC,
+                                   &v2b[0], cb3, &vO[0], cbPlain, 0 ) != SealOk )
+            bOk = false;
+        if ( bOk && ( oCache.Misses ( ) != 1 || oCache.Hits ( ) != 1
+                      || oCache.Entries ( ) != 1 ) )
+            bOk = false;
+
+        //  d) A replay inside the context is refused WITH a cache, and opens
+        //     without one - the stateless path leaves replay to the
+        //     signature-keyed cache one layer up, as v2 does.
+        if ( bOk && OpenKeyedCtx ( oAgrC, oKeyA, &oCache, true, pA, pC,
+                                   &v1[0], cb3, &vO[0], cbPlain, 0 )
+                      != SealErrReplay )
+            bOk = false;
+        if ( bOk && OpenKeyedCtx ( oAgrC, oKeyA, 0, true, pA, pC,
+                                   &v1[0], cb3, &vO[0], cbPlain, 0 ) != SealOk )
+            bOk = false;
+        //  ... and the raw-point Open every older caller uses reads v3 too.
+        if ( bOk && Open ( oAgrC, aPubA, pA, pC, &v1[0], cb3,
+                           &vO[0], cbPlain, 0 ) != SealOk )
+            bOk = false;
+
+        //  e) A reader that refuses context bodies says so, by policy.
+        if ( bOk && OpenKeyedCtx ( oAgrC, oKeyA, 0, false, pA, pC,
+                                   &v1[0], cb3, &vO[0], cbPlain, 0 )
+                      != SealErrContextRefused )
+            bOk = false;
+
+        //  f) Wrong reader, wrong sender, moved addresses: v2's answers.
+        if ( bOk && OpenKeyedCtx ( oAgrOther, oKeyA, 0, true, pA, pC,
+                                   &v1[0], cb3, &vO[0], cbPlain, 0 )
+                      != SealErrNotAReader )
+            bOk = false;
+        if ( bOk && Open ( oAgrC, aPubX, pA, pC, &v1[0], cb3,
+                           &vO[0], cbPlain, 0 ) != SealErrSignature )
+            bOk = false;
+        if ( bOk && Open ( oAgrC, aPubA, pC, pA, &v1[0], cb3,
+                           &vO[0], cbPlain, 0 ) != SealErrSignature )
+            bOk = false;
+
+        //  g) Downgrade: a v3 body relabelled v2 (or v1) never opens. The
+        //     version is bound in both transcripts, and v2's offsets read the
+        //     seq as the start of the reader block.
+        for ( unsigned char ucTo = 1; bOk && ucTo <= 2; ++ucTo )
+        {
+            v1[0] = ucTo;
+            if ( Open ( oAgrC, aPubA, pA, pC, &v1[0], cb3,
+                        &vO[0], cbPlain, 0 ) == SealOk )
+                bOk = false;
+            v1[0] = kSealVersion3;
+        }
+
+        //  h) One flipped bit in each v3 region, stateless so a replay
+        //     refusal cannot stand in for the forgery being caught.
+        if ( bOk )
+        {
+            const size_t kOffSlot = kOffSeq + kSealSeqLen + kSealCountLen;
+            const size_t kOffBody = kOffSlot + kSealSlotLen;
+            const size_t anProbe[] = { kSealVerLen,               // sealed_at
+                                       kOffCtx,                   // context point
+                                       kOffSeq + kSealSeqLen - 1, // seq, low byte
+                                       kOffSeq + kSealSeqLen,     // reader count
+                                       kOffSlot,                  // slot tag
+                                       kOffSlot + kSealRTagLen,   // wrapped key
+                                       kOffBody,                  // nonce
+                                       kOffBody + kSealNonceLen,  // ciphertext
+                                       cb3 - kSealSigLen - 1,     // tag
+                                       cb3 - 1 };                 // signature
+            for ( size_t i = 0; bOk && i < sizeof(anProbe)/sizeof(anProbe[0]); ++i )
+            {
+                v1[anProbe[i]] ^= 0x01;
+                if ( OpenKeyedCtx ( oAgrC, oKeyA, 0, true, pA, pC,
+                                    &v1[0], cb3, &vO[0], cbPlain, 0 ) == SealOk )
+                    bOk = false;
+                v1[anProbe[i]] ^= 0x01;
+            }
+        }
+
+        //  i) Rotation by count: bounds of 2 messages, and the third seal
+        //     starts a new context with a new point and seq 0.
+        oCtx.SetBounds ( 2, 300 );
+        if ( bOk && SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3,
+                                    0, llT ) != SealOk )
+            bOk = false;
+        if ( bOk && ( oCtx.Generations ( ) != 2
+                      || GetTime ( &v2b[kOffSeq] ) != 0
+                      || std::memcmp ( &v1[kOffCtx], &v2b[kOffCtx],
+                                       kSealEphLen ) == 0 ) )
+            bOk = false;
+        //  ... and the new context costs the receiver one more derive.
+        if ( bOk && ( OpenKeyedCtx ( oAgrC, oKeyA, &oCache, true, pA, pC,
+                                     &v2b[0], cb3, &vO[0], cbPlain, 0 ) != SealOk
+                      || oCache.Misses ( ) != 2 || oCache.Entries ( ) != 2 ) )
+            bOk = false;
+
+        //  j) Rotation by time, forwards past the bound and backwards past
+        //     the context's birth.
+        if ( bOk && SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3,
+                                    0, llT + 300 ) != SealOk )
+            bOk = false;
+        if ( bOk && oCtx.Generations ( ) != 3 ) bOk = false;
+        if ( bOk && SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3,
+                                    0, llT ) != SealOk )
+            bOk = false;
+        if ( bOk && oCtx.Generations ( ) != 4 ) bOk = false;
+
+        //  k) Reset drops the context and the cache: the next seal starts a
+        //     new one, and the receiver derives again.
+        oCtx.Reset ( );
+        oCache.Reset ( );
+        if ( bOk && ( oCtx.CachedReaders ( ) != 0 || oCache.Entries ( ) != 0 ) )
+            bOk = false;
+        if ( bOk && SealToContext ( oCtx, oIdA, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3,
+                                    0, llT ) != SealOk )
+            bOk = false;
+        if ( bOk && ( oCtx.Generations ( ) != 5
+                      || OpenKeyedCtx ( oAgrC, oKeyA, &oCache, true, pA, pC,
+                                        &v2b[0], cb3, &vO[0], cbPlain, 0 ) != SealOk
+                      || oCache.Misses ( ) != 3 ) )
+            bOk = false;
+
+        //  l) Two readers in one context body: each opens its own slot.
+        if ( bOk )
+        {
+            unsigned char aTwo[2 * kEcdhPubLen];
+            std::memcpy ( aTwo, aAgrC, kEcdhPubLen );
+            std::memcpy ( aTwo + kEcdhPubLen, aAgrOther, kEcdhPubLen );
+            const size_t cb3b = SealedSizeV3 ( cbPlain, 2 );
+            std::vector<unsigned char> vTwo ( cb3b );
+            if ( SealToContext ( oCtx, oIdA, aTwo, 0, 2, pA, pC,
+                                 szSecret, cbPlain, &vTwo[0], cb3b,
+                                 0, llT ) != SealOk )
+                bOk = false;
+            if ( bOk && ( OpenKeyedCtx ( oAgrC, oKeyA, 0, true, pA, pC,
+                                         &vTwo[0], cb3b, &vO[0], cbPlain, 0 ) != SealOk
+                          || OpenKeyedCtx ( oAgrOther, oKeyA, 0, true, pA, pC,
+                                            &vTwo[0], cb3b, &vO[0], cbPlain, 0 ) != SealOk
+                          || SealReaderCount ( &vTwo[0], cb3b ) != 2 ) )
+                bOk = false;
+        }
+
+        //  m) A verify-only identity cannot seal in context mode either.
+        if ( bOk )
+        {
+            p2pcng::EcdsaP256 oPubOnly;
+            if ( !oPubOnly.ImportPublic ( aPubA )
+                 || SealToContext ( oCtx, oPubOnly, aAgrC, 0, 1, pA, pC,
+                                    szSecret, cbPlain, &v2b[0], cb3, 0, llT )
+                      != SealErrNoIdentity )
+                bOk = false;
+        }
     }
 
     delete [] pSealed;

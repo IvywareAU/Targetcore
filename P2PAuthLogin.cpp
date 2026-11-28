@@ -721,6 +721,14 @@ AuthPolicy::AuthPolicy ( )
     , m_pSeenSeal ( nullptr )
     , m_nSealNext ( 0 )
     , m_pKeyCache ( nullptr )
+    , m_pSealCtx ( nullptr )
+    , m_pOpenCtx ( nullptr )
+    //  PerMessage by default (p2p_performance decision 1): a hub nobody
+    //  configured writes exactly the v2 bytes every earlier release wrote.
+    , m_eSealMode ( p2pseal::SealMode_PerMessage )
+    //  ...and READS v3 by default, so an opted-in sender needs nothing from
+    //  its readers but their build. Refer SetSealAcceptContext.
+    , m_bSealAcceptCtx ( true )
     , m_pszAllowPath ( nullptr )
     //  Meaningless until a path is configured; IsAllowUsable() reads it only
     //  when one is, so the initial value is never the answer to anything.
@@ -765,6 +773,8 @@ AuthPolicy::AuthPolicy ( )
     m_pSeenSeal = new SigCache   ( );
     m_pKeyCache = new KeyCache   ( );
     m_pRevoked  = new RevVec     ( );
+    m_pSealCtx  = new p2pseal::SealContext ( );
+    m_pOpenCtx  = new p2pseal::OpenContextCache ( );
 }
 
 AuthPolicy::~AuthPolicy ( )
@@ -778,6 +788,8 @@ AuthPolicy::~AuthPolicy ( )
     delete Keys   ( m_pKeyCache );
     delete Revs   ( m_pRevoked );
     delete Readers( m_pSealReaders );
+    delete m_pSealCtx;      // both wipe their keys on the way out
+    delete m_pOpenCtx;
     if ( m_pszAllowPath )  std::free ( m_pszAllowPath );
     if ( m_pszRevokePath ) std::free ( m_pszRevokePath );
 }
@@ -813,6 +825,9 @@ AuthPolicy::SetIdentity ( const char *pszPathUtf8, bool bCreate,
     delete m_pIdentity;
     m_pIdentity     = pKey;
     m_bHaveIdentity = true;
+    //  T1d: a context belongs to the identity that signs under it; a new
+    //  identity starts a new one rather than continue the old one's seq.
+    ResetSealContexts ( );
     return p2pcng::IdOk;
 }
 
@@ -859,6 +874,9 @@ AuthPolicy::ReloadAllowList ( )
     //  Not needed for correctness (KeyCache is keyed by the point itself) -
     //  this is what keeps it bounded by what the list can name.
     Keys ( m_pKeyCache )->Clear ( );
+    //  T1d: a reader whose entry changed must not be sealed to under a
+    //  wrapping key derived from the point it had before.
+    ResetSealContexts ( );
     return p2pcng::IdOk;
 }
 
@@ -1064,7 +1082,14 @@ void AuthPolicy::SetEndToEndWaivedInProcess ( bool bWaive )
 //  the switch is off, and keeping it means a hub toggled off and on again does
 //  not hand an attacker a window in which everything it captured is fresh.
 void AuthPolicy::SetRelayReplayRefused ( bool bRefuse ) { m_bRelayReplay = bRefuse; }
-void AuthPolicy::SetSealReplayRefused  ( bool bRefuse ) { m_bSealReplay  = bRefuse; }
+//  The v3 seq window follows this switch (T1d): it is a second replay check,
+//  and a hub that said "do not refuse replays" must not find one refused by a
+//  mechanism it never configured.
+void AuthPolicy::SetSealReplayRefused  ( bool bRefuse )
+{
+    m_bSealReplay = bRefuse;
+    m_pOpenCtx->SetReplayWindow ( bRefuse );
+}
 //  Negative is nonsense rather than "very short", and clamping to 0 would
 //  silently DISABLE the check - so it clamps to 0 explicitly and the header
 //  says 0 means disabled, rather than leaving a caller to discover that a
@@ -1134,6 +1159,8 @@ AuthPolicy::ReloadRevocationList ( )
 
     Revs ( m_pRevoked )->swap ( vNew );
     m_bRevokeUsable = true;
+    //  T1d: no wrapping key derived before a revocation may outlive it.
+    ResetSealContexts ( );
 
     //  Reported last, and it does NOT undo the load: the list is in force
     //  either way. See the header - this says "do not start", not "ignore me".
@@ -1355,6 +1382,9 @@ AuthPolicy::ApplyRevocationList ( const unsigned char *pIn, size_t cbIn,
 
     m_llRevEpoch  = llEpoch;
     m_tRevApplied = std::time ( nullptr );
+    //  T1d, as on a reload: an applied list may have withdrawn a key some
+    //  cached context was derived with.
+    if ( nAdded ) ResetSealContexts ( );
     if ( pnAdded ) *pnAdded = nAdded;
 
     //  Did this list revoke the authority that signed it? Checked after the
@@ -1574,6 +1604,8 @@ AuthPolicy::SetAgreement ( const char *pszPathUtf8, bool bCreate,
     delete m_pAgreement;
     m_pAgreement     = pKey;
     m_bHaveAgreement = true;
+    //  T1d: every cached receiver key was derived with the old private half.
+    ResetSealContexts ( );
     return p2pcng::IdOk;
 }
 
@@ -1700,10 +1732,60 @@ AuthPolicy::Seal ( const wchar_t *pSrc, const wchar_t *pDst,
     for ( size_t r = 0; r < nReaders; r++ )
         apKeys[r] = Keys ( m_pKeyCache )->Agreement ( aReaders + r * kEcdhPubLen );
 
+    //  The reader set, every refusal above and the key imports are the same in
+    //  both modes - which is the point of resolving them here, once, before
+    //  the mode is even looked at. Only where the per-reader key comes from
+    //  differs below this line.
+    if ( m_eSealMode == p2pseal::SealMode_Context )
+        return p2pseal::SealToContext ( *m_pSealCtx, *m_pIdentity,
+                                        aReaders, apKeys, nReaders,
+                                        pSrc, pDst, pPlain, cbPlain,
+                                        pOut, cbOut, pcbOut, llWhen );
+
     return p2pseal::SealToKeyed ( *m_pIdentity, aReaders, apKeys, nReaders,
                                   pSrc, pDst, pPlain, cbPlain,
                                   pOut, cbOut, pcbOut, llWhen );
 }
+
+void
+AuthPolicy::SetSealMode ( p2pseal::SealMode eMode,
+                          unsigned nMaxMsgs, unsigned nMaxSecs )
+{
+    //  Anything that is not Context is PerMessage: an out-of-range value from
+    //  the C ABI falls to the default rather than to a mode nobody named.
+    m_eSealMode = eMode == p2pseal::SealMode_Context
+                ? p2pseal::SealMode_Context : p2pseal::SealMode_PerMessage;
+    m_pSealCtx->SetBounds ( nMaxMsgs, nMaxSecs );
+    //  The old context would otherwise carry on under bounds it was not
+    //  started with, or survive a switch to PerMessage and back.
+    m_pSealCtx->Reset ( );
+}
+
+unsigned AuthPolicy::GetSealCtxMaxMsgs ( ) const { return m_pSealCtx->MaxMsgs ( ); }
+unsigned AuthPolicy::GetSealCtxMaxSecs ( ) const { return m_pSealCtx->MaxSecs ( ); }
+
+void
+AuthPolicy::SetSealAcceptContext ( bool bAccept )
+{
+    m_bSealAcceptCtx = bAccept;
+    //  Refusing from now on must not leave wrapping keys behind for a context
+    //  this hub has decided it will not read.
+    if ( !bAccept ) m_pOpenCtx->Reset ( );
+}
+
+void
+AuthPolicy::ResetSealContexts ( )
+{
+    m_pSealCtx->Reset ( );
+    m_pOpenCtx->Reset ( );
+}
+
+unsigned long long AuthPolicy::SealContextGenerations ( ) const
+{ return m_pSealCtx->Generations ( ); }
+unsigned long long AuthPolicy::OpenContextHits ( ) const
+{ return m_pOpenCtx->Hits ( ); }
+unsigned long long AuthPolicy::OpenContextMisses ( ) const
+{ return m_pOpenCtx->Misses ( ); }
 
 p2pseal::SealResult
 AuthPolicy::Open ( const wchar_t *pSrc, const wchar_t *pDst,
@@ -1726,6 +1808,14 @@ AuthPolicy::Open ( const wchar_t *pSrc, const wchar_t *pDst,
     //  a body sealed just before a rollover still open just after it. The extra
     //  attempts cost a full Open each, so this is bounded by how many keys that
     //  ONE address has listed - one in steady state, two mid-rollover.
+    //  A v3 body on a hub that refuses them is refused HERE, once, before any
+    //  sender key is tried - not left to each Open below. The raw-point Open
+    //  (a full KeyCache) has no accept switch of its own, so deciding it per
+    //  attempt would let the fallback path read what the policy refuses.
+    if ( !m_bSealAcceptCtx && cbIn >= p2pseal::kSealVerLen
+         && pIn[0] == p2pseal::kSealVersion3 )
+        return p2pseal::SealErrContextRefused;
+
     p2pseal::SealResult eFirst = p2pseal::SealErrSignature;
     unsigned char sender[kEcdsaPubLen];
     for ( size_t i = 0; i < nLive; i++ )
@@ -1733,11 +1823,15 @@ AuthPolicy::Open ( const wchar_t *pSrc, const wchar_t *pDst,
         if ( !PeerKeyAt ( pSrc, i, sender ) ) break;
         long long llWhen = 0;
         //  Sender's identity import from KeyCache (T1g); null falls back to
-        //  the raw-point Open, which reproduces its own refusal.
+        //  the raw-point Open, which reproduces its own refusal. The keyed
+        //  path carries the v3 context cache (T1d); the raw-point one opens a
+        //  v3 body statelessly, one ECDH, and leaves its replay to the
+        //  signature-keyed cache below exactly as v2 does.
         EcdsaP256 *pSenderKey = Keys ( m_pKeyCache )->Identity ( sender );
         p2pseal::SealResult e = pSenderKey
-            ? p2pseal::OpenKeyed ( *m_pAgreement, *pSenderKey, pSrc, pDst,
-                                   pIn, cbIn, pOut, cbOut, pcbOut, &llWhen )
+            ? p2pseal::OpenKeyedCtx ( *m_pAgreement, *pSenderKey,
+                                      m_pOpenCtx, m_bSealAcceptCtx, pSrc, pDst,
+                                      pIn, cbIn, pOut, cbOut, pcbOut, &llWhen )
             : p2pseal::Open      ( *m_pAgreement, sender, pSrc, pDst,
                                    pIn, cbIn, pOut, cbOut, pcbOut, &llWhen );
         if ( e == p2pseal::SealOk )
