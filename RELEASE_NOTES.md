@@ -3,6 +3,41 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.12.0
+
+A minor release: an optional sealing mode that makes sealed traffic much cheaper. Nothing changes
+unless you turn it on. Four functions are added to the flat C API and none is changed. Every wire
+format the default writes is unchanged. It needs Msgcore 3.7.1 or later.
+
+- **Context mode for end-to-end sealing**, off by default. `SealModeOutbound(SealMode_Context)`
+  (C: `p2peerhub_seal_mode_outbound(h, 1, maxMsgs, maxSecs)`) lets a hub reuse one key exchange
+  per reader for a run of messages, a *context*, instead of doing one per message. A context ends
+  after 4096 messages or 300 seconds, whichever comes first. Both limits can be changed; they are
+  clamped to 1–1,048,576 messages and 1–86,400 seconds. Changing either, or the mode, starts a new
+  context.
+- **Measured on a chain of four hubs over TCP, all sealed:** CPU per message drops by 50% on
+  Windows and 33% on Linux; throughput rises by 121% and 57%.
+- **What it costs is forward secrecy at the sender.** In the default mode, someone who later reads
+  the sending process's memory recovers nothing already sent. In context mode they recover the
+  current context's messages. Nothing changes for a compromised reader.
+- **Every hub you seal to must run 3.12.0 or later, and nothing checks this for you.** The reader
+  of an end-to-end seal is usually several hops away and never logs in to the sender, so there is
+  no handshake to learn its version from. An older reader refuses the message with "sealed body
+  version not understood"; nothing is ever sent unsealed. `SealModeOutbound(SealMode_PerMessage)`
+  turns it back off.
+- **Hubs on 3.12.0 open context-mode messages by default**, so readers need no configuration.
+  `SealModeAccept(false)` (C: `p2peerhub_seal_mode_accept(h, 0)`) refuses them, for a hub that
+  wants per-message forward secrecy on everything it receives. Each context message carries a
+  sequence number, and a reader refuses one it has already seen while `RefuseSealReplay` is on.
+- **Loading a new identity or reloading the allow list starts new contexts**, on both the sending
+  and the reading side.
+- **Recompile C++ code that calls `TryReadPosture`.** `P2PeerHub::Posture` gained four fields at
+  the end: `nSealMode`, `nSealCtxMsgs`, `nSealCtxSecs` and `bSealAcceptCtx`. Code built against an
+  older header passes a structure that is too small. The flat C API is not affected.
+- **New C functions:** `p2peerhub_seal_mode_outbound`, `p2peerhub_get_seal_mode_outbound`,
+  `p2peerhub_seal_mode_accept`, `p2peerhub_is_seal_context_accepted`. The flat C API now has 107
+  symbols.
+
 ## 3.11.3
 
 A patch release: sealed and relayed messages cost less to handle. The flat C API, every exported

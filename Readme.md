@@ -821,7 +821,7 @@ The item and index names, and the limits, are copied from TargetFacade's
 
 ### Reporting the version
 
-The current release is **3.11.3** (tag `v3.11.3`); what changed in each release from 3.4.6 on is
+The current release is **3.12.0** (tag `v3.12.0`); what changed in each release from 3.4.6 on is
 in [RELEASE_NOTES.md](RELEASE_NOTES.md), and what the number *promises* is written down. The
 short form is that
 the flat C ABI — 107 symbols, enumerated and gated — is the covered surface, the C++ classes

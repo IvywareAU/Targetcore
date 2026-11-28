@@ -58,6 +58,34 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.12.0.0, a MINOR on 3.11.3; runs on Msgcore 3.7.1 (gated on 4.0.0). It
+//  adds API surface and a sealed-body version, so it is not a patch.
+//
+//  SEALED-BODY V3, THE CONTEXT MODE (p2p_performance T1d, sized in F-P6-7).
+//  Under the default, SealMode_PerMessage, nothing changes: a fresh ephemeral
+//  key per message, the v2 block, byte-identical to 3.11.3. SealModeOutbound(
+//  SealMode_Context) keeps one ephemeral key for a CONTEXT of up to 4096
+//  messages or 300 seconds (clamped to [1, 2^20] and [1, 86400]; a clock going
+//  backwards also ends it) and writes the v3 block - v2's plus the context's
+//  point and an 8-byte seq, both signed and bound into every AAD and wrap - so
+//  the key agreement is paid once per reader per context. The reader caches
+//  the wrapping key per (context, reader) and refuses a seq it has seen
+//  (OpenContextCache, 64 readers; the window follows RefuseSealReplay).
+//  SealModeAccept(false) refuses every v3 body. A new identity or a reloaded
+//  allow list ends both the sender's contexts and the reader's cache.
+//  THE SENDER ASSERTS: there is no login advertisement (decided 2026-11-28),
+//  because the reader of an end-to-end seal is hops away and never logs in
+//  here. A pre-3.12 reader refuses a v3 body as "version not understood";
+//  nothing is sent in clear. COST: sender-side forward secrecy for the life of
+//  a context. RESULT: perf_fanout chain 4 over TCP, posture D, v2 -> v3: CPU
+//  per message -50% Windows / -33% Linux, throughput +121% / +57%.
+//  FLAT C API: four symbols added (103 -> 107), none changed. C++ LAYOUT:
+//  P2PeerHub::Posture gains four APPENDED fields, so a caller of TryReadPosture
+//  compiled against an older header must recompile. The C++23 bridge reads and
+//  writes v3 too (_NextStep/C++23 N100).
+//
+//  BELOW IS THE 3.11.3 RATIONALE.
+//
 //  3.11.3.0, a PATCH on 3.11.2; runs on Msgcore 3.7.1 (gated on 4.0.0). The
 //  flat C API, every exported class layout and every wire format are unchanged.
 //
@@ -806,24 +834,24 @@
 //  message does not report a mismatch, it parses garbage. Releasing 3.1.1
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
-#define TARGETCORE_VERSION_MINOR  11
-#define TARGETCORE_VERSION_PATCH  3
+#define TARGETCORE_VERSION_MINOR  12
+#define TARGETCORE_VERSION_PATCH  0
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,11,3,0
+#define TARGETCORE_VERSION_COMMAS 3,12,0,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.11.3.0"
+#define TARGETCORE_VERSION_STRING "3.12.0.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x030B0300 is 3.11.3.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x030C0000 is 3.12.0.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x030B0300
+#define TARGETCORE_VERSION_HEX    0x030C0000
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -839,7 +867,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.11.3.0"
+#define TARGETCORE_VERSION_STRINGW L"3.12.0.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
