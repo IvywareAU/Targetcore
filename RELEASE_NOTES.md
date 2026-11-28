@@ -3,6 +3,19 @@
 User-facing changes, newest first, starting with 3.4.6. The full rationale for every version,
 including the ones before this file existed, is kept in `Targetcore_version.h`.
 
+## 3.11.3
+
+A patch release: sealed and relayed messages cost less to handle. The flat C API, every exported
+class layout and every wire format are unchanged. It needs Msgcore 3.7.1 or later.
+
+- **Checking whether a message is sealed, and reading its relay attestation, now takes one
+  lookup instead of two**, and no longer leaves a lookup structure allocated on the message.
+- **Places that read a message's address twice to copy it once now read it once.**
+- **Measured on a chain of four hubs over TCP:** on Linux, sealed traffic runs 3.9% faster with
+  5% less CPU per message and 8 fewer allocations per message; unsealed traffic runs 7.2%
+  faster. On Windows, sealed traffic is unchanged within noise and unsealed runs 2.5% faster.
+- No change in what is sealed, routed, accepted or refused.
+
 ## 3.11.2
 
 A patch release: a shared-memory connection can no longer stall. The flat C API, every exported

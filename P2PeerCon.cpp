@@ -36,6 +36,24 @@ std::mutex& ThatAddrLock ( const P2PeerCon* pCon );   // with CopyP2Paddress()
 void AssignP2PmsgConAddr ( P2PeerCon *pCon, P2Paddr& rThat, const P2Paddr& oNew, std::mutex& oLeaf );
 
 ///////////////////////////////////////////////////////////////////////
+//  An address accessor's answer, copied after ONE call (plan T1k, F-P6-7)
+//  NOTES: Replaces `p->GetSource ( ) ? p->GetSource ( ) : L""`, which ran the
+//         accessor - a Msgcore lookup - twice to copy one answer, at a dozen
+//         sites on the seal, open, relay and waiver paths. Same value: the
+//         accessors never return null (absent is strP2PaddrNULL), so the
+//         fallback is a guard, not a branch anything takes today
+//       : Copied straight away, before any other accessor runs. Off Windows
+//         c_wstr() hands out a ring of thread-local buffers that the next
+//         accessor recycles (refer GetScopeOrDestin), so the argument must be
+//         a fresh call and the result is a CString, never the pointer
+//
+static inline CString
+HeldAddr ( P2PaddrSTR p, LPCWSTR lpszIfNull = L"" )
+{
+    return CString ( p ? p : lpszIfNull );
+}
+
+///////////////////////////////////////////////////////////////////////
 //  A freshly sealed message, rebuilt compactly for the wire (F-L4-1, 3.4.4)
 //  NOTES: Sealing swaps the body in with SetData, which grows it inside the
 //         message's own heap and leaves the old block behind as free space,
@@ -915,10 +933,8 @@ ASSERT(m_eP2PeerConMode!=P2PeerCon_SERVICE);
             //  the origin asked to be hidden.  Refer WaivedBodyLeavesProcess
             if ( bWaived )
             {
-              CString strSrcW = m_pP2PeerMsgSend->GetSource ( )
-                                  ? m_pP2PeerMsgSend->GetSource ( ) : L"";
-              CString strDstW = m_pP2PeerMsgSend->GetScopeOrDestin ( )
-                                  ? m_pP2PeerMsgSend->GetScopeOrDestin ( ) : L"";
+              CString strSrcW = HeldAddr ( m_pP2PeerMsgSend->GetSource ( ) );
+              CString strDstW = HeldAddr ( m_pP2PeerMsgSend->GetScopeOrDestin ( ) );
               EVWRN->Module (__FUNCTION__)->AFPcon(this)
                    ->Message(_T("Refused [%s] -> [%s]: its origin waived the "
                                 "seal for an in-process destination, and this "
@@ -3300,8 +3316,8 @@ P2PeerCon::VNetMountOut ( P2PeerMsg *pMsg )
 
     //  Copies, for the reason RouteP2PeerMsg gives: off Windows the accessors
     //  hand back recycled thread-local slots
-    CString strSrcHeld = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
-    CString strDstHeld = pMsg->GetDestin ( ) ? pMsg->GetDestin ( ) : L"";
+    CString strSrcHeld = HeldAddr ( pMsg->GetSource ( ) );
+    CString strDstHeld = HeldAddr ( pMsg->GetDestin ( ) );
 
     const bool bHandshake = pMsg->Map_MatchName ( P2Pmsg_Login    ) ||
                             pMsg->Map_MatchName ( P2Pmsg_LoginAck ) ||
@@ -3328,7 +3344,7 @@ P2PeerCon::VNetMountOut ( P2PeerMsg *pMsg )
       if ( !pszWhy && pMsg->IsSealed ( ) )
       {
         P2PeerHub *pHub = GetAuthHub ( );
-        CString    strScopeHeld = pMsg->GetScopeOrDestin ( ) ? pMsg->GetScopeOrDestin ( ) : L"";
+        CString    strScopeHeld = HeldAddr ( pMsg->GetScopeOrDestin ( ) );
         const size_t cbIn   = pMsg->DataSize ( );
         const size_t cbRoom = p2pseal::OpenedSize ( cbIn );
         std::vector<unsigned char> vPlain ( cbRoom ? cbRoom : 1 );
@@ -3753,7 +3769,7 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
     if ( !pMsg->IsFannedOut ( ) && StaysInProcess ( ) &&
          pHub -> IsEndToEndWaivedInProcess ( ) )
     {
-      CString strSrcWaive = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+      CString strSrcWaive = HeldAddr ( pMsg->GetSource ( ) );
       if ( IsP2PmsgHubInProcess ( strScope ) &&
            IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrcWaive ) )
         return true;
@@ -3764,7 +3780,7 @@ P2PeerCon::SealAppMsgOutbound ( P2PeerMsg *pMsg )
       return true;
 
     // Seal
-    CString    strSrcHeld = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+    CString    strSrcHeld = HeldAddr ( pMsg->GetSource ( ) );
     P2PaddrSTR strSrc     = (P2PaddrSTR)strSrcHeld;
 
     const size_t cbPlain = pMsg->DataSize ( );
@@ -3940,18 +3956,17 @@ P2PeerCon::OpenAppMsgInbound ( P2PeerMsg *pMsg )
     //        destination test is the same one the router will apply, asked
     //        early so a relay does no crypto at all
     const P2Paddr oThisHub = GetP2PaddrHub ( );
-    CString       strDstHeld = pMsg->GetDestin ( ) ? pMsg->GetDestin ( ) : L"";
+    CString       strDstHeld = HeldAddr ( pMsg->GetDestin ( ) );
     P2PaddrSTR    strDst     = (P2PaddrSTR)strDstHeld;
     if ( oThisHub.IsNull ( ) || !strDst || !*strDst )
       return;
     if ( !( oThisHub == strDst ) )
       return;
 
-    CString    strSrcHeld = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+    CString    strSrcHeld = HeldAddr ( pMsg->GetSource ( ) );
     P2PaddrSTR strSrc     = (P2PaddrSTR)strSrcHeld;
 
-    CString    strScopeHeld = pMsg->GetScopeOrDestin ( )
-                                ? pMsg->GetScopeOrDestin ( ) : L"";
+    CString    strScopeHeld = HeldAddr ( pMsg->GetScopeOrDestin ( ) );
     P2PaddrSTR strScopeOpen = (P2PaddrSTR)strScopeHeld;
 
     const size_t cbIn    = pMsg->DataSize ( );
@@ -4123,7 +4138,7 @@ P2PeerCon::GateRelayInbound ( P2PeerMsg *pMsg )
     //        it if that hub admitted it
     if ( StaysInProcess ( ) && pHub -> IsEndToEndWaivedInProcess ( ) )
     {
-      CString strSrcWaive = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+      CString strSrcWaive = HeldAddr ( pMsg->GetSource ( ) );
       if ( IsP2PmsgHubInProcess ( (P2PaddrSTR)strSrcWaive ) )
         return;
     }
@@ -4151,9 +4166,8 @@ P2PeerCon::GateRelayInbound ( P2PeerMsg *pMsg )
     //        untouched by every hop, so anything it covers must survive
     //        re-addressing - and Dst does not.  Refer TMsg_Scp in P2PeerMsg.h;
     //        for a unicast nothing is stamped and this IS GetDestin()
-    CString    strSrc  = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
-    CString    strDst  = pMsg->GetScopeOrDestin ( )
-                           ? pMsg->GetScopeOrDestin ( ) : L"";
+    CString    strSrc  = HeldAddr ( pMsg->GetSource ( ) );
+    CString    strDst  = HeldAddr ( pMsg->GetScopeOrDestin ( ) );
     CString    strName = pMsg->c_name    ( ) ? pMsg->c_name    ( ) : L"";
     CString    strPeer = m_oThatP2Paddr.c_wstr ( );
     CString    strClaimed = strSrc;
@@ -4300,8 +4314,7 @@ P2PeerCon::AttestAppMsgOutbound ( P2PeerMsg *pMsg )
     //        and for a unicast both are GetDestin()
     CString  strHub  = oThisHub.c_wstr ( );
     CString  strSrc  = pMsg->GetSource ( );
-    CString  strDst  = pMsg->GetScopeOrDestin ( )
-                         ? pMsg->GetScopeOrDestin ( ) : L"";
+    CString  strDst  = HeldAddr ( pMsg->GetScopeOrDestin ( ) );
     CString  strName = pMsg->c_name    ( ) ? pMsg->c_name    ( ) : L"";
 
     // Is the destination a hub in THIS process, on a hub that has waived?
@@ -6442,7 +6455,7 @@ P2PeerCon::WaivedBodyLeavesProcess ( P2PeerMsg *pMsg )
     CString strScope = strScopeNow;
     if ( pMsg->IsSealed ( ) || pMsg->IsFannedOut ( ) || pMsg->DataSize ( ) == 0 )
       return false;
-    CString strSrc   = pMsg->GetSource ( ) ? pMsg->GetSource ( ) : L"";
+    CString strSrc   = HeldAddr ( pMsg->GetSource ( ) );
 
     if ( !IsP2PmsgHubInProcess ( (P2PaddrSTR)strScope ) )
       return false;

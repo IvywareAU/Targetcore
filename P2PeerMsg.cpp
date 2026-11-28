@@ -1075,6 +1075,45 @@ NetAddrRead ( P3PmsgItem& oItemAddr, LPCWSTR lpszName, P2PaddrSTR *pstr )
 }
 
 //
+//  One blob field of the network node, read in ONE lookup (plan T1k, F-P6-7)
+//  NOTES: NetAddrRead's discipline for the two blob markers, the seal marker
+//         and the relay attestation. Both readers asked Exists(name) and then
+//         fetched through operator[], which is the pair F-P4-7 took out of the
+//         address getters: two walks, and a heap descriptor and cursor on the
+//         node item that last as long as the message. On a sealed TCP chain
+//         the open path's own reads were 7.7% of posture D's CPU, IsSealed the
+//         largest of them - and IsSealed runs on EVERY inbound message at every
+//         hop, sealing or not
+//       : c_vBlob() points INTO the packed image (VBLockData_pcBlob), not into
+//         the field object, so the pointer outlives oField. It throws for a
+//         field that is not a blob, exactly as the operator[] fetch did
+//       : Plain names only (TMsg_*), the same condition as NetAddrRead
+//
+//  Parameters:  P3PmsgItem& oItemAddr
+//               The network node
+//               LPCWSTR lpszName
+//               The field's name
+//
+//               const void **ppv, size_t *pcb
+//               Receive the blob and its length when the field exists
+//
+//  Returns:     bool
+//               true... the field exists, whatever its length - empty included
+//
+static bool
+NetBlobRead ( P3PmsgItem& oItemAddr, LPCWSTR lpszName,
+              const void **ppv, size_t *pcb )
+{
+    P3PmsgObject oObject = oItemAddr.SelectObject ( lpszName );
+    if ( oObject.IsVoid() )
+      return false;
+    P3PmsgField oField ( oObject );
+    *ppv = oField.c_vBlob();
+    *pcb = oField.r_data().c_size();
+    return true;
+}
+
+//
 //  Get message source P2PaddrSTR
 //
 //  Returns:     P2PaddrSTR
@@ -1273,8 +1312,9 @@ P2PeerMsg::GetScope ( ) const
 {
     // Simply
     P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
-    if ( oItemAddr.Exists(TMsg_Scp) )
-      return oItemAddr[TMsg_Scp].c_wstr();
+    P2PaddrSTR  p = nullptr;
+    if ( NetAddrRead(oItemAddr, TMsg_Scp, &p) )   // one lookup (T1k)
+      return p;
     return strP2PaddrNULL;
 }
 
@@ -1342,8 +1382,9 @@ P2PeerMsg::GetUpScope ( ) const
 {
     // Simply
     P3PmsgItem& oItemAddr = ((P3PmsgBSTR&)*this).r_item(VBLockBSTR_NET);
-    if ( oItemAddr.Exists(TMsg_Ups) )
-      return oItemAddr[TMsg_Ups].c_wstr();
+    P2PaddrSTR  p = nullptr;
+    if ( NetAddrRead(oItemAddr, TMsg_Ups, &p) )   // one lookup (T1k)
+      return p;
     return strP2PaddrNULL;
 }
 
@@ -1514,13 +1555,12 @@ P2PeerMsg::GetRelayAttest ( size_t *pcbOut )
     if ( !Exists(VBLockBSTR_NET) )
       return 0;
     P3PmsgItem& oItemAddr = r_item(VBLockBSTR_NET);
-    if ( !oItemAddr.Exists(TMsg_Att) )
-      return 0;
 
-    // Attachment
-    P3PmsgItem& oItemAtt = oItemAddr[TMsg_Att];
-    size_t      cb       = oItemAtt.r_data().c_size();
-    const void *pv       = oItemAtt.c_vBlob();
+    // Attachment, in one lookup (T1k)
+    const void *pv = 0;
+    size_t      cb = 0;
+    if ( !NetBlobRead(oItemAddr, TMsg_Att, &pv, &cb) )
+      return 0;
     if ( !pv || cb == 0 )
       return 0;
     if ( pcbOut ) *pcbOut = cb;
@@ -1624,13 +1664,14 @@ P2PeerMsg::IsSealed ( size_t *pcbPlainHint )
       return false;
 
     P3PmsgItem& oItemAddr = r_item(VBLockBSTR_NET);
-    if ( !oItemAddr.Exists(TMsg_Sld) )
-      return false;
 
     {
-      P3PmsgItem& oItemSld = oItemAddr[TMsg_Sld];
-      const void *pv = oItemSld.c_vBlob();
-      size_t      cb = oItemSld.r_data().c_size();
+      //  One lookup (T1k).  This runs on every inbound message at every hop
+      //  (OpenAppMsgInbound's first test), sealing or not
+      const void *pv = 0;
+      size_t      cb = 0;
+      if ( !NetBlobRead(oItemAddr, TMsg_Sld, &pv, &cb) )
+        return false;
 
       //  PRESENT BUT EMPTY MEANS NOT SEALED, and that is not a curiosity - it
       //  is what makes ClearSealed work. The item map has no removal that is

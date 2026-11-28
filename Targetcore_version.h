@@ -58,6 +58,25 @@
 //  Component version. MAJOR.MINOR.PATCH is the released identity; BUILD is
 //  reserved for a CI build counter and is 0 for a hand-built binary.
 //
+//  3.11.3.0, a PATCH on 3.11.2; runs on Msgcore 3.7.1 (gated on 4.0.0). The
+//  flat C API, every exported class layout and every wire format are unchanged.
+//
+//  ONE LOOKUP PER NET FIELD ON THE SEAL AND OPEN PATHS (p2p_performance T1k,
+//  sized in F-P6-7). IsSealed and GetRelayAttest read their field through
+//  Exists(name) + operator[], two walks that also gave the item a heap
+//  descriptor and cursor for the message's lifetime - the pattern T7 removed
+//  from the address getters (F-P4-7). They now go through NetBlobRead, one
+//  SelectObject with the field on the stack. GetScope / GetUpScope go through
+//  NetAddrRead like the other address getters. In P2PeerCon, twelve
+//  `X() ? X() : L""` sites called the getter twice to copy one answer; they
+//  call it once (HeldAddr). SetSealed / ClearSealed, the writes, are unchanged.
+//  RESULT: perf_fanout chain 4 over TCP, Linux, sealed (posture D) throughput
+//  +3.9% 5/5, CPU/msg -5.2%, allocs/msg 129 -> 121; unsealed (C) +7.2%,
+//  72 -> 66. Windows D within noise (+0.3%), C +2.5%: there the address getter
+//  already returns a pointer into the message and crypto is a larger share.
+//
+//  BELOW IS THE 3.11.2 RATIONALE.
+//
 //  3.11.2.0, a PATCH on 3.11.1; runs on Msgcore 3.7.1. The flat C API, every
 //  exported class layout and every wire format are unchanged.
 //
@@ -788,23 +807,23 @@
 //  neither freezes that image nor makes it safe to change.
 #define TARGETCORE_VERSION_MAJOR  3
 #define TARGETCORE_VERSION_MINOR  11
-#define TARGETCORE_VERSION_PATCH  2
+#define TARGETCORE_VERSION_PATCH  3
 #define TARGETCORE_VERSION_BUILD  0
 
 //  Comma form, for the FILEVERSION / PRODUCTVERSION resource statements,
 //  which take four comma-separated words and cannot take a macro expression.
-#define TARGETCORE_VERSION_COMMAS 3,11,2,0
+#define TARGETCORE_VERSION_COMMAS 3,11,3,0
 
 //  String form. Kept spelled out rather than stringised from the parts above:
 //  rc.exe's preprocessor has no reliable ## / # operator support, and a
 //  VERSIONINFO string that silently expands to "TARGETCORE_VERSION_MAJOR.0.0"
 //  would ship without anyone noticing.
-#define TARGETCORE_VERSION_STRING "3.11.2.0"
+#define TARGETCORE_VERSION_STRING "3.11.3.0"
 
 //  Packed form, for a consumer that wants to compare rather than display.
-//  0x030B0200 is 3.11.2.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
+//  0x030B0300 is 3.11.3.0; the byte order is MAJOR, MINOR, PATCH, BUILD -- one
 //  byte each.
-#define TARGETCORE_VERSION_HEX    0x030B0200
+#define TARGETCORE_VERSION_HEX    0x030B0300
 
 //  Fixed identity strings shared by the resource and any consumer that wants
 //  to display provenance.
@@ -820,7 +839,7 @@
 //  narrow spelling the resource compiler wants. Spelled out for the same
 //  reason as TARGETCORE_VERSION_STRING - no stringising, nothing to drift
 //  silently. Not available to rc.exe, which has no L"" in a VALUE statement.
-#define TARGETCORE_VERSION_STRINGW L"3.11.2.0"
+#define TARGETCORE_VERSION_STRINGW L"3.11.3.0"
 
 //  Compile-time guard for a consumer that needs a minimum version. Not
 //  available to rc.exe, which cannot evaluate a function-like macro.
